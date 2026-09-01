@@ -1,0 +1,24 @@
+currencies:
+  default: USD
+  supported:
+    - USD
+    - CAD
+    - GBP
+    - EUR
+pay_periods:
+  - hourly
+  - monthly
+  - yearly
+normalization:
+  annual_hours: 2080
+  default_period: yearly
+bands:
+  entry:
+    min: 60000
+    max: 120000
+  mid:
+    min: 110000
+    max: 170000
+  senior:
+    min: 150000
+    max: 250000

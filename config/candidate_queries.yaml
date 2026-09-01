@@ -1,0 +1,17 @@
+profile_name: resume-aligned-technology-roles
+per_target_limit: 25
+# Empty means every enabled extractor target. Override with --target for staged runs.
+target_names: []
+queries:
+  - name: data-science
+    query: Data Scientist
+  - name: machine-learning
+    query: Machine Learning Engineer
+  - name: data-engineering
+    query: Data Engineer
+  - name: software-engineering
+    query: Software Engineer
+  - name: applied-science
+    query: Applied Scientist
+  - name: ai-engineering
+    query: AI Engineer

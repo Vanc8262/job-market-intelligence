@@ -1,0 +1,112 @@
+# Job-relevant attributes derived from the candidate's resume.
+# Contact details are intentionally excluded from analytics configuration.
+profile_name: Example Candidate
+target_titles:
+  - Data Scientist
+  - Applied Scientist
+  - Research Scientist
+  - Machine Learning Engineer
+  - ML Engineer
+  - AI Engineer
+  - Data Engineer
+  - Analytics Engineer
+  - Software Engineer
+  - Backend Engineer
+  - Full Stack Engineer
+target_families:
+  - data_science
+  - machine_learning
+  - data_engineering
+  - software_engineering
+target_seniority:
+  - entry
+  - mid
+skills:
+  - Python
+  - R
+  - SQL
+  - NumPy
+  - pandas
+  - Java
+  - C
+  - C++
+  - Go
+  - JavaScript
+  - HTML5
+  - Tableau
+  - Git
+  - Node.js
+  - React
+  - Jenkins
+  - Rancher
+  - AWS
+  - PostgreSQL
+  - DB2
+  - Spring Boot
+  - REST APIs
+  - Grafana
+  - MATLAB
+  - machine learning
+  - deep learning
+  - transfer learning
+  - data structures
+  - algorithms
+  - full-stack development
+  - DevOps
+desired_skill_matches: 4
+home_regions:
+  - Florida
+  - FL
+remote_accessible: true
+
+# Recommended balanced profile: skills/title/experience/location = 35/30/20/15.
+# Geography-flexible alternative: 35/30/25/10.
+# Remote-or-Florida-first alternative: 30/30/20/20.
+weights:
+  skills: 35
+  title: 30
+  experience: 20
+  location: 15
+
+scoring:
+  # Core skills carry full importance; all other configured skills carry 60%.
+  core_skills:
+    - Python
+    - SQL
+    - machine learning
+    - AWS
+    - Java
+    - JavaScript
+    - React
+    - PostgreSQL
+    - REST APIs
+  core_skill_weight: 1.0
+  supporting_skill_weight: 0.6
+  explicit_skill_evidence: 1.0
+  inferred_skill_evidence: 0.7
+
+  # Exact normalized titles and families score 1.0 in code.
+  phrase_title_signal: 0.9
+  fuzzy_title_max_signal: 0.6
+
+  seniority_signals:
+    entry: 1.0
+    mid: 1.0
+    unknown: 0.4
+    senior: 0.25
+    staff: 0.05
+    manager: 0.05
+    director: 0.05
+    executive: 0.05
+  maximum_preferred_experience_years: 4
+  near_experience_signal: 0.5
+  excessive_experience_signal: 0.1
+
+  allow_relocation: false
+  hybrid_non_home_signal: 0.3
+  unknown_location_signal: 0.2
+  relocation_location_signal: 0.4
+  non_home_onsite_score_cap: 79
+
+  strong_match_threshold: 80
+  moderate_match_threshold: 60

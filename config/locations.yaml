@@ -1,0 +1,23 @@
+default_country: United States
+remote_keywords:
+  - remote
+  - distributed
+  - work from home
+hybrid_keywords:
+  - hybrid
+  - onsite required
+regions:
+  north_america:
+    - United States
+    - Canada
+  europe:
+    - United Kingdom
+    - Germany
+    - France
+    - Netherlands
+major_markets:
+  - San Francisco, CA
+  - New York, NY
+  - Seattle, WA
+  - Austin, TX
+  - Boston, MA

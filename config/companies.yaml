@@ -1,0 +1,17 @@
+legal_suffixes:
+  - Incorporated
+  - Corporation
+  - Company
+  - Limited
+  - Inc
+  - Corp
+  - LLC
+  - LLP
+  - Ltd
+  - PLC
+aliases:
+  alphabet inc: Alphabet
+  amazon.com services llc: Amazon
+  google llc: Google
+  meta platforms inc: Meta
+  microsoft corporation: Microsoft

@@ -1,0 +1,56 @@
+enabled_sources:
+  - greenhouse
+  - lever
+  - ashby
+  - workday
+  - nextera
+  - phenom
+sources:
+  indeed:
+    enabled: false
+    type: job_board
+    base_url: https://www.indeed.com
+    rate_limit_per_minute: 30
+  linkedin:
+    enabled: false
+    type: job_board
+    base_url: https://www.linkedin.com/jobs
+    rate_limit_per_minute: 20
+  greenhouse:
+    enabled: true
+    type: ats
+    base_url: https://boards.greenhouse.io
+    api_base_url: https://boards-api.greenhouse.io/v1
+    rate_limit_per_minute: 60
+  lever:
+    enabled: true
+    type: ats
+    base_url: https://jobs.lever.co
+    api_base_url: https://api.lever.co/v0/postings
+    rate_limit_per_minute: 60
+  ashby:
+    enabled: true
+    type: ats
+    base_url: https://jobs.ashbyhq.com
+    api_base_url: https://api.ashbyhq.com/posting-api/job-board
+    rate_limit_per_minute: 60
+  workday:
+    enabled: true
+    type: ats
+    base_url: https://wd1.myworkdaysite.com
+    rate_limit_per_minute: 30
+  nextera:
+    enabled: true
+    type: ats
+    base_url: https://jobs.nexteraenergy.com
+    rate_limit_per_minute: 30
+  phenom:
+    enabled: true
+    type: ats
+    base_url: https://careers.chewy.com
+    rate_limit_per_minute: 30
+  smartrecruiters:
+    enabled: false
+    type: ats
+    base_url: https://jobs.smartrecruiters.com
+    rate_limit_per_minute: 60

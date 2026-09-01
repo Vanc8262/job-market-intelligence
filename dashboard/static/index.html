@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>JMIP Opportunities</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand-block">
+      <span class="brand-mark" aria-hidden="true">JM</span>
+      <div>
+        <div class="brand-name">Job Market Intelligence</div>
+        <div class="page-name">Opportunities</div>
+      </div>
+    </div>
+    <div class="header-status" aria-live="polite">
+      <span class="status-dot"></span>
+      <span id="freshnessLabel">Loading current mart</span>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="summary-strip" aria-label="Opportunity summary">
+      <div class="summary-item"><span class="summary-label">Showing</span><strong id="showingMetric">--</strong></div>
+      <div class="summary-item"><span class="summary-label">Strong matches</span><strong id="strongMetric">--</strong></div>
+      <div class="summary-item"><span class="summary-label">Shortlisted</span><strong id="shortlistMetric">--</strong></div>
+      <div class="summary-item"><span class="summary-label">Active applications</span><strong id="applicationMetric">--</strong></div>
+    </section>
+
+    <div class="content-grid">
+      <aside class="filters" id="filtersPanel" aria-label="Opportunity filters">
+        <div class="filter-heading"><h2>Filters</h2><button class="text-button" id="resetFilters" type="button">Reset</button></div>
+        <label class="field field-search"><span>Search</span><input id="searchInput" type="search" placeholder="Title, employer, skill" autocomplete="off"></label>
+        <fieldset class="field">
+          <legend>Match</legend>
+          <div class="segmented" id="bandFilters">
+            <button type="button" data-value="all" class="active">All</button>
+            <button type="button" data-value="strong">Strong</button>
+            <button type="button" data-value="moderate">Moderate</button>
+          </div>
+        </fieldset>
+        <label class="field"><span>Employer</span><select id="employerFilter"><option value="">All employers</option></select></label>
+        <label class="field"><span>Role family</span><select id="familyFilter"><option value="">All families</option></select></label>
+        <label class="field"><span>Seniority</span><select id="seniorityFilter"><option value="">All levels</option></select></label>
+        <label class="field"><span>Workplace</span><select id="workplaceFilter"><option value="">All workplace types</option></select></label>
+        <label class="field"><span>Lifecycle</span><select id="lifecycleFilter"><option value="">All lifecycle states</option></select></label>
+        <label class="field"><span>Application</span><select id="applicationFilter"><option value="">All application states</option><option value="new">New</option><option value="reviewing">Reviewing</option><option value="saved">Saved</option><option value="applied">Applied</option><option value="interviewing">Interviewing</option><option value="offer">Offer</option><option value="rejected">Rejected</option><option value="archived">Archived</option></select></label>
+        <label class="check-field"><input id="salaryFilter" type="checkbox"><span>Salary listed</span></label>
+      </aside>
+
+      <section class="results" aria-label="Current opportunities">
+        <div class="results-toolbar">
+          <div><h1 id="viewTitle">Current opportunities</h1><p id="resultCount">Loading opportunities</p></div>
+          <div class="toolbar-actions">
+            <div class="view-switch" id="viewSwitch" aria-label="Opportunity view">
+              <button type="button" data-view="opportunities" class="active">Opportunities</button>
+              <button type="button" data-view="shortlist">Shortlist</button>
+            </div>
+            <button class="filter-toggle" id="filterToggle" type="button" aria-expanded="false" aria-controls="filtersPanel">Filters</button>
+            <label class="sort-control"><span>Sort</span><select id="sortSelect"><option value="rank">Best match</option><option value="freshness">Recently seen</option><option value="salary">Highest salary</option><option value="employer">Employer</option></select></label>
+          </div>
+        </div>
+        <div class="active-filters" id="activeFilters" aria-live="polite"></div>
+        <div class="table-shell">
+          <table>
+            <thead><tr><th class="rank-column">Rank</th><th class="score-column">Score</th><th>Opportunity</th><th>Employer</th><th>Location</th><th>Workplace</th><th>Application</th></tr></thead>
+            <tbody id="opportunitiesBody"></tbody>
+          </table>
+          <div class="empty-state" id="emptyState" hidden><strong>No opportunities match these filters</strong><button class="text-button" id="emptyReset" type="button">Reset filters</button></div>
+          <div class="loading-state" id="loadingState">Loading current opportunities</div>
+          <div class="error-state" id="errorState" hidden><strong>Opportunity data is unavailable</strong><span id="errorMessage"></span><button class="secondary-button" id="retryButton" type="button">Retry</button></div>
+        </div>
+        <nav class="pagination" aria-label="Opportunity pages"><button id="previousPage" type="button">Previous</button><span id="pageLabel">Page 1</span><button id="nextPage" type="button">Next</button></nav>
+      </section>
+    </div>
+  </main>
+
+  <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+  <aside class="detail-drawer" id="detailDrawer" aria-label="Opportunity details" aria-hidden="true">
+    <div class="drawer-header"><span class="drawer-eyebrow" id="drawerRank">Opportunity</span><button class="icon-button" id="closeDrawer" type="button" aria-label="Close details" title="Close details">&times;</button></div>
+    <div class="drawer-content" id="drawerContent"></div>
+  </aside>
+  <script src="/app.js" defer></script>
+</body>
+</html>

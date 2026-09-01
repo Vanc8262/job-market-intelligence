@@ -1,0 +1,12 @@
+description_minimum_characters: 50
+require_collection_summary: true
+thresholds:
+  minimum_records: 50
+  valid_title_coverage: 0.99
+  known_location_coverage: 0.95
+  description_coverage: 0.95
+  source_url_coverage: 0.98
+  external_id_coverage: 0.99
+  skill_coverage: 0.50
+  maximum_invalid_silver_rate: 0.01
+  maximum_extraction_failure_rate: 0.05

@@ -1,0 +1,81 @@
+# Targets run in declaration order. Resume-aligned recommendations are listed
+# first, followed by the previously selected company career sites.
+targets:
+  - name: palantir-lever
+    source: lever
+    enabled: true
+    company_name: Palantir
+    site: palantir
+
+  - name: modmed-workday
+    source: workday
+    enabled: true
+    company_name: ModMed
+    host: https://modmed.wd501.myworkdayjobs.com
+    tenant: modmed
+    site: ModMed12
+    page_size: 20
+
+  - name: nextera-energy
+    source: nextera
+    enabled: true
+    company_name: NextEra Energy
+    host: https://jobs.nexteraenergy.com
+    site: nextera-energy
+
+  - name: chewy-phenom
+    source: phenom
+    enabled: true
+    company_name: Chewy
+    host: https://careers.chewy.com
+    tenant: CHINUS
+    site: chewy
+    locale: en_us
+    path_prefix: /us/en
+
+  - name: cloudflare-greenhouse
+    source: greenhouse
+    enabled: true
+    company_name: Cloudflare
+    board_token: cloudflare
+
+  - name: datadog-greenhouse
+    source: greenhouse
+    enabled: true
+    company_name: Datadog
+    board_token: datadog
+
+  - name: ramp-ashby
+    source: ashby
+    enabled: true
+    company_name: Ramp
+    job_board_name: ramp
+    include_unlisted: false
+
+  - name: workday-careers
+    source: workday
+    enabled: true
+    company_name: Workday
+    host: https://workday.wd5.myworkdayjobs.com
+    tenant: workday
+    site: Workday
+    page_size: 20
+
+  - name: chime-greenhouse
+    source: greenhouse
+    enabled: true
+    company_name: Chime
+    board_token: chime
+
+  - name: spotify-lever
+    source: lever
+    enabled: true
+    company_name: Spotify
+    site: spotify
+
+  - name: owner-ashby
+    source: ashby
+    enabled: true
+    company_name: Owner
+    job_board_name: owner
+    include_unlisted: false

@@ -1,0 +1,39 @@
+categories:
+  programming_languages:
+    - Python
+    - SQL
+    - Java
+    - Scala
+    - JavaScript
+    - TypeScript
+    - Go
+  data_science:
+    - pandas
+    - NumPy
+    - scikit-learn
+    - statistics
+    - experimentation
+  machine_learning:
+    - PyTorch
+    - TensorFlow
+    - MLOps
+    - feature engineering
+    - model evaluation
+  data_engineering:
+    - Spark
+    - Airflow
+    - dbt
+    - Kafka
+    - Snowflake
+    - BigQuery
+  cloud:
+    - AWS
+    - Azure
+    - GCP
+    - Kubernetes
+    - Docker
+  ai:
+    - LLMs
+    - RAG
+    - prompt engineering
+    - vector databases

@@ -1,0 +1,42 @@
+families:
+  data_science:
+    - Data Scientist
+    - Applied Scientist
+    - Research Scientist
+  machine_learning:
+    - Machine Learning Engineer
+    - ML Engineer
+    - AI Engineer
+  data_engineering:
+    - Data Engineer
+    - Analytics Engineer
+    - Platform Data Engineer
+  software_engineering:
+    - Software Engineer
+    - Backend Engineer
+    - Full Stack Engineer
+seniority_keywords:
+  entry:
+    - junior
+    - jr
+    - associate
+    - new grad
+    - new graduate
+    - intern
+  mid:
+    - engineer
+    - developer
+  senior:
+    - senior
+    - sr
+    - lead
+  staff:
+    - staff
+    - principal
+  manager:
+    - manager
+  director:
+    - director
+  executive:
+    - vice president
+    - chief

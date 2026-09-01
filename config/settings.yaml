@@ -1,0 +1,29 @@
+environment: development
+project:
+  name: job-market-intelligence
+  version: 0.1.0
+paths:
+  data_dir: data
+  bronze_dir: data/bronze
+  silver_dir: data/silver
+  gold_dir: data/gold
+  cache_dir: data/cache
+  checkpoint_dir: data/checkpoints
+  log_dir: logs
+storage:
+  default: parquet
+  compression: zstd
+  partition_by:
+    - source
+    - ingestion_date
+logging:
+  level: INFO
+scraping:
+  max_retries: 5
+  retry_delay_seconds: 2.0
+  checkpoint_interval: 100
+  request_timeout_seconds: 30
+  user_agent: JMIPBot/0.1
+processing:
+  batch_size: 1000
+  strict_validation: true

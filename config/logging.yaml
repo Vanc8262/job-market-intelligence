@@ -1,0 +1,14 @@
+console:
+  enabled: true
+  level: INFO
+  colorize: true
+files:
+  enabled: true
+  rotation: 00:00
+  retention: 30 days
+  compression: zip
+  application_log: logs/jmip.log
+  error_log: logs/errors.log
+formats:
+  console: "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{extra[component]}</cyan> | <level>{message}</level>"
+  file: "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | component={extra[component]} | source={extra[source]} | job_id={extra[job_id]} | batch={extra[ingestion_batch_id]} | run={extra[run_id]} | event={extra[event]} | {name}:{function}:{line} | {message}"

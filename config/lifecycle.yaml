@@ -1,0 +1,4 @@
+# Missing means absent from every successful query in the same candidate profile scope.
+# Requiring repeated complete runs avoids treating a transient search/API issue as removal.
+missing_runs_before_removed: 2
+update_silver_status: true
