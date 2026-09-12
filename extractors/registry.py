@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable
 
 import httpx
@@ -9,9 +10,14 @@ import httpx
 from extractors.ashby import AshbyExtractor
 from extractors.base_extractor import BaseExtractor
 from extractors.greenhouse import GreenhouseExtractor
+from extractors.handshake_edu import HandshakeAuthorizationError, HandshakeEduExtractor
+from extractors.jobicy import JobicyExtractor
 from extractors.lever import LeverExtractor
 from extractors.nextera import NextEraExtractor
 from extractors.phenom import PhenomExtractor
+from extractors.smartrecruiters import SmartRecruitersExtractor
+from extractors.usajobs import USAJobsAuthorizationError, USAJobsExtractor
+from extractors.workable import WorkableExtractor
 from extractors.workday import WorkdayExtractor
 from storage.base import BaseStorage
 from storage.bronze import BronzeStorage
@@ -22,9 +28,16 @@ from utils.config import (
     ExtractorTarget,
     ExtractorTargetsConfig,
     GreenhouseTarget,
+    HandshakeEduTarget,
+    JobicyTarget,
     LeverTarget,
     NextEraTarget,
     PhenomTarget,
+    SmartRecruitersTarget,
+    SourceAccessPolicy,
+    SourcesConfig,
+    USAJobsTarget,
+    WorkableTarget,
     WorkdayTarget,
 )
 from utils.logger import log_event
@@ -42,12 +55,14 @@ class ExtractorRegistry:
         *,
         config: Config | None = None,
         targets: ExtractorTargetsConfig | None = None,
+        source_config: SourcesConfig | None = None,
         bronze_storage: BaseStorage | None = None,
         checkpoint_manager: CheckpointManager | None = None,
     ) -> None:
         """Initialize shared extractor dependencies and the target catalog."""
         self.config = config or Config()
         self.targets = targets or self.config.extractor_targets
+        self.source_config = source_config or self.config.sources
         self.bronze_storage = bronze_storage or BronzeStorage(
             self.config.settings.paths.bronze_dir
         )
@@ -80,11 +95,39 @@ class ExtractorRegistry:
             raise ExtractorRegistryError(f"Unknown extractor target: {target_name}")
         if not target.enabled and not allow_disabled:
             raise ExtractorRegistryError(f"Extractor target is disabled: {target.name}")
+        policy = self.access_policy_for(target.name)
+        if not policy.allows_automated_collection:
+            raise ExtractorRegistryError(
+                f"Extractor automation is prohibited for {target.name} under "
+                f"access policy {policy.value}"
+            )
 
         if isinstance(target, GreenhouseTarget):
             extractor: BaseExtractor = GreenhouseExtractor(
                 target.board_token,
                 company_name=target.company_name,
+                config=self.config,
+                bronze_storage=self.bronze_storage,
+                checkpoint_manager=self.checkpoint_manager,
+                client=client,
+            )
+        elif isinstance(target, HandshakeEduTarget):
+            if not target.authorized_use_confirmed:
+                raise HandshakeAuthorizationError(
+                    "Handshake collection requires authorized_use_confirmed=true after "
+                    "the institution verifies that its agreement permits this use"
+                )
+            api_key = os.getenv(target.api_key_env, "").strip()
+            if not api_key:
+                raise HandshakeAuthorizationError(
+                    f"Authorized Handshake EDU API key is missing from {target.api_key_env}"
+                )
+            extractor = HandshakeEduExtractor(
+                target.institution_scope,
+                api_key,
+                institution_name=target.institution_name,
+                page_size=target.page_size,
+                updated_since=target.updated_since,
                 config=self.config,
                 bronze_storage=self.bronze_storage,
                 checkpoint_manager=self.checkpoint_manager,
@@ -144,6 +187,59 @@ class ExtractorRegistry:
                 checkpoint_manager=self.checkpoint_manager,
                 client=client,
             )
+        elif isinstance(target, SmartRecruitersTarget):
+            extractor = SmartRecruitersExtractor(
+                target.company_identifier,
+                company_name=target.company_name,
+                page_size=target.page_size,
+                config=self.config,
+                bronze_storage=self.bronze_storage,
+                checkpoint_manager=self.checkpoint_manager,
+                client=client,
+            )
+        elif isinstance(target, WorkableTarget):
+            extractor = WorkableExtractor(
+                target.account_subdomain,
+                company_name=target.company_name,
+                config=self.config,
+                bronze_storage=self.bronze_storage,
+                checkpoint_manager=self.checkpoint_manager,
+                client=client,
+            )
+        elif isinstance(target, USAJobsTarget):
+            api_key = os.getenv(target.api_key_env, "").strip()
+            user_agent_email = os.getenv(target.user_agent_email_env, "").strip()
+            if not api_key:
+                raise USAJobsAuthorizationError(
+                    f"USAJOBS API key is missing from {target.api_key_env}"
+                )
+            if not user_agent_email:
+                raise USAJobsAuthorizationError(
+                    "USAJOBS registration email is missing from "
+                    f"{target.user_agent_email_env}"
+                )
+            extractor = USAJobsExtractor(
+                api_key,
+                user_agent_email,
+                results_per_page=target.results_per_page,
+                max_pages=target.max_pages,
+                config=self.config,
+                bronze_storage=self.bronze_storage,
+                checkpoint_manager=self.checkpoint_manager,
+                client=client,
+            )
+        elif isinstance(target, JobicyTarget):
+            extractor = JobicyExtractor(
+                target.name,
+                count=target.count,
+                geo=target.geo,
+                industry=target.industry,
+                cache_ttl_minutes=target.cache_ttl_minutes,
+                config=self.config,
+                bronze_storage=self.bronze_storage,
+                checkpoint_manager=self.checkpoint_manager,
+                client=client,
+            )
         else:
             raise ExtractorRegistryError(f"Unsupported extractor source: {target.source}")
 
@@ -154,8 +250,21 @@ class ExtractorRegistry:
             event="extractor_instantiated",
             source=target.source,
             target=target.name,
+            access_policy=policy.value,
         )
         return extractor
+
+    def access_policy_for(self, target_name: str) -> SourceAccessPolicy:
+        """Return the validated source access policy for one configured target."""
+        target = self._targets_by_name.get(target_name.casefold())
+        if target is None:
+            raise ExtractorRegistryError(f"Unknown extractor target: {target_name}")
+        definition = self.source_config.sources.get(target.source)
+        if definition is None:
+            raise ExtractorRegistryError(
+                f"Target {target.name} references unknown source: {target.source}"
+            )
+        return definition.access_policy
 
     def create_enabled(
         self, *, client: httpx.Client | None = None
@@ -165,7 +274,7 @@ class ExtractorRegistry:
 
     def _validate_source_references(self, targets: Iterable[ExtractorTarget]) -> None:
         """Ensure targets reference source plugins enabled at the source level."""
-        source_config = self.config.sources
+        source_config = self.source_config
         for target in targets:
             definition = source_config.sources.get(target.source)
             if definition is None:
@@ -177,6 +286,11 @@ class ExtractorRegistry:
             ):
                 raise ExtractorRegistryError(
                     f"Target {target.name} references disabled source: {target.source}"
+                )
+            if target.enabled and not definition.access_policy.allows_automated_collection:
+                raise ExtractorRegistryError(
+                    f"Target {target.name} cannot use access policy "
+                    f"{definition.access_policy.value} for automated extraction"
                 )
 
 

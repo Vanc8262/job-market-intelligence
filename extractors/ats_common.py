@@ -20,13 +20,14 @@ from utils.config import Config
 from utils.hashing import stable_json_hash
 from utils.logger import log_event
 
-"""ATSResponseError(RuntimeError):: Raised when a public ATS returns an unusable response."""
-class ATSResponseError(RuntimeError):
-    """TBD"""
 
-"""PublicATSExtractor(BaseExtractor):: Base class for public career feeds with shared operational behavior."""
+class ATSResponseError(RuntimeError):
+    """Raised when a public ATS returns an unusable response."""
+
+
 class PublicATSExtractor(BaseExtractor):
-    """__init__() -> Initialize shared storage, configuration, throttling, and HTTP state."""
+    """Base class for public career feeds with shared operational behavior."""
+
     def __init__(
         self,
         source_name: str,
@@ -39,7 +40,7 @@ class PublicATSExtractor(BaseExtractor):
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
-
+        """Initialize shared storage, throttling, and HTTP state."""
         super().__init__(
             source_name,
             config=config,
@@ -66,26 +67,26 @@ class PublicATSExtractor(BaseExtractor):
             follow_redirects=True,
         )
 
-    """close(self) -> Close the internally owned HTTP client."""
     def close(self) -> None:
+        """Close the internally owned HTTP client."""
         if self._owns_client:
             self._client.close()
 
-    """checkpoint_name(self) -> Return a checkpoint name scoped to this ATS site."""
     @property
     def checkpoint_name(self) -> str:
+        """Return a checkpoint name scoped to this ATS site."""
         return f"{self.source_name}-{self.storage_scope}-extractor"
 
-    """__enter__(self) -> Return the extractor for context-managed use."""
     def __enter__(self) -> Self:
+        """Return the extractor for context-managed use."""
         return self
 
-    """__exit__(self, args) -> Release the internally owned HTTP client."""
     def __exit__(self, *_args: object) -> None:
+        """Release the internally owned HTTP client."""
         self.close()
 
-    """raw_storage_key(self, raw_job) -> Version raw snapshots by source scope, identity, and content."""
     def raw_storage_key(self, raw_job: dict[str, Any]) -> str:
+        """Version raw snapshots by source scope, identity, and content."""
         external_id = self._raw_external_id(raw_job)
         if external_id is None:
             raise ATSResponseError(f"{self.source_name} payload has no external identifier")
@@ -94,8 +95,8 @@ class PublicATSExtractor(BaseExtractor):
             f"{stable_json_hash(raw_job)}"
         )
 
-    """save_raw(self, raw_job) - > Persist a new raw version while making identical snapshots idempotent."""
     def save_raw(self, raw_job: dict[str, Any]) -> Path | None:
+        """Persist a new raw version while keeping identical snapshots idempotent."""
         if self.bronze_storage is None:
             raise RuntimeError("bronze_storage is required to preserve raw extractor payloads")
         key = self.raw_storage_key(raw_job)
@@ -105,7 +106,6 @@ class PublicATSExtractor(BaseExtractor):
             return None
         return self.bronze_storage.save(key, raw_job)
 
-    """_request_json(self, method, url, params, json_payload) -> Issue a rate-limited JSON request with bounded transient retries."""
     def _request_json(
         self,
         method: str,
@@ -114,6 +114,7 @@ class PublicATSExtractor(BaseExtractor):
         params: Mapping[str, str | int | float | bool | None] | None = None,
         json_payload: Mapping[str, object] | None = None,
     ) -> object:
+        """Issue a rate-limited JSON request with bounded transient retries."""
         response = self._request_response(
             method,
             url,
@@ -125,7 +126,6 @@ class PublicATSExtractor(BaseExtractor):
         except ValueError as exc:
             raise ATSResponseError(f"{self.source_name} returned invalid JSON") from exc
 
-    """_request_text(self, method, url, params) -> Issue a rate-limited text request with bounded transient retries."""
     def _request_text(
         self,
         method: str,
@@ -133,9 +133,9 @@ class PublicATSExtractor(BaseExtractor):
         *,
         params: Mapping[str, str | int | float | bool | None] | None = None,
     ) -> str:
+        """Issue a rate-limited text request with bounded transient retries."""
         return self._request_response(method, url, params=params).text
 
-    """_request_response(self, method, url, params, json_payload) -> Return a successful response after applying shared retry policy."""
     def _request_response(
         self,
         method: str,
@@ -144,6 +144,7 @@ class PublicATSExtractor(BaseExtractor):
         params: Mapping[str, str | int | float | bool | None] | None = None,
         json_payload: Mapping[str, object] | None = None,
     ) -> httpx.Response:
+        """Return a successful response after applying the shared retry policy."""
         settings = self.config.settings.scraping
         attempts = settings.max_retries + 1
         delay = settings.retry_delay_seconds

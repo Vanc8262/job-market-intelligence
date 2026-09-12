@@ -1,7 +1,9 @@
 """Phase 1 pipeline entry point for validating foundation infrastructure."""
 
-from pathlib import Path
+# ruff: noqa: E402
+
 import sys
+from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:

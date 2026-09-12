@@ -14,17 +14,18 @@ from utils.config import Config, SourceDefinition
 from utils.hashing import stable_json_hash
 from utils.logger import logger
 
-"""SearchRequest:: Source-agnostic search request accepted by extractor implementations."""
+
 @dataclass(frozen=True)
 class SearchRequest:
+    """Source-agnostic search request accepted by extractor implementations."""
 
     query: str
     location: str | None = None
     filters: dict[str, object] = field(default_factory=dict)
 
-"""ExtractionResult:: Summary produced by a shared extraction run."""
 @dataclass(frozen=True)
 class ExtractionResult:
+    """Summary produced by a shared extraction run."""
 
     source_name: str
     request: SearchRequest
@@ -34,26 +35,23 @@ class ExtractionResult:
     successful_references: list[str] = field(default_factory=list)
     failed_references: dict[str, str] = field(default_factory=dict)
 
-    """succeeded(self)- > Return the number of references fetched and parsed successfully."""
     @property
     def succeeded(self) -> int:
+        """Return the number of references fetched and parsed successfully."""
         return len(self.postings)
 
-    """failed(self) -> Return the number of references that failed during extraction."""
     @property
     def failed(self) -> int:
+        """Return the number of references that failed during extraction."""
         return len(self.failed_references)
 
-"""
-BaseExtractor:: Contract and shared workflow for every source-specific extractor.
-
-Concrete extractors only need to provide source-specific search, fetch, and
-parse behavior. This base class centralizes the pipeline guarantees from the
-project constitution: source-agnostic output, immutable raw preservation,
-configuration access, checkpoint hooks, and consistent logging.
-"""
 class BaseExtractor(ABC):
-    """__init__(self, source_name, config, bronze_storage, checkpoint_manager) -> Initialize an extractor for one configured source."""
+    """Contract and shared workflow for every source-specific extractor.
+
+    Concrete extractors provide source-specific search, fetch, and parse behavior.
+    This class centralizes raw preservation, configuration, checkpoints, and logging.
+    """
+
     def __init__(
         self,
         source_name: str,
@@ -62,28 +60,22 @@ class BaseExtractor(ABC):
         bronze_storage: BaseStorage | None = None,
         checkpoint_manager: CheckpointManager | None = None,
     ) -> None:
+        """Initialize an extractor for one configured source."""
         self.source_name = source_name
         self.config = config or Config()
         self.bronze_storage = bronze_storage
         self.checkpoint_manager = checkpoint_manager
 
-    """source_definition(self) -> Return this extractor's configured source definition, if present."""
     @property
     def source_definition(self) -> SourceDefinition | None:
+        """Return this extractor's configured source definition, if present."""
         return self.config.sources.sources.get(self.source_name)
 
-    """checkpoint_name(self) - > Return the stable checkpoint name for this source."""
     @property
     def checkpoint_name(self) -> str:
+        """Return the stable checkpoint name for this source."""
         return f"{self.source_name}-extractor"
 
-    """extract(self, query, location, limit, preserve_raw, filters) -> 
-    Run a complete source-agnostic extraction cycle.
-    
-    The workflow searches for source references, fetches each raw payload,
-    optionally saves the raw record to bronze storage, parses canonical
-    postings, and periodically checkpoints progress.
-    """
     def extract(
         self,
         query: str,
@@ -93,6 +85,12 @@ class BaseExtractor(ABC):
         preserve_raw: bool = True,
         **filters: object,
     ) -> ExtractionResult:
+        """Run a complete source-agnostic extraction cycle.
+
+        The workflow searches for source references, fetches each raw payload,
+        optionally saves the raw record to bronze storage, parses canonical
+        postings, and periodically checkpoints progress.
+        """
         request = SearchRequest(query=query, location=location, filters=dict(filters))
         references = self.search_jobs(request.query, request.location, **request.filters)
         if limit is not None:
@@ -104,13 +102,6 @@ class BaseExtractor(ABC):
             preserve_raw=preserve_raw,
         )
 
-    """extract_references(self, request, references, preserve_raw) ->
-    Fetch and parse a prepared set of source references.
-
-    Multi-query collection can union and deduplicate search results before
-    invoking the same preservation, parsing, failure, and checkpoint logic
-    used by a normal single-query extraction.
-    """
     def extract_references(
         self,
         request: SearchRequest,
@@ -118,6 +109,11 @@ class BaseExtractor(ABC):
         *,
         preserve_raw: bool = True,
     ) -> ExtractionResult:
+        """Fetch and parse a prepared set of source references.
+
+        Multi-query collection can union and deduplicate search results before
+        invoking the same preservation, parsing, failure, and checkpoint logic.
+        """
         postings: list[JobPosting] = []
         successful_references: list[str] = []
         failed_references: dict[str, str] = {}
@@ -175,52 +171,47 @@ class BaseExtractor(ABC):
             failed_references=failed_references,
         )
 
-    """load_checkpoint(self) - > Load this extractor's last checkpoint when checkpointing is configured."""
     def load_checkpoint(self) -> Checkpoint | None:
+        """Load this extractor's last checkpoint when configured."""
         if self.checkpoint_manager is None:
             return None
         return self.checkpoint_manager.load(self.checkpoint_name)
 
-    """save_checkpoint(self, position, state) -> Persist extractor progress when checkpointing is configured."""
     def save_checkpoint(self, position: str | int | None, state: dict[str, Any]) -> Path | None:
+        """Persist extractor progress when checkpointing is configured."""
         if self.checkpoint_manager is None:
             return None
         return self.checkpoint_manager.save(
             Checkpoint(name=self.checkpoint_name, position=position, state=state)
         )
 
-    """raw_storage_key(self, raw_job) -> Return a stable bronze storage key for a raw source payload."""
     def raw_storage_key(self, raw_job: dict[str, Any]) -> str:
+        """Return a stable Bronze storage key for a raw source payload."""
         external_id = self._raw_external_id(raw_job)
         identity = external_id or stable_json_hash(raw_job)
         return f"{self.source_name}/{identity}"
 
-    """save_raw(self, raw_job) -> Persist a raw source payload to bronze storage.
-
-    Extractors can override this method for source-specific object storage,
-    but the default implementation supports the shared storage interface.
-    """
     def save_raw(self, raw_job: dict[str, Any]) -> Path | None:
+        """Persist a raw payload through the shared Bronze storage interface."""
         if self.bronze_storage is None:
             raise RuntimeError("bronze_storage is required to preserve raw extractor payloads")
         return self.bronze_storage.save(self.raw_storage_key(raw_job), raw_job)
 
-    """search_jobs(self, query, location, filters) -> Search a source and return source-specific job references."""
     @abstractmethod
     def search_jobs(self, query: str, location: str | None = None, **filters: object) -> list[str]:
+        """Search a source and return source-specific job references."""
         raise NotImplementedError
 
-    """fetch_job(self, job_reference) -> Fetch a raw job payload from a source-specific reference."""
     @abstractmethod
     def fetch_job(self, job_reference: str) -> dict[str, Any]:
+        """Fetch a raw job payload from a source-specific reference."""
         raise NotImplementedError
 
-    """parse_job(self, raw_job) -> Parse a raw source payload into the canonical JobPosting model."""
     @abstractmethod
     def parse_job(self, raw_job: dict[str, Any]) -> JobPosting:
+        """Parse a raw source payload into the canonical posting model."""
         raise NotImplementedError
 
-    """_raw_external_id(raw_job) -> Find a common external identifier in a raw source payload."""
     @staticmethod
     def _raw_external_id(raw_job: dict[str, Any]) -> str | None:
         for key in ("id", "job_id", "external_id", "absolute_url", "url"):

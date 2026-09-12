@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -41,7 +42,7 @@ class ApplicationRecord(BaseModel):
     priority: ApplicationPriority = ApplicationPriority.NONE
     application_date: date | None = None
     follow_up_date: date | None = None
-    resume_version: str | None = Field(default=None, max_length=200)
+    resume_version_id: str | None = Field(default=None, min_length=1, max_length=200)
     notes: str = Field(default="", max_length=5000)
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -51,7 +52,8 @@ class ApplicationTrackingState(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: int = 1
+    schema_version: Literal[2] = 2
+    profile_id: str = Field(default="profile-default", min_length=1)
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     records: dict[str, ApplicationRecord] = Field(default_factory=dict)
 

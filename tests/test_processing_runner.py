@@ -149,3 +149,20 @@ def test_runner_rejects_unknown_target_and_invalid_limit(tmp_path: Path) -> None
             pass
         else:
             raise AssertionError("invalid processing arguments must fail fast")
+
+
+def test_runner_ignores_manual_import_snapshots_owned_by_importer(tmp_path: Path) -> None:
+    runner, bronze, _ = build_runner(tmp_path)
+    bronze.save(
+        "manual_import/_artifacts/links/artifact-1",
+        {"schema_version": 1, "content": "https://example.test/jobs/1"},
+    )
+    bronze.save(
+        "manual_import/indeed/job-1/version-1",
+        {"schema_version": 1, "record": {"url": "https://example.test/jobs/1"}},
+    )
+
+    result = runner.run()
+
+    assert result.records_found == 0
+    assert result.failed == 0

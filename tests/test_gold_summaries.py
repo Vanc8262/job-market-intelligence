@@ -289,6 +289,31 @@ def test_gold_runner_handles_empty_silver_layer(tmp_path: Path) -> None:
     assert mart["coverage"]["lifecycle_tracking_share"] == 0.0
 
 
+def test_usajobs_opportunities_preserve_source_employer_for_display(tmp_path: Path) -> None:
+    runner, silver, gold = build_runner(tmp_path)
+    federal = posting(
+        "federal-job",
+        title="Data Scientist",
+        normalized_title="Data Scientist",
+        family="data_science",
+        employer="Office of Data Services",
+        location="Remote",
+        region="United States",
+        workplace=WorkplaceType.REMOTE,
+        skills=["Python"],
+    )
+    federal.source.name = "usajobs"
+    federal.company.normalized_name = "ODS"
+    silver.save("usajobs/federal-job", federal)
+
+    runner.run(generated_at=datetime(2026, 8, 25, tzinfo=UTC))
+
+    mart = gold.load("current_opportunities/mart")
+    assert mart["opportunities"][0]["employer"] == "Office of Data Services"
+    relevance = gold.load("resume_relevance/summary")
+    assert relevance["ranked_postings"][0]["employer"] == "Office of Data Services"
+
+
 def test_relevance_signals_use_evidence_title_boundaries_and_eligibility_caps(
     tmp_path: Path,
 ) -> None:

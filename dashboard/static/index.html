@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>JMIP Opportunities</title>
+  <title>JMIP Dashboard</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
       <span class="brand-mark" aria-hidden="true">JM</span>
       <div>
         <div class="brand-name">Job Market Intelligence</div>
-        <div class="page-name">Opportunities</div>
+        <div class="page-name" id="pageName">Opportunities</div>
       </div>
     </div>
     <div class="header-status" aria-live="polite">
@@ -22,12 +22,22 @@
     </div>
   </header>
 
+  <nav class="primary-nav view-switch" id="viewSwitch" aria-label="Dashboard view">
+    <button type="button" data-view="opportunities" class="active">Opportunities</button>
+    <button type="button" data-view="shortlist">Shortlist</button>
+    <button type="button" data-view="intelligence">Market intelligence</button>
+    <button type="button" data-view="operations">Pipeline operations</button>
+    <button type="button" data-view="simulator">Weight simulator</button>
+    <button type="button" data-view="resume-review">Resume review</button>
+    <button type="button" data-view="reporting">Alerts &amp; reports</button>
+  </nav>
+
   <main class="workspace">
     <section class="summary-strip" aria-label="Opportunity summary">
-      <div class="summary-item"><span class="summary-label">Showing</span><strong id="showingMetric">--</strong></div>
-      <div class="summary-item"><span class="summary-label">Strong matches</span><strong id="strongMetric">--</strong></div>
-      <div class="summary-item"><span class="summary-label">Shortlisted</span><strong id="shortlistMetric">--</strong></div>
-      <div class="summary-item"><span class="summary-label">Active applications</span><strong id="applicationMetric">--</strong></div>
+      <div class="summary-item"><span class="summary-label" id="showingLabel">Showing</span><strong id="showingMetric">--</strong></div>
+      <div class="summary-item"><span class="summary-label" id="strongLabel">Strong matches</span><strong id="strongMetric">--</strong></div>
+      <div class="summary-item"><span class="summary-label" id="shortlistLabel">Shortlisted</span><strong id="shortlistMetric">--</strong></div>
+      <div class="summary-item"><span class="summary-label" id="applicationLabel">Active applications</span><strong id="applicationMetric">--</strong></div>
     </section>
 
     <div class="content-grid">
@@ -51,14 +61,10 @@
         <label class="check-field"><input id="salaryFilter" type="checkbox"><span>Salary listed</span></label>
       </aside>
 
-      <section class="results" aria-label="Current opportunities">
+      <section class="results" id="resultsPanel" aria-label="Current opportunities">
         <div class="results-toolbar">
           <div><h1 id="viewTitle">Current opportunities</h1><p id="resultCount">Loading opportunities</p></div>
           <div class="toolbar-actions">
-            <div class="view-switch" id="viewSwitch" aria-label="Opportunity view">
-              <button type="button" data-view="opportunities" class="active">Opportunities</button>
-              <button type="button" data-view="shortlist">Shortlist</button>
-            </div>
             <button class="filter-toggle" id="filterToggle" type="button" aria-expanded="false" aria-controls="filtersPanel">Filters</button>
             <label class="sort-control"><span>Sort</span><select id="sortSelect"><option value="rank">Best match</option><option value="freshness">Recently seen</option><option value="salary">Highest salary</option><option value="employer">Employer</option></select></label>
           </div>
@@ -75,6 +81,72 @@
         </div>
         <nav class="pagination" aria-label="Opportunity pages"><button id="previousPage" type="button">Previous</button><span id="pageLabel">Page 1</span><button id="nextPage" type="button">Next</button></nav>
       </section>
+
+      <section class="intelligence" id="intelligencePanel" aria-label="Market intelligence" hidden>
+        <div class="intelligence-header">
+          <div><h1>Market intelligence</h1><p id="intelligenceFreshness">Loading Gold summaries</p></div>
+          <div class="intelligence-health" id="qualityBadge">Quality pending</div>
+        </div>
+        <nav class="intelligence-tabs" id="intelligenceTabs" aria-label="Market intelligence views">
+          <button type="button" data-intelligence-view="overview" class="active">Overview</button>
+          <button type="button" data-intelligence-view="skills">Skills</button>
+          <button type="button" data-intelligence-view="roles">Roles</button>
+          <button type="button" data-intelligence-view="employers">Employers</button>
+          <button type="button" data-intelligence-view="locations">Locations</button>
+          <button type="button" data-intelligence-view="compensation">Compensation</button>
+        </nav>
+        <div class="intelligence-content" id="intelligenceContent"></div>
+      </section>
+
+      <section class="operations" id="operationsPanel" aria-label="Pipeline operations" hidden>
+        <div class="operations-header">
+          <div><h1>Pipeline operations</h1><p id="operationsFreshness">Loading operational status</p></div>
+          <div class="operations-actions">
+            <span class="operations-health" id="operationsBadge">Status pending</span>
+            <label class="operations-run-control"><span>Action</span><select id="pipelineAction" aria-label="Pipeline action"><option value="rebuild_derived">Rebuild derived layers</option><option value="quality_check">Run quality check</option><option value="full_pipeline">Run live full pipeline</option></select></label>
+            <button class="save-button" id="runPipeline" type="button">Run</button>
+            <button class="secondary-button" id="refreshOperations" type="button">Refresh</button>
+          </div>
+        </div>
+        <nav class="operations-tabs" id="operationsTabs" aria-label="Pipeline monitoring views">
+          <button type="button" data-operations-view="overview" class="active">Overview</button>
+          <button type="button" data-operations-view="collection">Collection</button>
+          <button type="button" data-operations-view="quality">Data quality</button>
+          <button type="button" data-operations-view="lifecycle">Lifecycle</button>
+          <button type="button" data-operations-view="outputs">Gold outputs</button>
+          <button type="button" data-operations-view="data">Data assets</button>
+          <button type="button" data-operations-view="runs">Runs</button>
+        </nav>
+        <div class="operations-feedback" id="operationRunFeedback" role="status" aria-live="polite"></div>
+        <div class="operations-content" id="operationsContent"></div>
+      </section>
+
+      <section class="simulator" id="simulatorPanel" aria-label="Weight simulator" hidden>
+        <div class="simulator-header">
+          <div><h1>Weight simulator</h1><p>Test relevance priorities against the current Gold opportunities</p></div>
+          <span class="simulator-status" id="simulatorStatus">Read-only simulation</span>
+        </div>
+        <div class="simulator-content" id="simulatorContent"></div>
+      </section>
+
+      <section class="resume-review" id="resumeReviewPanel" aria-label="Resume extraction review" hidden>
+        <div class="resume-review-header">
+          <div><h1>Resume review</h1><p id="resumeReviewSummary">Loading extracted resume facts</p></div>
+          <label class="review-version-control"><span>Resume extraction</span><select id="resumeReviewSelect" aria-label="Resume extraction"></select></label>
+        </div>
+        <div class="resume-review-content" id="resumeReviewContent"></div>
+      </section>
+
+      <section class="reporting" id="reportingPanel" aria-label="Alerts and scheduled reports" hidden>
+        <div class="reporting-header">
+          <div><h1>Alerts &amp; reports</h1><p id="reportingFreshness">Loading reporting status</p></div>
+          <div class="reporting-actions">
+            <span class="reporting-status" id="reportingStatus">Schedule pending</span>
+            <button class="secondary-button" id="generateReport" type="button">Generate report</button>
+          </div>
+        </div>
+        <div class="reporting-content" id="reportingContent"></div>
+      </section>
     </div>
   </main>
 
@@ -83,6 +155,6 @@
     <div class="drawer-header"><span class="drawer-eyebrow" id="drawerRank">Opportunity</span><button class="icon-button" id="closeDrawer" type="button" aria-label="Close details" title="Close details">&times;</button></div>
     <div class="drawer-content" id="drawerContent"></div>
   </aside>
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=resume-review-v2" defer></script>
 </body>
 </html>

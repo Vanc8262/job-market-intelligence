@@ -20,7 +20,7 @@ from models.job_posting import (
 from storage import BronzeStorage, GoldStorage, SilverStorage
 from storage.base import BaseStorage
 from utils.checkpoint import Checkpoint, CheckpointManager
-from utils.config import Config
+from utils.config import Config, SourceAccessPolicy, SourcesConfig
 from utils.hashing import content_hash, duplicate_detection_hash, generate_job_id
 from utils.logger import bind_context, log_event, logger
 
@@ -81,6 +81,34 @@ def test_config_loads_settings_and_sources() -> None:
 
     assert config.settings.scraping.max_retries == 5
     assert "greenhouse" in config.sources.enabled_sources
+    assert config.sources.sources["greenhouse"].access_policy == SourceAccessPolicy.PUBLIC_API
+    assert config.sources.sources["workday"].access_policy == SourceAccessPolicy.PUBLIC_FEED
+    assert config.sources.sources["indeed"].access_policy == SourceAccessPolicy.MANUAL_IMPORT
+    assert (
+        config.sources.sources["linkedin"].access_policy
+        == SourceAccessPolicy.UNSUPPORTED_AUTOMATION
+    )
+    assert config.sources.sources["handshake"].access_policy == SourceAccessPolicy.PARTNER_API
+    assert config.sources.sources["smartrecruiters"].enabled is True
+    assert (
+        config.sources.sources["smartrecruiters"].access_policy
+        == SourceAccessPolicy.PUBLIC_API
+    )
+    assert config.sources.sources["workable"].enabled is True
+    assert config.sources.sources["workable"].access_policy == SourceAccessPolicy.PUBLIC_API
+    assert config.sources.sources["usajobs"].enabled is True
+    assert config.sources.sources["usajobs"].access_policy == SourceAccessPolicy.PUBLIC_API
+    assert config.sources.sources["jobicy"].enabled is True
+    assert config.sources.sources["jobicy"].access_policy == SourceAccessPolicy.PUBLIC_API
+    assert config.sources.sources["icims"].access_policy == SourceAccessPolicy.PARTNER_API
+    assert (
+        config.sources.sources["oracle_recruiting"].access_policy
+        == SourceAccessPolicy.UNSUPPORTED_AUTOMATION
+    )
+    assert (
+        config.sources.sources["successfactors"].access_policy
+        == SourceAccessPolicy.PARTNER_API
+    )
     assert "programming_languages" in config.skills.categories
     assert "Data Scientist" in config.resume_profile.target_titles
     assert config.resume_profile.weights.model_dump() == {
@@ -94,6 +122,56 @@ def test_config_loads_settings_and_sources() -> None:
     assert config.candidate_collection.per_target_limit == 25
     assert len(config.candidate_collection.queries) == 6
     assert config.data_quality.thresholds.valid_title_coverage == 0.99
+    assert config.reporting.alerts.stale_pipeline_hours == 36
+    assert config.reporting.schedule.enabled is False
+    assert config.settings.paths.profile_database == Path("data/private/profile_metadata.sqlite3")
+    assert config.settings.paths.private_resume_dir == Path("data/private/resumes")
+    assert config.settings.paths.model_benchmark_database == Path(
+        "data/private/model_benchmarks.sqlite3"
+    )
+    assert config.settings.paths.model_benchmark_dir == Path("data/private/model_benchmarks")
+    assert config.settings.candidate_profile.default_profile_id == "profile-default"
+    assert config.settings.resume_ingestion.max_file_size_bytes == 10 * 1024 * 1024
+    assert config.settings.resume_ingestion.max_pdf_pages == 20
+    assert config.settings.resume_ingestion.minimum_quality_score == 0.65
+    assert config.settings.application_comparison.skills_weight == 40
+    assert config.settings.application_comparison.projects_weight == 10
+    assert config.settings.application_comparison.matched_threshold == 80
+
+
+def test_source_access_policies_gate_enabled_automation() -> None:
+    assert {policy.value for policy in SourceAccessPolicy} == {
+        "public_api",
+        "partner_api",
+        "public_feed",
+        "manual_import",
+        "unsupported_automation",
+    }
+    assert SourceAccessPolicy.PUBLIC_API.allows_automated_collection is True
+    assert SourceAccessPolicy.PARTNER_API.allows_automated_collection is True
+    assert SourceAccessPolicy.PUBLIC_FEED.allows_automated_collection is True
+    assert SourceAccessPolicy.MANUAL_IMPORT.allows_automated_collection is False
+    assert SourceAccessPolicy.UNSUPPORTED_AUTOMATION.allows_automated_collection is False
+
+    try:
+        SourcesConfig.model_validate(
+            {
+                "enabled_sources": ["manual"],
+                "sources": {
+                    "manual": {
+                        "enabled": True,
+                        "type": "job_board",
+                        "access_policy": "manual_import",
+                        "base_url": "https://example.com/jobs",
+                        "rate_limit_per_minute": 1,
+                    }
+                },
+            }
+        )
+    except ValueError as exc:
+        assert "does not permit automated collection" in str(exc)
+    else:
+        raise AssertionError("manual-import sources must not enable automated collection")
 
 
 def test_job_posting_model_validates_minimal_record() -> None:

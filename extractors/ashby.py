@@ -29,12 +29,12 @@ from utils.checkpoint import CheckpointManager
 from utils.config import Config
 from utils.hashing import stable_json_hash
 
-"""AshbyExtractor(PublicATSExtractor):: Extract currently published jobs from one Ashby job board."""
+
 class AshbyExtractor(PublicATSExtractor):
+    """Extract currently published jobs from one Ashby job board."""
 
     source_name = "ashby"
 
-    """__init__ -> Initialize extraction for an Ashby job-board name."""
     def __init__(
         self,
         job_board_name: str,
@@ -47,6 +47,7 @@ class AshbyExtractor(PublicATSExtractor):
         client: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
+        """Initialize extraction for an Ashby job-board name."""
         board = job_board_name.strip()
         if not board:
             raise ValueError("job_board_name must not be empty")
@@ -71,10 +72,10 @@ class AshbyExtractor(PublicATSExtractor):
     def _board_url(self) -> str:
         return f"{self.api_base_url}/{quote(self.job_board_name, safe='')}"
 
-    """search_jobs(self, query, location) -> Return Ashby jobs matching canonical search criteria."""
     def search_jobs(
         self, query: str, location: str | None = None, **filters: object
     ) -> list[str]:
+        """Return Ashby jobs matching canonical search criteria."""
         supported = {"department", "team", "employment_type", "workplace_type"}
         unknown = set(filters) - supported
         if unknown:
@@ -99,8 +100,8 @@ class AshbyExtractor(PublicATSExtractor):
             references.append(reference)
         return references
 
-    """fetch_job(self, job_reference) -> Return a cached job, refreshing the board once when necessary."""
     def fetch_job(self, job_reference: str) -> dict[str, Any]:
+        """Return a cached job, refreshing the board once when necessary."""
         cached = self._job_cache.get(str(job_reference))
         if cached is None:
             self.search_jobs("")
@@ -109,8 +110,8 @@ class AshbyExtractor(PublicATSExtractor):
             raise KeyError(f"Ashby job not found: {job_reference}")
         return copy.deepcopy(cached)
 
-    """parse_job(self, raw_job) -> Convert an Ashby posting into the canonical model."""
     def parse_job(self, raw_job: dict[str, Any]) -> JobPosting:
+        """Convert an Ashby posting into the canonical model."""
         external_id = self._job_id(raw_job)
         if external_id is None:
             raise ATSResponseError("Ashby job has no stable identifier")
@@ -159,8 +160,8 @@ class AshbyExtractor(PublicATSExtractor):
         )
         return posting.with_derived_metadata()
 
-    """raw_storage_key(self, raw_job) -> Version Ashby snapshots even when the feed omits an explicit ID."""
     def raw_storage_key(self, raw_job: dict[str, Any]) -> str:
+        """Version Ashby snapshots using a stable posting identifier."""
         external_id = self._job_id(raw_job)
         if external_id is None:
             raise ATSResponseError("Ashby job has no stable identifier")

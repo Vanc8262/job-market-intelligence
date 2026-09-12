@@ -16,9 +16,11 @@ from storage import SilverStorage
 from utils.config import (
     AshbyTarget,
     GreenhouseTarget,
+    HandshakeEduTarget,
     LeverTarget,
     NextEraTarget,
     PhenomTarget,
+    SmartRecruitersTarget,
     WorkdayTarget,
 )
 from utils.logger import log_event
@@ -315,6 +317,10 @@ class BronzeToSilverRunner:
 
         for path in self.registry.bronze_storage.root.rglob("*.json"):
             relative = path.relative_to(self.registry.bronze_storage.root)
+            if relative.parts and relative.parts[0].casefold() == "manual_import":
+                # Manual imports own their Bronze-to-Silver transaction because they
+                # do not have or invoke an automated extractor target.
+                continue
             try:
                 route, source_name = self._route_from_path(relative)
                 target_name = routes.get(route)
@@ -362,6 +368,8 @@ class BronzeToSilverRunner:
             route: tuple[str, ...]
             if isinstance(target, GreenhouseTarget):
                 route = (target.source, target.board_token.casefold())
+            elif isinstance(target, HandshakeEduTarget):
+                route = (target.source, target.institution_scope.casefold())
             elif isinstance(target, LeverTarget):
                 route = (target.source, target.site.casefold())
             elif isinstance(target, AshbyTarget):
@@ -372,6 +380,8 @@ class BronzeToSilverRunner:
                 route = (target.source, target.site.casefold())
             elif isinstance(target, PhenomTarget):
                 route = (target.source, target.site.casefold())
+            elif isinstance(target, SmartRecruitersTarget):
+                route = (target.source, target.company_identifier.casefold())
             else:
                 continue
             if route in routes:

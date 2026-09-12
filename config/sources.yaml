@@ -1,3 +1,5 @@
+# `enabled_sources` is the automation allowlist. Manual and unsupported policies
+# cannot be added to it; partner APIs should remain disabled until access is authorized.
 enabled_sources:
   - greenhouse
   - lever
@@ -5,52 +7,118 @@ enabled_sources:
   - workday
   - nextera
   - phenom
+  - smartrecruiters
+  - workable
+  - usajobs
+  - jobicy
 sources:
   indeed:
     enabled: false
     type: job_board
+    access_policy: manual_import
     base_url: https://www.indeed.com
     rate_limit_per_minute: 30
   linkedin:
     enabled: false
     type: job_board
+    access_policy: unsupported_automation
     base_url: https://www.linkedin.com/jobs
     rate_limit_per_minute: 20
+  handshake:
+    enabled: false
+    type: job_board
+    access_policy: partner_api
+    base_url: https://joinhandshake.com
+    api_base_url: https://edu-api.joinhandshake.com/v1
+    rate_limit_per_minute: 30
+  icims:
+    enabled: false
+    type: ats
+    access_policy: partner_api
+    base_url: https://api.icims.com
+    api_base_url: https://api.icims.com
+    rate_limit_per_minute: 30
+  oracle_recruiting:
+    enabled: false
+    type: ats
+    access_policy: unsupported_automation
+    base_url: https://www.oracle.com/human-capital-management/recruiting
+    rate_limit_per_minute: 30
+  successfactors:
+    enabled: false
+    type: ats
+    access_policy: partner_api
+    base_url: https://www.sap.com/products/hcm/recruiting-software.html
+    rate_limit_per_minute: 30
   greenhouse:
     enabled: true
     type: ats
+    access_policy: public_api
     base_url: https://boards.greenhouse.io
     api_base_url: https://boards-api.greenhouse.io/v1
     rate_limit_per_minute: 60
   lever:
     enabled: true
     type: ats
+    access_policy: public_api
     base_url: https://jobs.lever.co
     api_base_url: https://api.lever.co/v0/postings
     rate_limit_per_minute: 60
   ashby:
     enabled: true
     type: ats
+    access_policy: public_api
     base_url: https://jobs.ashbyhq.com
     api_base_url: https://api.ashbyhq.com/posting-api/job-board
     rate_limit_per_minute: 60
   workday:
     enabled: true
     type: ats
+    access_policy: public_feed
     base_url: https://wd1.myworkdaysite.com
     rate_limit_per_minute: 30
   nextera:
     enabled: true
     type: ats
+    access_policy: public_feed
     base_url: https://jobs.nexteraenergy.com
     rate_limit_per_minute: 30
   phenom:
     enabled: true
     type: ats
+    access_policy: public_feed
     base_url: https://careers.chewy.com
     rate_limit_per_minute: 30
   smartrecruiters:
-    enabled: false
+    enabled: true
     type: ats
+    access_policy: public_api
     base_url: https://jobs.smartrecruiters.com
+    api_base_url: https://api.smartrecruiters.com/v1
     rate_limit_per_minute: 60
+  workable:
+    enabled: true
+    type: ats
+    access_policy: public_api
+    base_url: https://apply.workable.com
+    api_base_url: https://www.workable.com/api/accounts
+    # Public jobs are snapshot-cached; this stays below Workable's documented
+    # ceiling of 10 requests per 10 seconds even across several targets.
+    rate_limit_per_minute: 30
+  usajobs:
+    enabled: true
+    type: government
+    access_policy: public_api
+    base_url: https://www.usajobs.gov
+    api_base_url: https://data.usajobs.gov/api/Search
+    # The Search API may impose additional account limits without notice. Keep
+    # requests paced and let the shared retry policy honor 429 Retry-After values.
+    rate_limit_per_minute: 20
+  jobicy:
+    enabled: true
+    type: job_board
+    access_policy: public_api
+    base_url: https://jobicy.com
+    api_base_url: https://jobicy.com/api/v2/remote-jobs
+    # A persistent cache enforces Jobicy's stricter one-poll-per-hour fair-use rule.
+    rate_limit_per_minute: 1

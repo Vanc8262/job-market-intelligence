@@ -1,5 +1,7 @@
 """Append the completed Phase 1 implementation update to the research notes DOCX."""
 
+# ruff: noqa: E501
+
 from __future__ import annotations
 
 from pathlib import Path

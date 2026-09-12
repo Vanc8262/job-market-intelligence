@@ -1,6 +1,22 @@
 # Targets run in declaration order. Resume-aligned recommendations are listed
 # first, followed by the previously selected company career sites.
 targets:
+
+  - name: jobicy-remote-us
+    source: jobicy
+    enabled: true
+    count: 200
+    geo: usa
+    cache_ttl_minutes: 60
+
+  - name: federal-usajobs
+    source: usajobs
+    enabled: true
+    api_key_env: USAJOBS_API_KEY
+    user_agent_email_env: USAJOBS_USER_AGENT_EMAIL
+    results_per_page: 100
+    max_pages: 3
+
   - name: palantir-lever
     source: lever
     enabled: true

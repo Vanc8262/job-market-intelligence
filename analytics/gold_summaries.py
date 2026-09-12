@@ -20,19 +20,20 @@ from utils.logger import log_event
 
 _TOKEN_PATTERN = re.compile(r"[a-z0-9+#.]+")
 
-"""GoldBuildFailure:: One Silver record that could not be validated for aggregation."""
 @dataclass(frozen=True)
 class GoldBuildFailure:
+    """One Silver record that could not be validated for aggregation."""
 
     record: str
     error: str
-    """summary(self) -> Return a JSON-serializable failure description."""
     def summary(self) -> dict[str, str]:
+        """Return a JSON-serializable failure description."""
         return {"record": self.record, "error": self.error}
 
-"""SilverToGoldResult:: Result of one complete Gold summary build."""
+
 @dataclass(frozen=True)
 class SilverToGoldResult:
+    """Result of one complete Gold summary build."""
 
     run_id: str
     generated_at: datetime
@@ -43,13 +44,13 @@ class SilverToGoldResult:
     outputs: dict[str, Path]
     failures: list[GoldBuildFailure] = field(default_factory=list)
 
-    """failed(self) -> Return the number of invalid Silver records excluded from Gold."""
     @property
     def failed(self) -> int:
+        """Return the number of invalid Silver records excluded from Gold."""
         return len(self.failures)
 
-    """summary(self) -> Return a JSON-serializable build summary."""
     def summary(self) -> dict[str, object]:
+        """Return a JSON-serializable build summary."""
         return {
             "run_id": self.run_id,
             "generated_at": self.generated_at.isoformat(),
@@ -62,8 +63,9 @@ class SilverToGoldResult:
             "failures": [failure.summary() for failure in self.failures],
         }
 
-"""SilverToGoldRunner:: Build analytics-ready summaries from validated canonical postings."""
+
 class SilverToGoldRunner:
+    """Build analytics-ready summaries from validated canonical postings."""
 
     output_keys = {
         "skills": "skills/summary",
@@ -75,7 +77,6 @@ class SilverToGoldRunner:
         "current_opportunities": "current_opportunities/mart",
         "manifest": "manifest/latest",
     }
-    """__init__(self, config, silver_storage, gold_storage) -> Initialize storage and the configured resume relevance profile."""
     def __init__(
         self,
         config: Config | None = None,
@@ -83,6 +84,7 @@ class SilverToGoldRunner:
         silver_storage: SilverStorage | None = None,
         gold_storage: GoldStorage | None = None,
     ) -> None:
+        """Initialize storage and the configured resume relevance profile."""
         self.config = config or Config()
         self.silver_storage = silver_storage or SilverStorage(
             self.config.settings.paths.silver_dir
@@ -92,7 +94,6 @@ class SilverToGoldRunner:
         )
         self.profile = self.config.resume_profile
 
-    """run(self, include_inactive, run_id, generated_at) -> Validate Silver records and replace all current Gold summaries."""
     def run(
         self,
         *,
@@ -100,6 +101,7 @@ class SilverToGoldRunner:
         run_id: str | None = None,
         generated_at: datetime | None = None,
     ) -> SilverToGoldResult:
+        """Validate Silver records and replace the current Gold summaries."""
         active_run_id = run_id or uuid4().hex
         built_at = generated_at or datetime.now(UTC)
         records, total_found, failures = self._load_silver()
@@ -194,8 +196,8 @@ class SilverToGoldRunner:
             failures=failures,
         )
 
-    """_load_silver(self) -> retrieve and load silver record from storage"""
     def _load_silver(self) -> tuple[list[JobPosting], int, list[GoldBuildFailure]]:
+        """Retrieve and validate Silver records from storage."""
         records: list[JobPosting] = []
         failures: list[GoldBuildFailure] = []
         paths = sorted(self.silver_storage.root.rglob("*.json"))
@@ -464,7 +466,6 @@ class SilverToGoldRunner:
             "ranked_postings": ordered,
         }
 
-    """_current_opportunities_mart(self, records, relevance_rows, lifecycle_by_job, context, generated_at) -> Build one analytics-ready row for each current canonical opportunity."""
     def _current_opportunities_mart(
         self,
         records: list[JobPosting],
@@ -473,7 +474,7 @@ class SilverToGoldRunner:
         context: dict[str, object],
         generated_at: datetime,
     ) -> dict[str, object]:
-
+        """Build one analytics-ready row for each current opportunity."""
         relevance_by_job = {
             str(row["job_id"]): row for row in relevance_rows
         }
@@ -509,7 +510,6 @@ class SilverToGoldRunner:
             "opportunities": rows,
         }
 
-    """_current_opportunity_row(self, record, relevance, lifecycle, generated_at) -> Flatten canonical, ranking, and lifecycle fields for one opportunity."""
     def _current_opportunity_row(
         self,
         record: JobPosting,
@@ -517,6 +517,7 @@ class SilverToGoldRunner:
         lifecycle: LifecycleEntry | None,
         generated_at: datetime,
     ) -> dict[str, object]:
+        """Flatten canonical, ranking, and lifecycle fields for one opportunity."""
         all_skills = list(
             dict.fromkeys([*record.skills.explicit, *record.skills.inferred])
         )
@@ -531,7 +532,11 @@ class SilverToGoldRunner:
             "normalized_title": record.position.normalized_title or record.position.title,
             "family": record.position.family,
             "seniority": record.position.seniority,
-            "employer": record.company.normalized_name or record.company.name,
+            "employer": (
+                record.company.name
+                if record.source.name == "usajobs"
+                else record.company.normalized_name or record.company.name
+            ),
             "industry": record.company.industry,
             "location": record.location.raw,
             "city": record.location.city,
@@ -586,8 +591,8 @@ class SilverToGoldRunner:
             "has_salary": self._has_salary(record),
         }
 
-    """_load_lifecycle_by_job(self) -> Load the latest lifecycle entry for each canonical job when available."""
     def _load_lifecycle_by_job(self) -> dict[str, LifecycleEntry]:
+        """Load the latest lifecycle entry for each canonical job when available."""
         if not self.gold_storage.exists("lifecycle/state"):
             return {}
         state = LifecycleState.model_validate(self.gold_storage.load("lifecycle/state"))
@@ -796,7 +801,11 @@ class SilverToGoldRunner:
             "normalized_title": title,
             "family": record.position.family,
             "seniority": record.position.seniority,
-            "employer": record.company.normalized_name or record.company.name,
+            "employer": (
+                record.company.name
+                if record.source.name == "usajobs"
+                else record.company.normalized_name or record.company.name
+            ),
             "location": record.location.raw,
             "workplace_type": record.location.workplace_type.value,
             "source": record.source.name,

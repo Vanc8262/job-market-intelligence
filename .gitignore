@@ -3,10 +3,15 @@ __pycache__/
 *.py[cod]
 *.pyo
 .pytest_cache/
+.pytest-tmp/
+.pytest-state/
+.codex-test-tmp/
+.codex-docx/
 .mypy_cache/
 .ruff_cache/
 .coverage
 htmlcov/
+*.egg-info/
 
 # Environments
 .env
@@ -19,6 +24,15 @@ data/silver/*
 data/gold/*
 data/cache/*
 data/checkpoints/*
+data/private/*
+data/operations/*
+data/backups/*
+data/application_tracking/*
+data/reports/*
+data/alerts/*
+data/evaluations/*
+data/test-*/
+data/pytest-*/
 logs/*
 
 # Keep directory structure
@@ -27,6 +41,13 @@ logs/*
 !data/gold/.gitkeep
 !data/cache/.gitkeep
 !data/checkpoints/.gitkeep
+!data/private/.gitkeep
+!data/operations/.gitkeep
+!data/backups/.gitkeep
+!data/application_tracking/.gitkeep
+!data/reports/.gitkeep
+!data/alerts/.gitkeep
+!data/evaluations/.gitkeep
 !logs/.gitkeep
 
 # Editors and OS
