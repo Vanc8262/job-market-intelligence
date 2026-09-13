@@ -549,6 +549,10 @@ def test_dashboard_assets_and_live_mart_contract() -> None:
     assert "renderMarketIntelligence" in javascript
     assert "renderPipelineOperations" in javascript
     assert "renderDataManagement" in javascript
+    assert (
+        "state.dataManagement = await refreshed.json();\n    renderPipelineOperations();"
+        in javascript
+    )
     assert "/api/data-management" in javascript
     assert "renderWeightSimulator" in javascript
     assert "calculateCalibration" in javascript
@@ -567,4 +571,4 @@ def test_dashboard_assets_and_live_mart_contract() -> None:
     assert 'id="reportingPanel"' in index
     assert 'data-view="resume-review"' in index
     assert 'id="resumeReviewPanel"' in index
-    assert '/app.js?v=resume-review-v2' in index
+    assert '/app.js?v=data-snapshot-v3' in index

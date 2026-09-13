@@ -166,3 +166,42 @@ def test_runner_ignores_manual_import_snapshots_owned_by_importer(tmp_path: Path
 
     assert result.records_found == 0
     assert result.failed == 0
+
+
+def test_runner_routes_public_discovery_bronze_scopes(tmp_path: Path) -> None:
+    targets = ExtractorTargetsConfig.model_validate(
+        {
+            "targets": [
+                {"name": "jobicy-test", "source": "jobicy"},
+                {"name": "federal-test", "source": "usajobs"},
+                {
+                    "name": "workable-test",
+                    "source": "workable",
+                    "account_subdomain": "example-company",
+                },
+            ]
+        }
+    )
+    bronze = BronzeStorage(tmp_path / "bronze")
+    registry = ExtractorRegistry(
+        config=Config(),
+        targets=targets,
+        bronze_storage=bronze,
+        checkpoint_manager=CheckpointManager(tmp_path / "checkpoints"),
+    )
+    runner = BronzeToSilverRunner(
+        registry,
+        silver_storage=SilverStorage(tmp_path / "silver"),
+    )
+    bronze.save("jobicy/jobicy-test/101/version-1", {"id": "101"})
+    bronze.save("usajobs/public/102/version-1", {"id": "102"})
+    bronze.save("workable/example-company/103/version-1", {"id": "103"})
+
+    snapshots, failures = runner._discover_snapshots(registry.configured_names)
+
+    assert failures == []
+    assert [(item.source_name, item.target_name) for item in snapshots] == [
+        ("jobicy", "jobicy-test"),
+        ("usajobs", "federal-test"),
+        ("workable", "workable-test"),
+    ]

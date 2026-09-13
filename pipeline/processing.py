@@ -17,10 +17,13 @@ from utils.config import (
     AshbyTarget,
     GreenhouseTarget,
     HandshakeEduTarget,
+    JobicyTarget,
     LeverTarget,
     NextEraTarget,
     PhenomTarget,
     SmartRecruitersTarget,
+    USAJobsTarget,
+    WorkableTarget,
     WorkdayTarget,
 )
 from utils.logger import log_event
@@ -382,6 +385,12 @@ class BronzeToSilverRunner:
                 route = (target.source, target.site.casefold())
             elif isinstance(target, SmartRecruitersTarget):
                 route = (target.source, target.company_identifier.casefold())
+            elif isinstance(target, WorkableTarget):
+                route = (target.source, target.account_subdomain.casefold())
+            elif isinstance(target, USAJobsTarget):
+                route = (target.source, "public")
+            elif isinstance(target, JobicyTarget):
+                route = (target.source, target.name.casefold())
             else:
                 continue
             if route in routes:

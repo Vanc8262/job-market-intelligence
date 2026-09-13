@@ -694,7 +694,7 @@ async function handleDataManagementClick(event) {
     const refreshed = await fetch("/api/data-management", { cache: "no-store" });
     if (!refreshed.ok) throw new Error("Snapshot inventory could not be refreshed");
     state.dataManagement = await refreshed.json();
-    renderDataManagement();
+    renderPipelineOperations();
   } catch (error) { button.disabled = false; feedback.className = "save-feedback error"; feedback.textContent = error.message; }
 }
 
