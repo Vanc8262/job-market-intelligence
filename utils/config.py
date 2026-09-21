@@ -49,6 +49,7 @@ class PathConfig(BaseModel):
     private_resume_dir: Path = Path("data/private/resumes")
     model_benchmark_database: Path = Path("data/private/model_benchmarks.sqlite3")
     model_benchmark_dir: Path = Path("data/private/model_benchmarks")
+    resume_benchmark_pack_dir: Path = Path("data/private/resume_benchmark_packs")
 
 
 class StorageConfig(BaseModel):
@@ -236,9 +237,41 @@ class SourcesConfig(BaseModel):
 class SkillsConfig(BaseModel):
     """Validated contents of skills.yaml."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     categories: dict[str, list[str]] = Field(default_factory=dict)
+    aliases: dict[str, list[str]] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_aliases(self) -> SkillsConfig:
+        """Require unambiguous aliases for configured canonical skills."""
+        canonical_by_key = {
+            skill.casefold(): skill
+            for skills in self.categories.values()
+            for skill in skills
+        }
+        seen: dict[str, str] = {}
+        for canonical, aliases in self.aliases.items():
+            canonical_key = canonical.casefold()
+            if canonical_key not in canonical_by_key:
+                raise ValueError(f"skill alias target is not configured: {canonical}")
+            for alias in aliases:
+                alias_key = alias.strip().casefold()
+                if not alias_key:
+                    raise ValueError(f"skill alias cannot be blank: {canonical}")
+                owner = seen.get(alias_key)
+                if owner is not None and owner != canonical_key:
+                    raise ValueError(
+                        f"skill alias {alias!r} maps to both {owner!r} and {canonical!r}"
+                    )
+                conflicting_canonical = canonical_by_key.get(alias_key)
+                if conflicting_canonical is not None and alias_key != canonical_key:
+                    raise ValueError(
+                        f"skill alias {alias!r} conflicts with canonical skill "
+                        f"{conflicting_canonical!r}"
+                    )
+                seen[alias_key] = canonical_key
+        return self
 
 
 class ResumeRelevanceWeights(BaseModel):

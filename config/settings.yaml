@@ -14,6 +14,7 @@ paths:
   private_resume_dir: data/private/resumes
   model_benchmark_database: data/private/model_benchmarks.sqlite3
   model_benchmark_dir: data/private/model_benchmarks
+  resume_benchmark_pack_dir: data/private/resume_benchmark_packs
 storage:
   default: json
   compression: zstd

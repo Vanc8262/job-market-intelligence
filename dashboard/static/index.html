@@ -29,6 +29,7 @@
     <button type="button" data-view="operations">Pipeline operations</button>
     <button type="button" data-view="simulator">Weight simulator</button>
     <button type="button" data-view="resume-review">Resume review</button>
+    <button type="button" data-view="evaluations">Evaluations</button>
     <button type="button" data-view="reporting">Alerts &amp; reports</button>
   </nav>
 
@@ -147,6 +148,17 @@
         </div>
         <div class="reporting-content" id="reportingContent"></div>
       </section>
+
+      <section class="evaluations" id="evaluationsPanel" aria-label="Model evaluations" hidden>
+        <div class="evaluations-header">
+          <div><h1>Model evaluations</h1><p id="evaluationsFreshness">Loading evaluation history</p></div>
+          <div class="evaluations-actions">
+            <span class="evaluation-status" id="evaluationStatus">Status pending</span>
+            <label class="evaluation-run-control"><span>Evaluation run</span><select id="evaluationSelect" aria-label="Evaluation run"></select></label>
+          </div>
+        </div>
+        <div class="evaluations-content" id="evaluationsContent"></div>
+      </section>
     </div>
   </main>
 
@@ -155,6 +167,6 @@
     <div class="drawer-header"><span class="drawer-eyebrow" id="drawerRank">Opportunity</span><button class="icon-button" id="closeDrawer" type="button" aria-label="Close details" title="Close details">&times;</button></div>
     <div class="drawer-content" id="drawerContent"></div>
   </aside>
-  <script src="/app.js?v=data-snapshot-v3" defer></script>
+  <script src="/app.js?v=evaluations-v1" defer></script>
 </body>
 </html>

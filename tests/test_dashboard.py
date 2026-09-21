@@ -563,6 +563,8 @@ def test_dashboard_assets_and_live_mart_contract() -> None:
     assert 'querySelectorAll("[data-review-approved]:checked")' not in javascript
     assert "/api/application-comparisons" in javascript
     assert "renderApplicationComparison" in javascript
+    assert "/api/model-evaluations" in javascript
+    assert "renderEvaluations" in javascript
     assert 'name="resume_version_id"' in javascript
     index = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     assert 'data-view="simulator"' in index
@@ -571,4 +573,6 @@ def test_dashboard_assets_and_live_mart_contract() -> None:
     assert 'id="reportingPanel"' in index
     assert 'data-view="resume-review"' in index
     assert 'id="resumeReviewPanel"' in index
-    assert '/app.js?v=data-snapshot-v3' in index
+    assert 'data-view="evaluations"' in index
+    assert 'id="evaluationsPanel"' in index
+    assert '/app.js?v=evaluations-v1' in index

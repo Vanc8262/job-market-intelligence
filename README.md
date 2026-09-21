@@ -510,6 +510,171 @@ Create, draft, review, inspect, and freeze a human-reviewed Resume NER benchmark
 Evaluate frozen private data by passing its JSONL and YAML manifest with `--dataset`
 and `--manifest`. Private benchmark text and model reports must never be committed.
 
+### Licensed Resume Packs
+
+The resume-pack builder creates a private, human-reviewed intake set without mixing
+synthetic resumes into the candidate owner's profile. Its fixed v1 selection policy is:
+
+| Bucket | Resumes |
+| --- | ---: |
+| Data science | 8 |
+| Machine learning / AI | 7 |
+| Software engineering | 7 |
+| Data engineering | 4 |
+| Challenging technical layouts | 4 |
+
+Use a licensed source catalog in JSON, JSONL, CSV, or Parquet format. A directory of
+supported catalog files is also accepted. Each source row must provide one alias from
+each required group:
+
+- ID: `sample_id`, `id`, `resume_id`, or `candidate_id`
+- Role: `desired_position`, `job_title`, `title`, or `role`
+- Text: `resume_text`, `cleaned_text`, `text`, or `resume`
+
+Optional coverage fields include `years_experience`, `num_pages`, `template_id`,
+`layout`, `split`, and `risk_flags_expected`. Store downloaded source catalogs under
+`data/private/`; they are excluded from version control.
+
+Build a pack from a reviewed, immutable dataset version. For the recommended synthetic
+Resume Parsing Vision source, use its exact Hugging Face commit as the dataset version:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\manage_resume_benchmark_pack.py build `
+  technical-resumes-v1 data\private\source_catalogs\resume-parsing-vision `
+  --dataset-id sukhrobnurali/resume-parsing-vision `
+  --dataset-version <immutable-commit-hash> `
+  --source-url https://huggingface.co/datasets/sukhrobnurali/resume-parsing-vision `
+  --license-id CC-BY-4.0 `
+  --license-url https://creativecommons.org/licenses/by/4.0/ `
+  --attribution "Resume Parsing Vision by sukhrobnurali, CC BY 4.0"
+```
+
+Inspect the queue and open the returned absolute DOCX paths before deciding:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\manage_resume_benchmark_pack.py status `
+  technical-resumes-v1
+.\.venv\Scripts\python.exe scripts\manage_resume_benchmark_pack.py list `
+  technical-resumes-v1 --status pending
+```
+
+Approve or reject one exact, checksum-bound document:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\manage_resume_benchmark_pack.py review `
+  technical-resumes-v1 <candidate-id> `
+  --reviewer candidate-owner --decision approve --attest
+```
+
+Removal deletes the staged document and retains a provenance-and-checksum tombstone.
+Refill selects a new candidate from the unchanged source catalog for the missing bucket:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\manage_resume_benchmark_pack.py remove `
+  technical-resumes-v1 <candidate-id> `
+  --reviewer candidate-owner --reason "Does not meet review standard" --attest
+.\.venv\Scripts\python.exe scripts\manage_resume_benchmark_pack.py refill `
+  technical-resumes-v1
+```
+
+Export is blocked until every active selection has a decision and every bucket has its
+required approvals. A successful export contains exactly 30 DOCX files and a license,
+provenance, and checksum manifest:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\manage_resume_benchmark_pack.py export `
+  technical-resumes-v1
+```
+
+Private pack state is stored in `data/private/resume_benchmark_packs/`. Exported packs
+are immutable; corrections require a new pack version.
+
+### Pack-To-Benchmark Bridge
+
+Pack approval confirms document suitability, not gold entity labels. Draft a separate
+synthetic NER benchmark from an exported Resume Parsing Vision pack:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\manage_benchmarks.py draft-pack `
+  technical-resumes-v1 synthetic-resume-ner-v1 --version 1.0.0
+.\.venv\Scripts\python.exe scripts\manage_benchmarks.py status synthetic-resume-ner-v1
+```
+
+The bridge verifies the pinned source catalog, exported manifest, exact pack approvals,
+role quotas, and each document checksum before creating all cases in one transaction.
+It reads the documents through the secure parser without registering candidate profiles
+or resume versions. Source-authored facts propose whole-value entity spans; surface-date
+patterns propose DATE labels. No evaluated model or generative service drafts labels.
+
+Each case remains a draft. Open the JSON packets in
+`data/private/model_benchmarks/synthetic-resume-ner-v1/review_packets/` and compare the
+`case.expected_entities` against `case.text` and the linked `source_document`. Correct
+missing or incorrect labels, duplicate contexts, dates, and boundaries. Offsets are
+zero-based and `end` is exclusive. License, attribution, source split, role bucket,
+render profile, and checksum references remain available for review. Retrying
+`draft-pack` preserves existing reviews and never overwrites edited packets.
+
+When revising a previously approved packet, stage the changed fingerprint before
+reviewing it again. Staging preserves the old review history but returns the case to
+draft status; it does not record or imply human approval.
+
+Frozen outputs are immutable. Begin a provenance-linked corrective version before
+staging changes, and apply the rules in
+[`docs/resume-ner-ontology.md`](docs/resume-ner-ontology.md):
+
+```powershell
+.\.venv\Scripts\python.exe scripts\manage_benchmarks.py start-revision `
+  synthetic-resume-ner-v1 1.0.1
+```
+
+```powershell
+.\.venv\Scripts\python.exe scripts\manage_benchmarks.py stage-case `
+  synthetic-resume-ner-v1 <case-id> --case-file <review-packet.json>
+```
+
+Approve a corrected annotation packet only after checking it against its document:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\manage_benchmarks.py review-case `
+  synthetic-resume-ner-v1 <case-id> `
+  --reviewer candidate-owner --decision approve `
+  --case-file <review-packet.json> --attest
+```
+
+Use `--decision reject --notes "Reason"` to exclude unsuitable labels or documents.
+Freezing requires 30 approved cases and no unresolved drafts. Your personal-resume
+benchmark remains separate and is not modified by the bridge.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\manage_benchmarks.py freeze synthetic-resume-ner-v1
+$env:HF_HUB_OFFLINE = "1"
+$env:TRANSFORMERS_OFFLINE = "1"
+.\.venv\Scripts\python.exe scripts\evaluate_models.py resume-ner `
+  --dataset data\private\model_benchmarks\synthetic-resume-ner-v1\1.0.1\cases.jsonl `
+  --manifest data\private\model_benchmarks\synthetic-resume-ner-v1\1.0.1\manifest.yaml
+```
+
+The dashboard **Evaluations** tab reads persisted reports from
+`data/private/model_evaluations/`. It shows run history, quality gates, exact and
+overlap metrics, per-label accuracy/precision/recall/F1, role and layout slices, and
+an exact-span confusion matrix. The API exposes aggregate counts only; resume text and
+raw entity predictions remain private on the local filesystem.
+
+Resume NER reports also record the deterministic postprocessor version in provider
+runtime metadata. `ontology-v1` applies the reviewed ontology contract: section-aware
+human-language remapping, token-boundary cleanup, duplicate-span suppression, and
+filtering for headings, preferences, hobbies, summary-prose titles, and fragments.
+`sections-v1` adds exact-span candidates from explicit resume structure, including
+header identity lines, experience, education, skills, project technology lists, and
+certificates. Structured candidates take precedence over overlapping model output;
+unstructured prose still falls back to the model. Set `structured_sections=False`
+when constructing `OksomuResumeNERProvider` to run a model-only ablation.
+`taxonomy-v1` also matches canonical skills and reviewed aliases from
+`config/skills.yaml` in Skills, Summary, Experience, and Projects sections. It uses
+source boundaries, excludes role and project-title lines, and restricts ambiguous
+short terms to explicit skill lists. Reports include a taxonomy SHA-256 fingerprint;
+the matcher never reads benchmark cases or annotations.
+
 ## Engineering Commands
 
 Run the complete local and CI quality gate:

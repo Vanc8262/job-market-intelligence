@@ -14,6 +14,7 @@ categories:
     - statistics
     - experimentation
   machine_learning:
+    - machine learning
     - PyTorch
     - TensorFlow
     - MLOps
@@ -37,3 +38,45 @@ categories:
     - RAG
     - prompt engineering
     - vector databases
+
+# Aliases are matched as exact source spans and normalized to the canonical key.
+# Keep this list conservative: aliases must be explicit technical terminology.
+aliases:
+  Python:
+    - Python 3
+    - Python3
+  SQL:
+    - Structured Query Language
+  JavaScript:
+    - JS
+  Go:
+    - Golang
+  scikit-learn:
+    - scikit learn
+    - sklearn
+  machine learning:
+    - ML
+  PyTorch:
+    - Torch
+  Spark:
+    - Apache Spark
+  Airflow:
+    - Apache Airflow
+  dbt:
+    - Data Build Tool
+  Kafka:
+    - Apache Kafka
+  AWS:
+    - Amazon Web Services
+  GCP:
+    - Google Cloud Platform
+    - Google Cloud
+  Kubernetes:
+    - K8s
+  LLMs:
+    - LLM
+    - large language model
+    - large language models
+  RAG:
+    - retrieval augmented generation
+    - retrieval-augmented generation

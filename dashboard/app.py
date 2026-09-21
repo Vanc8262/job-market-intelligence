@@ -18,6 +18,7 @@ from urllib.parse import unquote, urlsplit
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from dashboard.data_management import DataManagementService
+from dashboard.model_evaluations import load_model_evaluations
 from dashboard.pipeline_control import (
     PipelineAction,
     PipelineOperationsController,
@@ -44,6 +45,7 @@ DEFAULT_REPORT_ROOT = PROJECT_ROOT / "data" / "reports"
 DEFAULT_ALERT_STATE_PATH = PROJECT_ROOT / "data" / "alerts" / "state.json"
 DEFAULT_OPERATIONS_STATE_PATH = PROJECT_ROOT / "data" / "operations" / "dashboard_runs.json"
 DEFAULT_BACKUP_ROOT = PROJECT_ROOT / "data" / "backups"
+DEFAULT_MODEL_EVALUATION_ROOT = PROJECT_ROOT / "data" / "private" / "model_evaluations"
 MARKET_SUMMARY_PATHS = {
     "skills": Path("skills/summary.json"),
     "titles": Path("titles/summary.json"),
@@ -452,6 +454,8 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
     pipeline_controller: PipelineOperationsController | None = None
     data_management_service: DataManagementService | None = None
     data_management_lock = RLock()
+    model_evaluation_root = DEFAULT_MODEL_EVALUATION_ROOT
+    evaluation_project_root = PROJECT_ROOT
 
     def __init__(
         self,
@@ -561,6 +565,20 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
                     )
                 )
             except (ValueError, json.JSONDecodeError, ValidationError) as exc:
+                self._send_json(
+                    {"error": str(exc)},
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+            return
+        if path == "/api/model-evaluations":
+            try:
+                self._send_json(
+                    load_model_evaluations(
+                        self.model_evaluation_root,
+                        project_root=self.evaluation_project_root,
+                    )
+                )
+            except (OSError, ValueError, json.JSONDecodeError, ValidationError) as exc:
                 self._send_json(
                     {"error": str(exc)},
                     status=HTTPStatus.SERVICE_UNAVAILABLE,
@@ -938,6 +956,8 @@ def create_server(
     data_project_root: Path = PROJECT_ROOT,
     profile_database: Path | None = None,
     pipeline_controller: PipelineOperationsController | None = None,
+    model_evaluation_root: Path = DEFAULT_MODEL_EVALUATION_ROOT,
+    evaluation_project_root: Path = PROJECT_ROOT,
 ) -> DashboardHTTPServer:
     """Create a configured threaded dashboard server."""
     config = Config()
@@ -964,6 +984,8 @@ def create_server(
             "pipeline_controller": pipeline_controller
             or PipelineOperationsController(PROJECT_ROOT, operations_state_path),
             "data_management_service": DataManagementService(data_project_root, backup_root),
+            "model_evaluation_root": model_evaluation_root,
+            "evaluation_project_root": evaluation_project_root,
         },
     )
     return DashboardHTTPServer((host, port), handler)
@@ -982,6 +1004,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--operations-state", type=Path, default=DEFAULT_OPERATIONS_STATE_PATH)
     parser.add_argument("--backup-root", type=Path)
     parser.add_argument("--profile-database", type=Path)
+    parser.add_argument("--model-evaluation-root", type=Path, default=DEFAULT_MODEL_EVALUATION_ROOT)
     return parser
 
 
@@ -1000,6 +1023,7 @@ def main(argv: list[str] | None = None) -> int:
             operations_state_path=args.operations_state,
             backup_root=args.backup_root,
             profile_database=args.profile_database,
+            model_evaluation_root=args.model_evaluation_root,
         )
     except OSError as exc:
         print(

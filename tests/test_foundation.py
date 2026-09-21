@@ -110,6 +110,7 @@ def test_config_loads_settings_and_sources() -> None:
         == SourceAccessPolicy.PARTNER_API
     )
     assert "programming_languages" in config.skills.categories
+    assert config.skills.aliases["Go"] == ["Golang"]
     assert "Data Scientist" in config.resume_profile.target_titles
     assert config.resume_profile.weights.model_dump() == {
         "skills": 35.0,

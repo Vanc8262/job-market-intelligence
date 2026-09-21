@@ -5,11 +5,11 @@ const ACTIVE_STATUSES = new Set(["applied", "interviewing", "offer"]);
 const STATUS_OPTIONS = ["new", "reviewing", "saved", "applied", "interviewing", "offer", "rejected", "archived"];
 const SIGNAL_KEYS = ["skills", "title", "experience", "location"];
 const POSITIVE_FEEDBACK_STATUSES = new Set(["reviewing", "saved", "applied", "interviewing", "offer"]);
-const state = { mart: null, market: null, operations: null, dataManagement: null, reporting: null, resumeReviews: null, reviewDraft: null, reviewExpanded: { skills: true, employment: false, education: false, projects: false }, selectedExtractionId: null, candidateProfile: null, resumeVersions: [], applicationComparisons: {}, opportunities: [], tracking: {}, filtered: [], page: 1, band: "all", view: "opportunities", marketView: "overview", operationsView: "overview", selectedJobId: null, simulatorWeights: null };
+const state = { mart: null, market: null, operations: null, dataManagement: null, reporting: null, evaluations: null, selectedEvaluationId: null, resumeReviews: null, reviewDraft: null, reviewExpanded: { skills: true, employment: false, education: false, projects: false }, selectedExtractionId: null, candidateProfile: null, resumeVersions: [], applicationComparisons: {}, opportunities: [], tracking: {}, filtered: [], page: 1, band: "all", view: "opportunities", marketView: "overview", operationsView: "overview", selectedJobId: null, simulatorWeights: null };
 const elements = {};
 
 document.addEventListener("DOMContentLoaded", () => {
-  ["freshnessLabel", "showingMetric", "strongMetric", "shortlistMetric", "applicationMetric", "showingLabel", "strongLabel", "shortlistLabel", "applicationLabel", "searchInput", "employerFilter", "familyFilter", "seniorityFilter", "workplaceFilter", "lifecycleFilter", "applicationFilter", "salaryFilter", "sortSelect", "opportunitiesBody", "resultCount", "activeFilters", "loadingState", "emptyState", "errorState", "errorMessage", "retryButton", "resetFilters", "emptyReset", "previousPage", "nextPage", "pageLabel", "bandFilters", "detailDrawer", "drawerBackdrop", "drawerContent", "drawerRank", "closeDrawer", "filtersPanel", "filterToggle", "viewSwitch", "viewTitle", "resultsPanel", "intelligencePanel", "intelligenceTabs", "intelligenceContent", "intelligenceFreshness", "qualityBadge", "operationsPanel", "operationsTabs", "operationsContent", "operationsFreshness", "operationsBadge", "refreshOperations", "pipelineAction", "runPipeline", "operationRunFeedback", "simulatorPanel", "simulatorContent", "simulatorStatus", "resumeReviewPanel", "resumeReviewContent", "resumeReviewSummary", "resumeReviewSelect", "reportingPanel", "reportingContent", "reportingFreshness", "reportingStatus", "generateReport", "pageName"].forEach((id) => { elements[id] = document.getElementById(id); });
+  ["freshnessLabel", "showingMetric", "strongMetric", "shortlistMetric", "applicationMetric", "showingLabel", "strongLabel", "shortlistLabel", "applicationLabel", "searchInput", "employerFilter", "familyFilter", "seniorityFilter", "workplaceFilter", "lifecycleFilter", "applicationFilter", "salaryFilter", "sortSelect", "opportunitiesBody", "resultCount", "activeFilters", "loadingState", "emptyState", "errorState", "errorMessage", "retryButton", "resetFilters", "emptyReset", "previousPage", "nextPage", "pageLabel", "bandFilters", "detailDrawer", "drawerBackdrop", "drawerContent", "drawerRank", "closeDrawer", "filtersPanel", "filterToggle", "viewSwitch", "viewTitle", "resultsPanel", "intelligencePanel", "intelligenceTabs", "intelligenceContent", "intelligenceFreshness", "qualityBadge", "operationsPanel", "operationsTabs", "operationsContent", "operationsFreshness", "operationsBadge", "refreshOperations", "pipelineAction", "runPipeline", "operationRunFeedback", "simulatorPanel", "simulatorContent", "simulatorStatus", "resumeReviewPanel", "resumeReviewContent", "resumeReviewSummary", "resumeReviewSelect", "reportingPanel", "reportingContent", "reportingFreshness", "reportingStatus", "generateReport", "evaluationsPanel", "evaluationsContent", "evaluationsFreshness", "evaluationStatus", "evaluationSelect", "pageName"].forEach((id) => { elements[id] = document.getElementById(id); });
   bindEvents();
   loadData();
 });
@@ -53,6 +53,7 @@ function bindEvents() {
   elements.simulatorContent.addEventListener("change", handleSimulatorChange);
   elements.simulatorContent.addEventListener("click", handleSimulatorClick);
   elements.generateReport.addEventListener("click", generateReport);
+  elements.evaluationSelect.addEventListener("change", () => { state.selectedEvaluationId = elements.evaluationSelect.value; render(); });
   elements.resumeReviewSelect.addEventListener("change", selectResumeReview);
   elements.resumeReviewContent.addEventListener("click", handleResumeReviewClick);
   elements.resumeReviewContent.addEventListener("change", handleResumeReviewChange);
@@ -81,9 +82,9 @@ async function loadData() {
   elements.errorState.hidden = true;
   elements.emptyState.hidden = true;
   try {
-    const [martResponse, trackingResponse, profileResponse, marketResponse, operationsResponse, dataResponse, reportingResponse, reviewResponse] = await Promise.all([fetch("/api/opportunities", { cache: "no-store" }), fetch("/api/application-tracking", { cache: "no-store" }), fetch("/api/candidate-profile", { cache: "no-store" }), fetch("/api/market-intelligence", { cache: "no-store" }), fetch("/api/pipeline-operations", { cache: "no-store" }), fetch("/api/data-management", { cache: "no-store" }), fetch("/api/reporting", { cache: "no-store" }), fetch("/api/resume-reviews", { cache: "no-store" })]);
-    if (!martResponse.ok || !trackingResponse.ok || !profileResponse.ok || !marketResponse.ok || !operationsResponse.ok || !dataResponse.ok || !reportingResponse.ok || !reviewResponse.ok) throw new Error("Dashboard data could not be loaded");
-    const [mart, tracking, candidateProfile, market, operations, dataManagement, reporting, resumeReviews] = await Promise.all([martResponse.json(), trackingResponse.json(), profileResponse.json(), marketResponse.json(), operationsResponse.json(), dataResponse.json(), reportingResponse.json(), reviewResponse.json()]);
+    const [martResponse, trackingResponse, profileResponse, marketResponse, operationsResponse, dataResponse, reportingResponse, reviewResponse, evaluationResponse] = await Promise.all([fetch("/api/opportunities", { cache: "no-store" }), fetch("/api/application-tracking", { cache: "no-store" }), fetch("/api/candidate-profile", { cache: "no-store" }), fetch("/api/market-intelligence", { cache: "no-store" }), fetch("/api/pipeline-operations", { cache: "no-store" }), fetch("/api/data-management", { cache: "no-store" }), fetch("/api/reporting", { cache: "no-store" }), fetch("/api/resume-reviews", { cache: "no-store" }), fetch("/api/model-evaluations", { cache: "no-store" })]);
+    if (!martResponse.ok || !trackingResponse.ok || !profileResponse.ok || !marketResponse.ok || !operationsResponse.ok || !dataResponse.ok || !reportingResponse.ok || !reviewResponse.ok || !evaluationResponse.ok) throw new Error("Dashboard data could not be loaded");
+    const [mart, tracking, candidateProfile, market, operations, dataManagement, reporting, resumeReviews, evaluations] = await Promise.all([martResponse.json(), trackingResponse.json(), profileResponse.json(), marketResponse.json(), operationsResponse.json(), dataResponse.json(), reportingResponse.json(), reviewResponse.json(), evaluationResponse.json()]);
     if (!Array.isArray(mart.opportunities)) throw new Error("The Gold mart has no opportunities array");
     state.mart = mart;
     state.opportunities = mart.opportunities;
@@ -94,6 +95,8 @@ async function loadData() {
     state.operations = operations;
     state.dataManagement = dataManagement;
     state.reporting = reporting;
+    state.evaluations = evaluations;
+    state.selectedEvaluationId = evaluations.reports?.[0]?.report_id || null;
     state.resumeReviews = resumeReviews;
     const reviewItems = resumeReviews.items || [];
     const firstPending = reviewItems.find((item) => item.extraction.can_review) || reviewItems[0];
@@ -105,6 +108,8 @@ async function loadData() {
     elements.intelligenceFreshness.textContent = `Snapshot refreshed ${formatTimestamp(market.generated_at)}`;
     elements.operationsFreshness.textContent = `Latest evidence ${formatTimestamp(operations.generated_at)}`;
     elements.reportingFreshness.textContent = reporting.generated_at ? `Latest report ${formatTimestamp(reporting.generated_at)}` : "No report generated yet";
+    elements.evaluationsFreshness.textContent = evaluations.generated_at ? `Latest run ${formatTimestamp(evaluations.generated_at)}` : "No model evaluations recorded";
+    populateEvaluationSelect();
     applyFilters(true);
     schedulePipelinePoll();
     elements.loadingState.hidden = true;
@@ -128,25 +133,40 @@ function populateSelect(select, values, labeler = (value) => value) {
   select.replaceChildren(first, ...values.map((value) => { const option = document.createElement("option"); option.value = value; option.textContent = labeler(value); return option; }));
 }
 function trackingFor(jobId) { return state.tracking[jobId] || { shortlisted: false, status: "new", priority: "none", notes: "" }; }
+function populateEvaluationSelect() {
+  const reports = state.evaluations?.reports || [];
+  elements.evaluationSelect.replaceChildren(...reports.map((report) => {
+    const option = document.createElement("option");
+    option.value = report.report_id;
+    option.textContent = `${formatLabel(report.task)} · ${formatTimestamp(report.created_at)}`;
+    return option;
+  }));
+  elements.evaluationSelect.value = state.selectedEvaluationId || "";
+  elements.evaluationSelect.disabled = reports.length === 0;
+}
+function selectedEvaluation() { return (state.evaluations?.reports || []).find((report) => report.report_id === state.selectedEvaluationId) || state.evaluations?.reports?.[0] || null; }
 function setDashboardView() {
   const intelligence = state.view === "intelligence";
   const operations = state.view === "operations";
   const simulator = state.view === "simulator";
   const resumeReview = state.view === "resume-review";
   const reporting = state.view === "reporting";
-  elements.filtersPanel.hidden = intelligence || operations || simulator || resumeReview || reporting;
-  elements.resultsPanel.hidden = intelligence || operations || simulator || resumeReview || reporting;
+  const evaluations = state.view === "evaluations";
+  elements.filtersPanel.hidden = intelligence || operations || simulator || resumeReview || reporting || evaluations;
+  elements.resultsPanel.hidden = intelligence || operations || simulator || resumeReview || reporting || evaluations;
   elements.intelligencePanel.hidden = !intelligence;
   elements.operationsPanel.hidden = !operations;
   elements.simulatorPanel.hidden = !simulator;
   elements.resumeReviewPanel.hidden = !resumeReview;
   elements.reportingPanel.hidden = !reporting;
+  elements.evaluationsPanel.hidden = !evaluations;
   document.querySelector(".content-grid").classList.toggle("market-mode", intelligence);
   document.querySelector(".content-grid").classList.toggle("operations-mode", operations);
   document.querySelector(".content-grid").classList.toggle("simulator-mode", simulator);
   document.querySelector(".content-grid").classList.toggle("resume-review-mode", resumeReview);
   document.querySelector(".content-grid").classList.toggle("reporting-mode", reporting);
-  elements.pageName.textContent = intelligence ? "Market intelligence" : operations ? "Pipeline operations" : simulator ? "Weight simulator" : resumeReview ? "Resume review" : reporting ? "Alerts & reports" : "Opportunities";
+  document.querySelector(".content-grid").classList.toggle("evaluations-mode", evaluations);
+  elements.pageName.textContent = intelligence ? "Market intelligence" : operations ? "Pipeline operations" : simulator ? "Weight simulator" : resumeReview ? "Resume review" : evaluations ? "Model evaluations" : reporting ? "Alerts & reports" : "Opportunities";
   elements.viewTitle.textContent = state.view === "shortlist" ? "Shortlist" : "Current opportunities";
 }
 
@@ -183,9 +203,22 @@ function render() {
   if (state.view === "simulator") { renderWeightSimulator(); return; }
   if (state.view === "resume-review") { renderResumeReview(); return; }
   if (state.view === "reporting") { renderReporting(); return; }
+  if (state.view === "evaluations") { renderEvaluations(); return; }
   renderActiveFilters(); renderTable(); renderPagination();
 }
 function renderMetrics() {
+  if (state.view === "evaluations" && state.evaluations) {
+    const report = selectedEvaluation();
+    elements.showingLabel.textContent = "Evaluation runs";
+    elements.strongLabel.textContent = "Result";
+    elements.shortlistLabel.textContent = "Exact F1";
+    elements.applicationLabel.textContent = "Cases";
+    elements.showingMetric.textContent = number(state.evaluations.report_count);
+    elements.strongMetric.textContent = report ? (report.passed ? "Passed" : "Review") : "--";
+    elements.shortlistMetric.textContent = report ? formatPercent(report.metrics.f1) : "--";
+    elements.applicationMetric.textContent = report ? `${number(report.successful_case_count)} / ${number(report.case_count)}` : "--";
+    return;
+  }
   if (state.view === "resume-review" && state.resumeReviews) {
     const items = state.resumeReviews.items || [];
     const selected = selectedReviewItem();
@@ -363,6 +396,54 @@ function rankingList(items, labelKey, valueKey, limit = 10, formatter = number) 
 function marketTable(headers, rows) { return `<div class="intel-table-shell"><table class="intel-table"><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>`; }
 function qualityList(metrics) { return `<div class="quality-list">${(metrics || []).map((item) => `<div class="quality-row"><span>${escapeHtml(formatLabel(item.name))}</span><span class="${item.passed ? "quality-pass" : "quality-fail"}">${item.passed ? "Passed" : "Failed"} / ${escapeHtml(formatMetricValue(item.value))}</span></div>`).join("")}</div>`; }
 function formatMetricValue(value) { return Number(value) <= 1 ? formatPercent(value) : number(value); }
+
+function renderEvaluations() {
+  const report = selectedEvaluation();
+  if (!report) {
+    elements.evaluationStatus.textContent = "No runs";
+    elements.evaluationStatus.classList.add("attention");
+    elements.evaluationsContent.innerHTML = `<section class="evaluation-empty"><strong>No model evaluations found</strong><span>Evaluation reports will appear after a model benchmark run completes.</span></section>`;
+    return;
+  }
+  elements.evaluationSelect.value = report.report_id;
+  elements.evaluationStatus.textContent = report.passed ? "Passed" : "Review required";
+  elements.evaluationStatus.classList.toggle("attention", !report.passed);
+  const metrics = report.metrics || {};
+  const thresholds = (report.thresholds || []).map((item) => `<tr><td><strong>${escapeHtml(formatLabel(item.metric))}</strong></td><td class="number-cell">${evaluationMetric(item.value)}</td><td><span class="evaluation-result ${item.passed ? "passed" : "failed"}">${item.passed ? "Passed" : "Failed"}</span></td><td>${escapeHtml(item.explanation)}</td></tr>`).join("");
+  const labels = (report.label_metrics || []).map((item) => `<tr><td><strong>${escapeHtml(item.label)}</strong></td><td class="number-cell">${number(item.support)}</td><td class="number-cell">${number(item.predicted)}</td><td class="number-cell">${formatPercent(item.accuracy)}</td><td class="number-cell">${formatPercent(item.precision)}</td><td class="number-cell">${formatPercent(item.recall)}</td><td class="number-cell"><strong>${formatPercent(item.f1)}</strong></td><td class="number-cell">${number(item.false_positive)}</td><td class="number-cell">${number(item.false_negative)}</td></tr>`).join("");
+  const slices = (report.slices || []).map((item) => `<tr><td><strong>${escapeHtml(formatLabel(item.name.replace(":", " / ")))}</strong></td><td class="number-cell">${number(item.case_count)}</td><td class="number-cell">${evaluationMetric(item.precision)}</td><td class="number-cell">${evaluationMetric(item.recall)}</td><td class="number-cell">${evaluationMetric(item.f1)}</td><td class="number-cell">${evaluationMetric(item.overlap_f1)}</td></tr>`).join("");
+  const cases = [...(report.case_results || [])].sort((a, b) => Number(a.metrics?.exact_f1 ?? 1) - Number(b.metrics?.exact_f1 ?? 1)).slice(0, 12).map((item) => `<tr><td><strong>${escapeHtml(item.case_id.replace("pack-technical-resumes-v1-", ""))}</strong><span class="job-meta">${escapeHtml((item.tags || []).find((tag) => tag.startsWith("bucket:"))?.replace("bucket:", "") || "unsliced")}</span></td><td class="number-cell">${evaluationMetric(item.metrics?.exact_precision)}</td><td class="number-cell">${evaluationMetric(item.metrics?.exact_recall)}</td><td class="number-cell"><strong>${evaluationMetric(item.metrics?.exact_f1)}</strong></td><td class="number-cell">${evaluationMetric(item.metrics?.overlap_f1)}</td><td class="number-cell">${formatDuration(item.duration_ms)}</td></tr>`).join("");
+  elements.evaluationsContent.innerHTML = `<div class="evaluation-layout">
+    <section class="evaluation-run-summary">
+      <div><span>Model</span><strong>${escapeHtml(report.model_id)}</strong></div><div><span>Task</span><strong>${escapeHtml(formatLabel(report.task))}</strong></div><div><span>Run</span><strong>${escapeHtml(formatTimestamp(report.created_at))}</strong></div><div><span>Successful cases</span><strong>${number(report.successful_case_count)} / ${number(report.case_count)}</strong></div>
+    </section>
+    <section class="evaluation-metrics" aria-label="Evaluation metrics">
+      ${evaluationKpi("Entity accuracy", metrics.accuracy, "Exact TP divided by TP, FP, and FN")}${evaluationKpi("Precision", metrics.precision, "Exact entity precision")}${evaluationKpi("Recall", metrics.recall, "Exact entity recall")}${evaluationKpi("F1 score", metrics.f1, "Exact entity F1")}${evaluationKpi("Overlap F1", metrics.overlap_f1, "Boundary-tolerant entity F1")}
+    </section>
+    <section class="evaluation-block wide">${evaluationHeading("Exact-span confusion matrix", "Rows are expected labels; columns are predicted labels")}${renderConfusionMatrix(report.confusion_matrix)}</section>
+    <section class="evaluation-block wide">${evaluationHeading("Label performance", `${(report.label_metrics || []).length} evaluated labels`)}${labels ? evaluationTable(["Label", "Expected", "Predicted", "Accuracy", "Precision", "Recall", "F1", "FP", "FN"], labels, "label-metrics-table") : `<div class="evaluation-unavailable">Per-label metrics are not available for this task.</div>`}</section>
+    <section class="evaluation-block">${evaluationHeading("Quality gates", report.passed ? "All configured gates passed" : "One or more configured gates failed")}${evaluationTable(["Metric", "Value", "Result", "Requirement"], thresholds, "threshold-table")}</section>
+    <section class="evaluation-block">${evaluationHeading("Slices", "Role bucket and document layout")}${slices ? evaluationTable(["Slice", "Cases", "Precision", "Recall", "F1", "Overlap F1"], slices, "slice-table") : `<div class="evaluation-unavailable">No evaluation slices recorded.</div>`}</section>
+    <section class="evaluation-block wide">${evaluationHeading("Lowest exact-F1 cases", "Prioritized for error analysis")}${evaluationTable(["Case", "Precision", "Recall", "F1", "Overlap F1", "Runtime"], cases, "case-metrics-table")}</section>
+  </div>`;
+}
+
+function evaluationKpi(label, value, title) { return `<div title="${escapeHtml(title)}"><span>${escapeHtml(label)}</span><strong>${evaluationMetric(value)}</strong></div>`; }
+function evaluationHeading(title, detail) { return `<div class="evaluation-heading"><h2>${escapeHtml(title)}</h2><span>${escapeHtml(detail)}</span></div>`; }
+function evaluationTable(headers, rows, className) { return `<div class="evaluation-table-shell"><table class="evaluation-table ${className}"><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>`; }
+function evaluationMetric(value) { return value === null || value === undefined ? "--" : formatPercent(value); }
+function formatDuration(value) { const milliseconds = Number(value || 0); return milliseconds >= 1000 ? `${(milliseconds / 1000).toFixed(1)}s` : `${Math.round(milliseconds)}ms`; }
+function renderConfusionMatrix(matrix) {
+  if (!matrix) return `<div class="evaluation-unavailable">A confusion matrix is not applicable to this evaluation task.</div>`;
+  const maximum = Math.max(Number(matrix.maximum || 0), 1);
+  const header = matrix.columns.map((label) => `<th title="Predicted ${escapeHtml(label)}">${escapeHtml(label)}</th>`).join("");
+  const rows = matrix.rows.map((row, rowIndex) => `<tr><th title="Expected ${escapeHtml(row)}">${escapeHtml(row)}</th>${matrix.values[rowIndex].map((value, columnIndex) => {
+    const column = matrix.columns[columnIndex]; const heat = value ? 0.12 + (Number(value) / maximum * 0.76) : 0;
+    const kind = row === "SPURIOUS" || column === "MISSED" ? "error-axis" : row === column ? "diagonal" : "confused";
+    return `<td class="matrix-cell ${kind}" style="--heat:${heat.toFixed(3)}" title="Expected ${escapeHtml(row)}, predicted ${escapeHtml(column)}: ${number(value)}">${value ? number(value) : ""}</td>`;
+  }).join("")}</tr>`).join("");
+  return `<div class="confusion-shell"><table class="confusion-matrix"><thead><tr><th>Expected / predicted</th>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
 
 async function generateReport() {
   const button = elements.generateReport;
