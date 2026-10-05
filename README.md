@@ -386,12 +386,18 @@ The local dashboard provides:
 - Pipeline freshness, failures, provenance, run controls, and bounded log tails.
 - Data inventory, lineage checks, unmanaged-data detection, and recovery snapshots.
 - Resume review for skills, employment, education, and projects.
+- Benchmark queues for resume, title, and future typed cases, with revision-safe
+  approve/reject decisions, provenance, warnings, and review history.
 - Deterministic application-specific resume comparisons.
 - Weight simulation, calibration feedback, alerts, and report snapshots.
 
 Dashboard pipeline actions are limited to downstream rebuild, quality check, and full
 pipeline. Recovery snapshots include configuration, Bronze, Silver, Gold, and
 checkpoints. Candidate-private data and workflow state are excluded.
+
+Open **Benchmarks** to review draft cases or inspect prior decisions. Dataset lists
+contain metadata only; private resume text is fetched only when a case is opened.
+Frozen benchmark versions remain read-only in the dashboard.
 
 ## Candidate And Resume Workflow
 
@@ -464,6 +470,19 @@ The provider-neutral evaluation harness is advisory:
 | `jobbert-v3` | Title aliases, taxonomy mapping, and related-role retrieval |
 | `job-eval-modernbert` | Shadow-only application fit evaluation |
 
+JobBERT title evaluation is governed by the versioned vocabulary in
+`config/titles.yaml` and the human annotation rules in
+`docs/title-normalization-ontology.md`. Canonical occupation and seniority are
+separate dimensions; frozen benchmarks must pin the exact taxonomy version and
+fingerprint used during review.
+
+Title ranking uses two stages. The governed stage resolves unambiguous canonical
+titles, configured aliases, occupation heads, and structurally explicit
+specializations. Titles with coequal occupations or competing governed signals defer
+to JobBERT-v3 semantic retrieval. Evaluation reports preserve the selected strategy,
+governed rule, and aggregate `governed_resolution_rate`; semantic scores remain
+unchanged even when a governed result is placed first.
+
 Install optional dependencies and cache pinned model snapshots:
 
 ```powershell
@@ -483,7 +502,104 @@ Run configured evaluations:
 JobEval runs through a reviewed adapter in a network-disabled subprocess. It cannot
 alter deterministic application scores or opportunity rankings.
 
+Its private benchmark is governed by
+`docs/application-comparison-ontology.md`. Human reviewers independently score
+requirement coverage, seniority fit, domain alignment, and ATS keyword overlap on a
+zero-to-100 anchored scale. Evidence annotations must be exact phrases from the paired
+resume or job description; model explanations and inferred facts are not evidence.
+
 ### Private Benchmarks
+
+Draft the private JobBERT title-normalization benchmark from the current Silver
+inventory and the governed edge-case catalog:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\manage_benchmarks.py draft-titles `
+  private-title-normalization-v1 --version 1.0.0 `
+  --minimum-approved-cases 100
+
+.\.venv\Scripts\python.exe scripts\manage_benchmarks.py status `
+  private-title-normalization-v1
+```
+
+The command creates 120 drafts: 80 provenance-linked observed titles and 40
+challenging synthetic cases. Review packets and their index are stored under
+`data/private/model_benchmarks/private-title-normalization-v1/review_packets/`.
+Approve or reject every packet individually; editing a packet invalidates prior
+approval and all edited title cases are checked against the pinned taxonomy:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\manage_benchmarks.py review-case `
+  private-title-normalization-v1 <case-id> `
+  --reviewer candidate-owner --decision approve `
+  --case-file "data\private\model_benchmarks\private-title-normalization-v1\review_packets\<case-id>.json" `
+  --attest
+
+# Reject removes a weak case from the eventual frozen benchmark.
+.\.venv\Scripts\python.exe scripts\manage_benchmarks.py review-case `
+  private-title-normalization-v1 <case-id> `
+  --reviewer candidate-owner --decision reject --attest
+
+# Regenerate packets and index after staging revisions or recording decisions.
+.\.venv\Scripts\python.exe scripts\manage_benchmarks.py export-title-packets `
+  private-title-normalization-v1
+```
+
+After every draft has a decision and at least 100 remain approved, freeze and run
+the JobBERT evaluation:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\manage_benchmarks.py freeze `
+  private-title-normalization-v1
+
+.\.venv\Scripts\python.exe scripts\evaluate_models.py jobbert-v3 `
+  --dataset data\private\model_benchmarks\private-title-normalization-v1\1.0.0\cases.jsonl `
+  --manifest data\private\model_benchmarks\private-title-normalization-v1\1.0.0\manifest.yaml
+```
+
+Draft the private JobEval benchmark from an approved resume extraction and the current
+Silver/Gold corpus:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\manage_benchmarks.py draft-comparisons `
+  private-application-comparison-v1 <approved-extraction-id> --version 1.0.0
+
+.\.venv\Scripts\python.exe scripts\manage_benchmarks.py status `
+  private-application-comparison-v1
+```
+
+The builder creates 50 distinct real resume/job pairs: ten strong matches, ten weak
+matches, ten adjacent roles, ten cases with missing qualifications, and ten misleading
+keyword-overlap cases. Deterministic scores are editable drafting anchors, not labels.
+Review all scores and exact evidence phrases in the dashboard **Benchmarks** tab.
+Rejecting a case removes it from the frozen output; editing a case invalidates its prior
+approval. At least 40 cases must remain approved, allowing up to ten weak cases to be
+removed. Regenerate file-based packets when needed:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\manage_benchmarks.py `
+  export-comparison-packets private-application-comparison-v1
+```
+
+After all 50 cases have a decision and at least 40 remain approved, freeze and run the
+shadow-only evaluation:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\manage_benchmarks.py freeze `
+  private-application-comparison-v1
+
+.\.venv\Scripts\python.exe scripts\evaluate_models.py job-eval-modernbert `
+  --backend model_evaluation.job_eval_backend:score_pair `
+  --dataset data\private\model_benchmarks\private-application-comparison-v1\1.0.0\cases.jsonl `
+  --manifest data\private\model_benchmarks\private-application-comparison-v1\1.0.0\manifest.yaml
+```
+
+JobEval runs in a persistent isolated worker: the pinned ModernBERT runtime is loaded
+once, then reused for every case and stability repetition. The command prints each
+prediction as `N/total`, including its case ID, repetition, completion time, or bounded
+timeout/failure. A 30-second heartbeat identifies a prediction that is still running.
+Model loading can make the first prediction noticeably slower; later predictions should
+not pay that startup cost. Pressing `Ctrl+C` closes the worker.
 
 Create, draft, review, inspect, and freeze a human-reviewed Resume NER benchmark:
 
@@ -674,6 +790,22 @@ when constructing `OksomuResumeNERProvider` to run a model-only ablation.
 source boundaries, excludes role and project-title lines, and restricts ambiguous
 short terms to explicit skill lists. Reports include a taxonomy SHA-256 fingerprint;
 the matcher never reads benchmark cases or annotations.
+
+Evaluation report schema v3 persists privacy-safe error classifications with stable
+IDs. Resume NER mismatches are grouped into connected span components and classified
+as incorrect predictions, boundary-only disagreements, or label/ontology problems.
+Isolated predictions and label conflicts remain marked for human review because only
+a reviewer can confirm a benchmark annotation mistake. Layout and role slices at
+least five exact-F1 points below the overall run are persisted separately as weak
+slice signals. Dashboard projections expose counts and span-free metadata only.
+
+Use **Evaluations > Adjudication queue** to review those marked components. The local
+screen shows private source context plus expected and predicted spans, then requires a
+final classification, reviewer, notes, and explicit attestation. Decisions are stored
+under `data/private/model_evaluations/adjudications/` as append-only history bound to
+the report SHA-256, dataset fingerprint, classifier version, and optimistic revision.
+Evaluation reports remain immutable; stale browser submissions are rejected and must
+be reloaded before review continues.
 
 ## Engineering Commands
 

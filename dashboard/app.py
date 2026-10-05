@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import socket as socket_module
 from datetime import UTC, datetime
 from http import HTTPStatus
@@ -17,6 +18,7 @@ from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from dashboard.benchmarks import BenchmarkDashboardService, BenchmarkReviewSubmission
 from dashboard.data_management import DataManagementService
 from dashboard.model_evaluations import load_model_evaluations
 from dashboard.pipeline_control import (
@@ -25,6 +27,19 @@ from dashboard.pipeline_control import (
     PipelineRunConflictError,
 )
 from dashboard.tracking import ApplicationTrackingRepository
+from model_evaluation.adjudication import (
+    AdjudicationConflictError,
+    AdjudicationError,
+    AdjudicationNotFoundError,
+    AdjudicationSubmission,
+    ErrorAdjudicationService,
+)
+from model_evaluation.benchmarking import (
+    BenchmarkConflictError,
+    BenchmarkNotFoundError,
+    BenchmarkRepositoryError,
+    PrivateBenchmarkRepository,
+)
 from models import ResumeExtractionReviewDraft, ResumeExtractionReviewSubmission
 from profiles import (
     CandidateProfileRepository,
@@ -148,6 +163,14 @@ def _load_json_object(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"Pipeline output must be a JSON object: {path}")
     return cast(dict[str, Any], payload)
+
+
+def _clean_path_identifier(raw_value: str, label: str) -> str:
+    """Decode one URL path identifier without allowing nested path traversal."""
+    value = unquote(raw_value).strip()
+    if not value or "/" in value or "\\" in value or value in {".", ".."}:
+        raise ValueError(f"A valid {label} is required")
+    return value
 
 
 def _stage_freshness(timestamp: object, now: datetime) -> dict[str, object]:
@@ -456,6 +479,8 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
     data_management_lock = RLock()
     model_evaluation_root = DEFAULT_MODEL_EVALUATION_ROOT
     evaluation_project_root = PROJECT_ROOT
+    evaluation_adjudication_service: ErrorAdjudicationService | None = None
+    benchmark_service: BenchmarkDashboardService | None = None
 
     def __init__(
         self,
@@ -584,6 +609,35 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
                     status=HTTPStatus.SERVICE_UNAVAILABLE,
                 )
             return
+        if path == "/api/benchmarks":
+            if self.benchmark_service is None:
+                self._send_json(
+                    {"error": "Benchmark review is unavailable"},
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+            else:
+                try:
+                    self._send_json(self.benchmark_service.overview())
+                except BenchmarkRepositoryError as exc:
+                    self._send_json(
+                        {"error": str(exc)},
+                        status=HTTPStatus.SERVICE_UNAVAILABLE,
+                    )
+            return
+        benchmark_case_match = re.fullmatch(
+            r"/api/benchmarks/([^/]+)/cases/([^/]+)", path
+        )
+        if benchmark_case_match:
+            self._get_benchmark_case(
+                benchmark_case_match.group(1), benchmark_case_match.group(2)
+            )
+            return
+        adjudication_match = re.fullmatch(
+            r"/api/model-evaluations/([^/]+)/adjudications", path
+        )
+        if adjudication_match:
+            self._get_evaluation_adjudications(adjudication_match.group(1))
+            return
         if path == "/api/health":
             try:
                 mart = load_opportunities_mart(self.mart_path)
@@ -607,6 +661,22 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
     def do_PUT(self) -> None:  # noqa: N802
         """Validate and persist one candidate-controlled dashboard record."""
         path = urlsplit(self.path).path
+        benchmark_case_match = re.fullmatch(
+            r"/api/benchmarks/([^/]+)/cases/([^/]+)", path
+        )
+        if benchmark_case_match:
+            self._put_benchmark_review(
+                benchmark_case_match.group(1), benchmark_case_match.group(2)
+            )
+            return
+        adjudication_match = re.fullmatch(
+            r"/api/model-evaluations/([^/]+)/adjudications/([^/]+)", path
+        )
+        if adjudication_match:
+            self._put_evaluation_adjudication(
+                adjudication_match.group(1), adjudication_match.group(2)
+            )
+            return
         review_prefix = "/api/resume-reviews/"
         if path.startswith(review_prefix):
             self._approve_resume_review(path.removeprefix(review_prefix))
@@ -636,6 +706,102 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
             self._send_json(record.model_dump(mode="json"))
 
         except (json.JSONDecodeError, UnicodeDecodeError, ValidationError, ValueError) as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+
+    def _get_benchmark_case(self, raw_dataset_id: str, raw_case_id: str) -> None:
+        """Return one explicitly selected private benchmark case."""
+        if self.benchmark_service is None:
+            self._send_json(
+                {"error": "Benchmark review is unavailable"},
+                status=HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+        try:
+            dataset_id = _clean_path_identifier(raw_dataset_id, "dataset ID")
+            case_id = _clean_path_identifier(raw_case_id, "case ID")
+            self._send_json(self.benchmark_service.case_detail(dataset_id, case_id))
+        except BenchmarkNotFoundError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
+        except (BenchmarkRepositoryError, ValueError) as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+
+    def _put_benchmark_review(self, raw_dataset_id: str, raw_case_id: str) -> None:
+        """Persist one attested approve or reject decision for a benchmark case."""
+        if self.benchmark_service is None:
+            self._send_json(
+                {"error": "Benchmark review is unavailable"},
+                status=HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+        try:
+            dataset_id = _clean_path_identifier(raw_dataset_id, "dataset ID")
+            case_id = _clean_path_identifier(raw_case_id, "case ID")
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0 or content_length > MAX_REVIEW_REQUEST_BYTES:
+                raise ValueError("Review body must be between 1 byte and 512 KB")
+            payload = json.loads(self.rfile.read(content_length))
+            submission = BenchmarkReviewSubmission.model_validate(payload)
+            saved = self.benchmark_service.review(dataset_id, case_id, submission)
+            self._send_json(saved)
+        except BenchmarkNotFoundError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
+        except BenchmarkConflictError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
+        except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+
+    def _get_evaluation_adjudications(self, raw_report_id: str) -> None:
+        """Return private source context for review-required error components."""
+        if self.evaluation_adjudication_service is None:
+            self._send_json(
+                {"error": "Evaluation adjudication is unavailable"},
+                status=HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+        try:
+            self._send_json(
+                self.evaluation_adjudication_service.queue(unquote(raw_report_id))
+            )
+        except AdjudicationNotFoundError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
+        except AdjudicationConflictError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
+        except AdjudicationError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
+
+    def _put_evaluation_adjudication(
+        self,
+        raw_report_id: str,
+        raw_classification_id: str,
+    ) -> None:
+        """Persist one attested error classification decision."""
+        if self.evaluation_adjudication_service is None:
+            self._send_json(
+                {"error": "Evaluation adjudication is unavailable"},
+                status=HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0 or content_length > MAX_REVIEW_REQUEST_BYTES:
+                raise ValueError("Review body must be between 1 byte and 512 KB")
+            payload = json.loads(self.rfile.read(content_length))
+            if not isinstance(payload, dict):
+                raise ValueError("Request body must be a JSON object")
+            submission = AdjudicationSubmission.model_validate(payload)
+            saved = self.evaluation_adjudication_service.adjudicate(
+                unquote(raw_report_id),
+                unquote(raw_classification_id),
+                submission,
+            )
+            self._send_json(saved)
+        except AdjudicationNotFoundError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
+        except AdjudicationConflictError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
+        except AdjudicationError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
+        except (json.JSONDecodeError, ValidationError, ValueError) as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
 
     def do_PATCH(self) -> None:  # noqa: N802
@@ -955,6 +1121,7 @@ def create_server(
     backup_root: Path | None = None,
     data_project_root: Path = PROJECT_ROOT,
     profile_database: Path | None = None,
+    benchmark_database: Path | None = None,
     pipeline_controller: PipelineOperationsController | None = None,
     model_evaluation_root: Path = DEFAULT_MODEL_EVALUATION_ROOT,
     evaluation_project_root: Path = PROJECT_ROOT,
@@ -986,6 +1153,16 @@ def create_server(
             "data_management_service": DataManagementService(data_project_root, backup_root),
             "model_evaluation_root": model_evaluation_root,
             "evaluation_project_root": evaluation_project_root,
+            "evaluation_adjudication_service": ErrorAdjudicationService(
+                model_evaluation_root,
+                evaluation_project_root,
+            ),
+            "benchmark_service": BenchmarkDashboardService(
+                PrivateBenchmarkRepository(
+                    benchmark_database or config.settings.paths.model_benchmark_database
+                ),
+                config.titles,
+            ),
         },
     )
     return DashboardHTTPServer((host, port), handler)
@@ -1004,6 +1181,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--operations-state", type=Path, default=DEFAULT_OPERATIONS_STATE_PATH)
     parser.add_argument("--backup-root", type=Path)
     parser.add_argument("--profile-database", type=Path)
+    parser.add_argument("--benchmark-database", type=Path)
     parser.add_argument("--model-evaluation-root", type=Path, default=DEFAULT_MODEL_EVALUATION_ROOT)
     return parser
 
@@ -1023,6 +1201,7 @@ def main(argv: list[str] | None = None) -> int:
             operations_state_path=args.operations_state,
             backup_root=args.backup_root,
             profile_database=args.profile_database,
+            benchmark_database=args.benchmark_database,
             model_evaluation_root=args.model_evaluation_root,
         )
     except OSError as exc:

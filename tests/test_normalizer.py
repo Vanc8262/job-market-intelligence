@@ -45,7 +45,7 @@ def test_normalize_applies_all_configured_taxonomies_without_mutating_input() ->
 
     assert original.company.normalized_name is None
     assert original.salary.min_amount == 70
-    assert normalized.position.normalized_title == "ML Engineer"
+    assert normalized.position.normalized_title == "Machine Learning Engineer"
     assert normalized.position.family == "machine_learning"
     assert normalized.position.seniority == "senior"
     assert normalized.company.name == "  Google LLC  "

@@ -1,42 +1,176 @@
+taxonomy_id: jmip-title-taxonomy
+version: 1.0.0
+
 families:
   data_science:
-    - Data Scientist
-    - Applied Scientist
-    - Research Scientist
+    label: Data Science and Analytics
+    description: Roles whose primary output is analysis, experimentation, inference, or decision support.
   machine_learning:
-    - Machine Learning Engineer
-    - ML Engineer
-    - AI Engineer
+    label: Machine Learning and AI
+    description: Roles whose primary output is a production ML or AI model, system, or research capability.
   data_engineering:
-    - Data Engineer
-    - Analytics Engineer
-    - Platform Data Engineer
+    label: Data Engineering
+    description: Roles whose primary output is reliable data movement, transformation, storage, or serving infrastructure.
   software_engineering:
-    - Software Engineer
-    - Backend Engineer
-    - Full Stack Engineer
+    label: Software Engineering
+    description: Roles whose primary output is production software, services, platforms, or software reliability.
+
+# Canonical titles identify occupations, not seniority. Keep employer, team, domain,
+# technology, employment type, and level modifiers in the observed source title.
+canonical_titles:
+  - id: data-scientist
+    title: Data Scientist
+    family: data_science
+    track: individual_contributor
+    aliases: [Decision Scientist, Product Data Scientist]
+    related_title_ids: [applied-scientist, machine-learning-engineer, data-analyst]
+  - id: data-analyst
+    title: Data Analyst
+    family: data_science
+    track: individual_contributor
+    aliases: [Analytics Analyst]
+    related_title_ids: [business-intelligence-analyst, data-scientist, analytics-engineer]
+  - id: business-intelligence-analyst
+    title: Business Intelligence Analyst
+    family: data_science
+    track: individual_contributor
+    aliases: [BI Analyst, Business Intelligence Developer]
+    related_title_ids: [data-analyst, analytics-engineer]
+  - id: quantitative-analyst
+    title: Quantitative Analyst
+    family: data_science
+    track: individual_contributor
+    aliases: [Quant Analyst]
+    related_title_ids: [data-scientist, research-scientist]
+  - id: applied-scientist
+    title: Applied Scientist
+    family: data_science
+    track: individual_contributor
+    aliases: []
+    related_title_ids: [data-scientist, research-scientist, machine-learning-engineer]
+  - id: research-scientist
+    title: Research Scientist
+    family: data_science
+    track: individual_contributor
+    aliases: [AI Research Scientist, Machine Learning Research Scientist]
+    related_title_ids: [applied-scientist, machine-learning-engineer]
+
+  - id: machine-learning-engineer
+    title: Machine Learning Engineer
+    family: machine_learning
+    track: individual_contributor
+    aliases: [ML Engineer, Machine Learning Software Engineer]
+    related_title_ids: [ai-engineer, mlops-engineer, data-scientist]
+  - id: ai-engineer
+    title: AI Engineer
+    family: machine_learning
+    track: individual_contributor
+    aliases: [Artificial Intelligence Engineer, Generative AI Engineer]
+    related_title_ids: [machine-learning-engineer, nlp-engineer]
+  - id: mlops-engineer
+    title: MLOps Engineer
+    family: machine_learning
+    track: individual_contributor
+    aliases: [Machine Learning Operations Engineer, ML Platform Engineer]
+    related_title_ids: [machine-learning-engineer, data-platform-engineer, platform-engineer]
+  - id: computer-vision-engineer
+    title: Computer Vision Engineer
+    family: machine_learning
+    track: individual_contributor
+    aliases: [Vision Engineer]
+    related_title_ids: [machine-learning-engineer, ai-engineer]
+  - id: nlp-engineer
+    title: Natural Language Processing Engineer
+    family: machine_learning
+    track: individual_contributor
+    aliases: [NLP Engineer, Language AI Engineer]
+    related_title_ids: [machine-learning-engineer, ai-engineer]
+
+  - id: data-engineer
+    title: Data Engineer
+    family: data_engineering
+    track: individual_contributor
+    aliases: [ETL Engineer, Big Data Engineer]
+    related_title_ids: [analytics-engineer, data-platform-engineer, database-engineer]
+  - id: analytics-engineer
+    title: Analytics Engineer
+    family: data_engineering
+    track: individual_contributor
+    aliases: [Data Analytics Engineer]
+    related_title_ids: [data-engineer, data-analyst, business-intelligence-analyst]
+  - id: data-platform-engineer
+    title: Data Platform Engineer
+    family: data_engineering
+    track: individual_contributor
+    aliases: [Platform Data Engineer]
+    related_title_ids: [data-engineer, platform-engineer, mlops-engineer]
+  - id: database-engineer
+    title: Database Engineer
+    family: data_engineering
+    track: individual_contributor
+    aliases: [Database Developer]
+    related_title_ids: [data-engineer, backend-engineer]
+
+  - id: software-engineer
+    title: Software Engineer
+    family: software_engineering
+    track: individual_contributor
+    aliases: [Software Developer, Application Developer]
+    related_title_ids: [backend-engineer, frontend-engineer, full-stack-engineer]
+  - id: backend-engineer
+    title: Backend Engineer
+    family: software_engineering
+    track: individual_contributor
+    aliases: [Backend Developer, Server-side Engineer]
+    related_title_ids: [software-engineer, full-stack-engineer, database-engineer]
+  - id: frontend-engineer
+    title: Frontend Engineer
+    family: software_engineering
+    track: individual_contributor
+    aliases: [Frontend Developer, Front-end Engineer, UI Engineer]
+    related_title_ids: [software-engineer, full-stack-engineer]
+  - id: full-stack-engineer
+    title: Full Stack Engineer
+    family: software_engineering
+    track: individual_contributor
+    aliases: [Full Stack Developer, Full-stack Engineer, Full-stack Developer]
+    related_title_ids: [software-engineer, backend-engineer, frontend-engineer]
+  - id: devops-engineer
+    title: DevOps Engineer
+    family: software_engineering
+    track: individual_contributor
+    aliases: [Development Operations Engineer]
+    related_title_ids: [platform-engineer, site-reliability-engineer, cloud-engineer]
+  - id: platform-engineer
+    title: Platform Engineer
+    family: software_engineering
+    track: individual_contributor
+    aliases: [Software Platform Engineer]
+    related_title_ids: [devops-engineer, site-reliability-engineer, cloud-engineer]
+  - id: site-reliability-engineer
+    title: Site Reliability Engineer
+    family: software_engineering
+    track: individual_contributor
+    aliases: [SRE Engineer, SRE]
+    related_title_ids: [platform-engineer, devops-engineer]
+  - id: cloud-engineer
+    title: Cloud Engineer
+    family: software_engineering
+    track: individual_contributor
+    aliases: [Cloud Infrastructure Engineer]
+    related_title_ids: [platform-engineer, devops-engineer]
+  - id: qa-automation-engineer
+    title: QA Automation Engineer
+    family: software_engineering
+    track: individual_contributor
+    aliases: [Software Development Engineer in Test, SDET, Test Automation Engineer]
+    related_title_ids: [software-engineer]
+
 seniority_keywords:
-  entry:
-    - junior
-    - jr
-    - associate
-    - new grad
-    - new graduate
-    - intern
-  mid:
-    - engineer
-    - developer
-  senior:
-    - senior
-    - sr
-    - lead
-  staff:
-    - staff
-    - principal
-  manager:
-    - manager
-  director:
-    - director
-  executive:
-    - vice president
-    - chief
+  entry: [junior, jr, associate, new grad, new graduate, intern]
+  mid: [engineer, developer, analyst, scientist]
+  senior: [senior, sr, lead]
+  staff: [staff, principal, distinguished]
+  manager: [manager]
+  director: [director, head of]
+  executive: [vice president, vp, chief]

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>JMIP Dashboard</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=comparison-benchmark-v1">
 </head>
 <body>
   <header class="app-header">
@@ -29,6 +29,7 @@
     <button type="button" data-view="operations">Pipeline operations</button>
     <button type="button" data-view="simulator">Weight simulator</button>
     <button type="button" data-view="resume-review">Resume review</button>
+    <button type="button" data-view="benchmarks">Benchmarks</button>
     <button type="button" data-view="evaluations">Evaluations</button>
     <button type="button" data-view="reporting">Alerts &amp; reports</button>
   </nav>
@@ -159,6 +160,25 @@
         </div>
         <div class="evaluations-content" id="evaluationsContent"></div>
       </section>
+
+      <section class="benchmarks" id="benchmarksPanel" aria-label="Benchmark case review" hidden>
+        <div class="benchmarks-header">
+          <div><h1>Benchmark review</h1><p id="benchmarksFreshness">Loading private benchmark state</p></div>
+          <span class="benchmark-status" id="benchmarkStatus">Status pending</span>
+        </div>
+        <div class="benchmark-toolbar">
+          <label><span>Benchmark</span><select id="benchmarkDatasetSelect" aria-label="Benchmark dataset"></select></label>
+          <label><span>Review status</span><select id="benchmarkCaseStatus"><option value="">All statuses</option><option value="draft">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></label>
+          <label class="benchmark-search"><span>Search cases</span><input id="benchmarkCaseSearch" type="search" placeholder="Case ID, title, or tag"></label>
+        </div>
+        <div class="benchmark-content">
+          <section class="benchmark-queue" aria-label="Benchmark cases">
+            <div class="benchmark-queue-heading"><strong id="benchmarkQueueTitle">Cases</strong><span id="benchmarkQueueCount">--</span></div>
+            <div class="benchmark-case-list" id="benchmarkCaseList"></div>
+          </section>
+          <section class="benchmark-detail" id="benchmarkDetail" aria-label="Selected benchmark case"></section>
+        </div>
+      </section>
     </div>
   </main>
 
@@ -167,6 +187,6 @@
     <div class="drawer-header"><span class="drawer-eyebrow" id="drawerRank">Opportunity</span><button class="icon-button" id="closeDrawer" type="button" aria-label="Close details" title="Close details">&times;</button></div>
     <div class="drawer-content" id="drawerContent"></div>
   </aside>
-  <script src="/app.js?v=evaluations-v1" defer></script>
+  <script src="/app.js?v=comparison-benchmark-v1" defer></script>
 </body>
 </html>

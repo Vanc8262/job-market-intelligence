@@ -485,6 +485,95 @@ class GenericYamlConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class TitleFamilyConfig(BaseModel):
+    """One governed family in the canonical title taxonomy."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=100)
+    description: str = Field(min_length=1, max_length=500)
+
+
+class CanonicalTitleConfig(BaseModel):
+    """One stable occupation-level title and its observed aliases."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    title: str = Field(min_length=1, max_length=200)
+    family: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    track: Literal["individual_contributor", "management"]
+    aliases: list[str] = Field(default_factory=list)
+    related_title_ids: list[str] = Field(default_factory=list)
+
+
+class TitleTaxonomyConfig(BaseModel):
+    """Versioned and internally consistent canonical job-title vocabulary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    taxonomy_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
+    families: dict[str, TitleFamilyConfig]
+    canonical_titles: list[CanonicalTitleConfig] = Field(min_length=2)
+    seniority_keywords: dict[str, list[str]]
+
+    @model_validator(mode="after")
+    def validate_taxonomy(self) -> Self:
+        """Reject ambiguous aliases and dangling family or relationship references."""
+        title_ids = [item.id for item in self.canonical_titles]
+        if len(title_ids) != len(set(title_ids)):
+            raise ValueError("canonical title IDs must be unique")
+        known_ids = set(title_ids)
+        known_families = set(self.families)
+        surface_owner: dict[str, str] = {}
+        used_families: set[str] = set()
+
+        for item in self.canonical_titles:
+            if item.family not in known_families:
+                raise ValueError(
+                    f"canonical title {item.id!r} references unknown family {item.family!r}"
+                )
+            used_families.add(item.family)
+            if item.id in item.related_title_ids:
+                raise ValueError(f"canonical title {item.id!r} cannot relate to itself")
+            missing = set(item.related_title_ids) - known_ids
+            if missing:
+                raise ValueError(
+                    f"canonical title {item.id!r} has unknown related IDs: {sorted(missing)}"
+                )
+            if len(item.related_title_ids) != len(set(item.related_title_ids)):
+                raise ValueError(f"canonical title {item.id!r} repeats related title IDs")
+
+            for surface in [item.title, *item.aliases]:
+                key = " ".join(surface.casefold().split())
+                if not key:
+                    raise ValueError(f"canonical title {item.id!r} has an empty alias")
+                owner = surface_owner.get(key)
+                if owner is not None:
+                    raise ValueError(
+                        f"title surface {surface!r} is assigned to both {owner!r} and {item.id!r}"
+                    )
+                surface_owner[key] = item.id
+
+        unused = known_families - used_families
+        if unused:
+            raise ValueError(f"title families have no canonical titles: {sorted(unused)}")
+        required_levels = {
+            "entry",
+            "mid",
+            "senior",
+            "staff",
+            "manager",
+            "director",
+            "executive",
+        }
+        missing_levels = required_levels - set(self.seniority_keywords)
+        if missing_levels:
+            raise ValueError(f"seniority keywords omit required levels: {sorted(missing_levels)}")
+        return self
+
+
 class ExtractorTargetBase(BaseModel):
     """Fields shared by all configured extractor targets."""
 
@@ -680,7 +769,7 @@ class Config:
         self._companies: GenericYamlConfig | None = None
         self._salary: GenericYamlConfig | None = None
         self._locations: GenericYamlConfig | None = None
-        self._titles: GenericYamlConfig | None = None
+        self._titles: TitleTaxonomyConfig | None = None
         self._logging: GenericYamlConfig | None = None
         self._extractor_targets: ExtractorTargetsConfig | None = None
         self._initialized = True
@@ -795,11 +884,11 @@ class Config:
         return self._locations
 
     @property
-    def titles(self) -> GenericYamlConfig:
+    def titles(self) -> TitleTaxonomyConfig:
         """Return title normalization configuration."""
         if self._titles is None:
             self._titles = self._validate(
-                GenericYamlConfig, self._read_yaml("titles.yaml"), "titles.yaml"
+                TitleTaxonomyConfig, self._read_yaml("titles.yaml"), "titles.yaml"
             )
         return self._titles
 

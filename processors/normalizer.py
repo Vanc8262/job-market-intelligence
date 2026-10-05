@@ -46,20 +46,17 @@ class JobPostingNormalizer:
     def _normalize_position(self, position: PositionInfo) -> PositionInfo:
         result = position.model_copy(deep=True)
         title = self._clean_text(result.title)
-        title_config = self.config.titles.model_dump()
-        families = self._mapping(title_config.get("families"))
-
         matches: list[tuple[int, str, str]] = []
-        for family, configured_titles in families.items():
-            for configured_title in self._strings(configured_titles):
-                if self._contains_phrase(title, configured_title):
-                    matches.append((len(configured_title), family, configured_title))
+        for canonical in self.config.titles.canonical_titles:
+            for surface in [canonical.title, *canonical.aliases]:
+                if self._contains_phrase(title, surface):
+                    matches.append((len(surface), canonical.family, canonical.title))
         if matches:
             _, result.family, result.normalized_title = max(matches, key=lambda item: item[0])
         else:
             result.normalized_title = title
 
-        seniority_keywords = self._mapping(title_config.get("seniority_keywords"))
+        seniority_keywords = self.config.titles.seniority_keywords
         seniority_matches: list[tuple[int, int, str]] = []
         for precedence, (level, keywords) in enumerate(seniority_keywords.items()):
             for keyword in self._strings(keywords):
