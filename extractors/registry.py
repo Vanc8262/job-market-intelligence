@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Iterable
 
 import httpx
@@ -10,14 +9,9 @@ import httpx
 from extractors.ashby import AshbyExtractor
 from extractors.base_extractor import BaseExtractor
 from extractors.greenhouse import GreenhouseExtractor
-from extractors.handshake_edu import HandshakeAuthorizationError, HandshakeEduExtractor
-from extractors.jobicy import JobicyExtractor
 from extractors.lever import LeverExtractor
 from extractors.nextera import NextEraExtractor
 from extractors.phenom import PhenomExtractor
-from extractors.smartrecruiters import SmartRecruitersExtractor
-from extractors.usajobs import USAJobsAuthorizationError, USAJobsExtractor
-from extractors.workable import WorkableExtractor
 from extractors.workday import WorkdayExtractor
 from storage.base import BaseStorage
 from storage.bronze import BronzeStorage
@@ -28,16 +22,11 @@ from utils.config import (
     ExtractorTarget,
     ExtractorTargetsConfig,
     GreenhouseTarget,
-    HandshakeEduTarget,
-    JobicyTarget,
     LeverTarget,
     NextEraTarget,
     PhenomTarget,
-    SmartRecruitersTarget,
     SourceAccessPolicy,
     SourcesConfig,
-    USAJobsTarget,
-    WorkableTarget,
     WorkdayTarget,
 )
 from utils.logger import log_event
@@ -111,28 +100,6 @@ class ExtractorRegistry:
                 checkpoint_manager=self.checkpoint_manager,
                 client=client,
             )
-        elif isinstance(target, HandshakeEduTarget):
-            if not target.authorized_use_confirmed:
-                raise HandshakeAuthorizationError(
-                    "Handshake collection requires authorized_use_confirmed=true after "
-                    "the institution verifies that its agreement permits this use"
-                )
-            api_key = os.getenv(target.api_key_env, "").strip()
-            if not api_key:
-                raise HandshakeAuthorizationError(
-                    f"Authorized Handshake EDU API key is missing from {target.api_key_env}"
-                )
-            extractor = HandshakeEduExtractor(
-                target.institution_scope,
-                api_key,
-                institution_name=target.institution_name,
-                page_size=target.page_size,
-                updated_since=target.updated_since,
-                config=self.config,
-                bronze_storage=self.bronze_storage,
-                checkpoint_manager=self.checkpoint_manager,
-                client=client,
-            )
         elif isinstance(target, LeverTarget):
             extractor = LeverExtractor(
                 target.site,
@@ -182,59 +149,6 @@ class ExtractorRegistry:
                 locale=target.locale,
                 path_prefix=target.path_prefix,
                 company_name=target.company_name,
-                config=self.config,
-                bronze_storage=self.bronze_storage,
-                checkpoint_manager=self.checkpoint_manager,
-                client=client,
-            )
-        elif isinstance(target, SmartRecruitersTarget):
-            extractor = SmartRecruitersExtractor(
-                target.company_identifier,
-                company_name=target.company_name,
-                page_size=target.page_size,
-                config=self.config,
-                bronze_storage=self.bronze_storage,
-                checkpoint_manager=self.checkpoint_manager,
-                client=client,
-            )
-        elif isinstance(target, WorkableTarget):
-            extractor = WorkableExtractor(
-                target.account_subdomain,
-                company_name=target.company_name,
-                config=self.config,
-                bronze_storage=self.bronze_storage,
-                checkpoint_manager=self.checkpoint_manager,
-                client=client,
-            )
-        elif isinstance(target, USAJobsTarget):
-            api_key = os.getenv(target.api_key_env, "").strip()
-            user_agent_email = os.getenv(target.user_agent_email_env, "").strip()
-            if not api_key:
-                raise USAJobsAuthorizationError(
-                    f"USAJOBS API key is missing from {target.api_key_env}"
-                )
-            if not user_agent_email:
-                raise USAJobsAuthorizationError(
-                    "USAJOBS registration email is missing from "
-                    f"{target.user_agent_email_env}"
-                )
-            extractor = USAJobsExtractor(
-                api_key,
-                user_agent_email,
-                results_per_page=target.results_per_page,
-                max_pages=target.max_pages,
-                config=self.config,
-                bronze_storage=self.bronze_storage,
-                checkpoint_manager=self.checkpoint_manager,
-                client=client,
-            )
-        elif isinstance(target, JobicyTarget):
-            extractor = JobicyExtractor(
-                target.name,
-                count=target.count,
-                geo=target.geo,
-                industry=target.industry,
-                cache_ttl_minutes=target.cache_ttl_minutes,
                 config=self.config,
                 bronze_storage=self.bronze_storage,
                 checkpoint_manager=self.checkpoint_manager,

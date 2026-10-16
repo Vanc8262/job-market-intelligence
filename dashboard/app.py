@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import socket as socket_module
 from datetime import UTC, datetime
 from http import HTTPStatus
@@ -12,55 +11,18 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from socket import socket
 from socketserver import BaseServer
-from threading import RLock
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 from urllib.parse import unquote, urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import ValidationError
 
-from dashboard.benchmarks import BenchmarkDashboardService, BenchmarkReviewSubmission
-from dashboard.data_management import DataManagementService
-from dashboard.model_evaluations import load_model_evaluations
-from dashboard.pipeline_control import (
-    PipelineAction,
-    PipelineOperationsController,
-    PipelineRunConflictError,
-)
 from dashboard.tracking import ApplicationTrackingRepository
-from model_evaluation.adjudication import (
-    AdjudicationConflictError,
-    AdjudicationError,
-    AdjudicationNotFoundError,
-    AdjudicationSubmission,
-    ErrorAdjudicationService,
-)
-from model_evaluation.benchmarking import (
-    BenchmarkConflictError,
-    BenchmarkNotFoundError,
-    BenchmarkRepositoryError,
-    PrivateBenchmarkRepository,
-)
-from models import ResumeExtractionReviewDraft, ResumeExtractionReviewSubmission
-from profiles import (
-    CandidateProfileRepository,
-    DefaultProfileMigrator,
-    DeterministicApplicationComparisonService,
-    ProfileRecordNotFoundError,
-    ProfileRepositoryConflictError,
-)
-from reporting import ScheduledReportingService, load_reporting_dashboard
-from utils.config import Config
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 DEFAULT_MART_PATH = PROJECT_ROOT / "data" / "gold" / "current_opportunities" / "mart.json"
 DEFAULT_TRACKING_PATH = PROJECT_ROOT / "data" / "application_tracking" / "state.json"
 DEFAULT_GOLD_ROOT = PROJECT_ROOT / "data" / "gold"
-DEFAULT_REPORT_ROOT = PROJECT_ROOT / "data" / "reports"
-DEFAULT_ALERT_STATE_PATH = PROJECT_ROOT / "data" / "alerts" / "state.json"
-DEFAULT_OPERATIONS_STATE_PATH = PROJECT_ROOT / "data" / "operations" / "dashboard_runs.json"
-DEFAULT_BACKUP_ROOT = PROJECT_ROOT / "data" / "backups"
-DEFAULT_MODEL_EVALUATION_ROOT = PROJECT_ROOT / "data" / "private" / "model_evaluations"
 MARKET_SUMMARY_PATHS = {
     "skills": Path("skills/summary.json"),
     "titles": Path("titles/summary.json"),
@@ -79,24 +41,8 @@ OPERATIONS_PATHS = {
     "manifest": Path("manifest/latest.json"),
 }
 MAX_REQUEST_BYTES = 64 * 1024
-MAX_REVIEW_REQUEST_BYTES = 512 * 1024
 OPERATIONS_FRESHNESS_HOURS = 36
-
-
-class ApplicationComparisonRequest(BaseModel):
-    """Dashboard request for comparing one approved resume to one opportunity."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    resume_version_id: str = Field(min_length=1, max_length=200)
-
-
-class PipelineRunRequest(BaseModel):
-    """One allowlisted pipeline action requested from the local dashboard."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    action: PipelineAction
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 class DashboardHTTPServer(ThreadingHTTPServer):
@@ -113,6 +59,20 @@ class DashboardHTTPServer(ThreadingHTTPServer):
                 1,
             )
         super().server_bind()
+
+
+def _hostname(value: str | None) -> str | None:
+    """Return the lowercase hostname from a Host header or Origin URL."""
+    if not value:
+        return None
+    candidate = value.strip()
+    if "://" not in candidate:
+        candidate = f"//{candidate}"
+    try:
+        hostname = urlsplit(candidate).hostname
+    except ValueError:
+        return None
+    return hostname.casefold() if hostname else None
 
 
 def load_opportunities_mart(path: Path = DEFAULT_MART_PATH) -> dict[str, Any]:
@@ -163,14 +123,6 @@ def _load_json_object(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"Pipeline output must be a JSON object: {path}")
     return cast(dict[str, Any], payload)
-
-
-def _clean_path_identifier(raw_value: str, label: str) -> str:
-    """Decode one URL path identifier without allowing nested path traversal."""
-    value = unquote(raw_value).strip()
-    if not value or "/" in value or "\\" in value or value in {".", ".."}:
-        raise ValueError(f"A valid {label} is required")
-    return value
 
 
 def _stage_freshness(timestamp: object, now: datetime) -> dict[str, object]:
@@ -316,171 +268,14 @@ def load_pipeline_operations(
     }
 
 
-def load_candidate_profile(
-    repository: CandidateProfileRepository,
-    profile_id: str,
-) -> dict[str, Any]:
-    """Return the active profile and a safe projection of its resume versions."""
-    profile = repository.get_profile(profile_id)
-    versions = repository.list_resume_versions(profile_id)
-    return {
-        "profile": profile.model_dump(mode="json"),
-        "resume_versions": [
-            {
-                "resume_version_id": version.resume_version_id,
-                "version_label": version.version_label,
-                "media_type": version.media_type.value,
-                "status": version.status.value,
-                "uploaded_at": version.uploaded_at.isoformat(),
-                "is_active": version.resume_version_id == profile.active_resume_version_id,
-            }
-            for version in versions
-        ],
-    }
-
-
-def load_resume_reviews(
-    repository: CandidateProfileRepository,
-    profile_id: str,
-) -> dict[str, Any]:
-    """Return review-safe structured facts without private artifact metadata."""
-    profile = repository.get_profile(profile_id)
-    versions = repository.list_resume_versions(profile_id)
-    items: list[dict[str, Any]] = []
-    resumes_without_extraction = 0
-    for version in versions:
-        extractions = repository.list_extractions(version.resume_version_id)
-        if not extractions:
-            resumes_without_extraction += 1
-        for extraction in extractions:
-            section_counts = {
-                "skills": len(extraction.skills),
-                "employment": len(extraction.work_experience),
-                "education": len(extraction.education),
-                "projects": len(extraction.projects),
-            }
-            populated_sections = sum(count > 0 for count in section_counts.values())
-            items.append(
-                {
-                    "resume_version": {
-                        "resume_version_id": version.resume_version_id,
-                        "version_label": version.version_label,
-                        "media_type": version.media_type.value,
-                        "status": version.status.value,
-                        "uploaded_at": version.uploaded_at.isoformat(),
-                        "is_active": (
-                            version.resume_version_id == profile.active_resume_version_id
-                        ),
-                    },
-                    "extraction": {
-                        "extraction_id": extraction.extraction_id,
-                        "resume_version_id": extraction.resume_version_id,
-                        "extractor_name": extraction.extractor_name,
-                        "extractor_version": extraction.extractor_version,
-                        "status": extraction.status.value,
-                        "review_status": extraction.review_status.value,
-                        "page_count": extraction.page_count,
-                        "character_count": extraction.character_count,
-                        "language": extraction.language,
-                        "quality_score": extraction.quality_score,
-                        "structured_completeness": {
-                            "score": populated_sections / len(section_counts),
-                            "populated_sections": populated_sections,
-                            "total_sections": len(section_counts),
-                            "fact_count": sum(section_counts.values()),
-                            "section_counts": section_counts,
-                            "approval_progress": (
-                                len(extraction.reviewed_sections) / len(section_counts)
-                            ),
-                        },
-                        "skills": [item.model_dump(mode="json") for item in extraction.skills],
-                        "work_experience": [
-                            item.model_dump(mode="json") for item in extraction.work_experience
-                        ],
-                        "education": [
-                            item.model_dump(mode="json") for item in extraction.education
-                        ],
-                        "projects": [
-                            item.model_dump(mode="json") for item in extraction.projects
-                        ],
-                        "warnings": extraction.warnings,
-                        "quality_checks": [
-                            check.model_dump(mode="json") for check in extraction.quality_checks
-                        ],
-                        "reviewed_sections": [
-                            section.value for section in extraction.reviewed_sections
-                        ],
-                        "review_comment": extraction.review_comment,
-                        "extracted_at": extraction.extracted_at.isoformat(),
-                        "review_updated_at": (
-                            extraction.review_updated_at.isoformat()
-                            if extraction.review_updated_at is not None
-                            else None
-                        ),
-                        "reviewed_at": (
-                            extraction.reviewed_at.isoformat()
-                            if extraction.reviewed_at is not None
-                            else None
-                        ),
-                        "can_review": (
-                            extraction.review_status.value == "pending"
-                            and extraction.status.value != "failed"
-                        ),
-                    },
-                }
-            )
-    return {
-        "profile_id": profile.profile_id,
-        "items": items,
-        "pending_count": sum(
-            item["extraction"]["review_status"] == "pending"
-            for item in items
-        ),
-        "approved_count": sum(
-            item["extraction"]["review_status"] == "approved"
-            for item in items
-        ),
-        "resumes_without_extraction": resumes_without_extraction,
-    }
-
-
-def load_application_comparisons(
-    repository: CandidateProfileRepository,
-    profile_id: str,
-    job_id: str,
-) -> dict[str, Any]:
-    """Return persisted comparisons for one job without private resume content."""
-    runs = [
-        run
-        for run in repository.list_analysis_runs(profile_id)
-        if run.mode.value == "application" and run.job_id == job_id
-    ]
-    return {
-        "job_id": job_id,
-        "comparisons": [run.model_dump(mode="json") for run in runs],
-        "latest": runs[0].model_dump(mode="json") if runs else None,
-    }
-
-
 class DashboardRequestHandler(SimpleHTTPRequestHandler):
     """Serve dashboard assets and live reporting endpoints."""
 
     mart_path = DEFAULT_MART_PATH
     gold_root = DEFAULT_GOLD_ROOT
-    report_root = DEFAULT_REPORT_ROOT
-    alert_state_path = DEFAULT_ALERT_STATE_PATH
     static_dir = STATIC_DIR
     tracking_repository = ApplicationTrackingRepository(DEFAULT_TRACKING_PATH)
-    profile_repository: CandidateProfileRepository | None = None
-    default_profile_id = "profile-default"
-    reporting_lock = RLock()
-    pipeline_controller: PipelineOperationsController | None = None
-    data_management_service: DataManagementService | None = None
-    data_management_lock = RLock()
-    model_evaluation_root = DEFAULT_MODEL_EVALUATION_ROOT
-    evaluation_project_root = PROJECT_ROOT
-    evaluation_adjudication_service: ErrorAdjudicationService | None = None
-    benchmark_service: BenchmarkDashboardService | None = None
+    allowed_hosts: ClassVar[frozenset[str]] = LOOPBACK_HOSTS
 
     def __init__(
         self,
@@ -496,147 +291,60 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
             directory=str(self.static_dir),
         )
 
+    def _reject_foreign_request(self, *, mutating: bool) -> bool:
+        """Block DNS-rebinding and cross-site requests; return True when rejected.
+
+        The Host header must name an allowed local host so a hostile domain that
+        re-resolves to 127.0.0.1 cannot read private dashboard data. State-changing
+        requests must also come from an allowed Origin (when the browser sends one)
+        and carry a JSON body, which a cross-site HTML form cannot produce.
+        """
+        if _hostname(self.headers.get("Host")) not in self.allowed_hosts:
+            self._send_json({"error": "Host not allowed"}, status=HTTPStatus.FORBIDDEN)
+            return True
+        if not mutating:
+            return False
+        origin = self.headers.get("Origin")
+        if origin is not None and _hostname(origin) not in self.allowed_hosts:
+            self._send_json({"error": "Origin not allowed"}, status=HTTPStatus.FORBIDDEN)
+            return True
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip()
+        if content_type.casefold() != "application/json":
+            self._send_json(
+                {"error": "Content-Type must be application/json"},
+                status=HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+            )
+            return True
+        return False
+
     def do_GET(self) -> None:  # noqa: N802
         """Route API requests and delegate asset requests to the static server."""
+        if self._reject_foreign_request(mutating=False):
+            return
         path = urlsplit(self.path).path
         if path == "/api/opportunities":
-            self._send_json(load_opportunities_mart(self.mart_path))
+            try:
+                self._send_json(load_opportunities_mart(self.mart_path))
+            except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
             return
         if path == "/api/application-tracking":
-            self._send_json(self.tracking_repository.load().model_dump(mode="json"))
-            return
-        if path == "/api/candidate-profile":
-            if self.profile_repository is None:
-                self._send_json(
-                    {"error": "Candidate profile repository is unavailable"},
-                    status=HTTPStatus.SERVICE_UNAVAILABLE,
-                )
-            else:
-                self._send_json(
-                    load_candidate_profile(
-                        self.profile_repository,
-                        self.default_profile_id,
-                    )
-                )
-            return
-        if path == "/api/resume-reviews":
-            if self.profile_repository is None:
-                self._send_json(
-                    {"error": "Candidate profile repository is unavailable"},
-                    status=HTTPStatus.SERVICE_UNAVAILABLE,
-                )
-            else:
-                self._send_json(
-                    load_resume_reviews(
-                        self.profile_repository,
-                        self.default_profile_id,
-                    )
-                )
-            return
-        comparison_prefix = "/api/application-comparisons/"
-        if path.startswith(comparison_prefix):
-            self._get_application_comparisons(path.removeprefix(comparison_prefix))
+            try:
+                self._send_json(self.tracking_repository.load().model_dump(mode="json"))
+            except (ValueError, json.JSONDecodeError, ValidationError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
             return
         if path == "/api/market-intelligence":
             try:
                 self._send_json(load_market_intelligence(self.gold_root))
             except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
-                self._send_json(
-                    {"error": str(exc)},
-                    status=HTTPStatus.SERVICE_UNAVAILABLE,
-                )
+                self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
             return
         if path == "/api/pipeline-operations":
             try:
-                payload = load_pipeline_operations(self.gold_root)
-                payload["control"] = (
-                    self.pipeline_controller.snapshot()
-                    if self.pipeline_controller is not None
-                    else {"active_run_id": None, "can_start": False, "runs": []}
-                )
-                self._send_json(payload)
+                self._send_json(load_pipeline_operations(self.gold_root))
             except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
-                self._send_json(
-                    {"error": str(exc)},
-                    status=HTTPStatus.SERVICE_UNAVAILABLE,
-                )
-            return
-        if path == "/api/data-management":
-            if self.data_management_service is None:
-                self._send_json(
-                    {"error": "Data management is unavailable"},
-                    status=HTTPStatus.SERVICE_UNAVAILABLE,
-                )
-            else:
-                try:
-                    self._send_json(self.data_management_service.inventory())
-                except (OSError, ValueError) as exc:
-                    self._send_json(
-                        {"error": str(exc)},
-                        status=HTTPStatus.SERVICE_UNAVAILABLE,
-                    )
-            return
-        snapshot_prefix = "/api/data-snapshots/"
-        if path.startswith(snapshot_prefix):
-            self._download_data_snapshot(path.removeprefix(snapshot_prefix))
-            return
-        if path == "/api/reporting":
-            try:
-                self._send_json(
-                    load_reporting_dashboard(
-                        self.report_root,
-                        self.alert_state_path,
-                        Config().reporting,
-                    )
-                )
-            except (ValueError, json.JSONDecodeError, ValidationError) as exc:
-                self._send_json(
-                    {"error": str(exc)},
-                    status=HTTPStatus.SERVICE_UNAVAILABLE,
-                )
-            return
-        if path == "/api/model-evaluations":
-            try:
-                self._send_json(
-                    load_model_evaluations(
-                        self.model_evaluation_root,
-                        project_root=self.evaluation_project_root,
-                    )
-                )
-            except (OSError, ValueError, json.JSONDecodeError, ValidationError) as exc:
-                self._send_json(
-                    {"error": str(exc)},
-                    status=HTTPStatus.SERVICE_UNAVAILABLE,
-                )
-            return
-        if path == "/api/benchmarks":
-            if self.benchmark_service is None:
-                self._send_json(
-                    {"error": "Benchmark review is unavailable"},
-                    status=HTTPStatus.SERVICE_UNAVAILABLE,
-                )
-            else:
-                try:
-                    self._send_json(self.benchmark_service.overview())
-                except BenchmarkRepositoryError as exc:
-                    self._send_json(
-                        {"error": str(exc)},
-                        status=HTTPStatus.SERVICE_UNAVAILABLE,
-                    )
-            return
-        benchmark_case_match = re.fullmatch(
-            r"/api/benchmarks/([^/]+)/cases/([^/]+)", path
-        )
-        if benchmark_case_match:
-            self._get_benchmark_case(
-                benchmark_case_match.group(1), benchmark_case_match.group(2)
-            )
-            return
-        adjudication_match = re.fullmatch(
-            r"/api/model-evaluations/([^/]+)/adjudications", path
-        )
-        if adjudication_match:
-            self._get_evaluation_adjudications(adjudication_match.group(1))
+                self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
             return
         if path == "/api/health":
             try:
@@ -654,42 +362,25 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
                     status=HTTPStatus.SERVICE_UNAVAILABLE,
                 )
             return
+        if path.startswith("/api/"):
+            self._send_json({"error": "Endpoint not found"}, status=HTTPStatus.NOT_FOUND)
+            return
         if path == "/":
             self.path = "/index.html"
         super().do_GET()
 
     def do_PUT(self) -> None:  # noqa: N802
-        """Validate and persist one candidate-controlled dashboard record."""
+        """Validate and persist one candidate-controlled application record."""
+        if self._reject_foreign_request(mutating=True):
+            return
         path = urlsplit(self.path).path
-        benchmark_case_match = re.fullmatch(
-            r"/api/benchmarks/([^/]+)/cases/([^/]+)", path
-        )
-        if benchmark_case_match:
-            self._put_benchmark_review(
-                benchmark_case_match.group(1), benchmark_case_match.group(2)
-            )
-            return
-        adjudication_match = re.fullmatch(
-            r"/api/model-evaluations/([^/]+)/adjudications/([^/]+)", path
-        )
-        if adjudication_match:
-            self._put_evaluation_adjudication(
-                adjudication_match.group(1), adjudication_match.group(2)
-            )
-            return
-        review_prefix = "/api/resume-reviews/"
-        if path.startswith(review_prefix):
-            self._approve_resume_review(path.removeprefix(review_prefix))
-            return
-
         prefix = "/api/application-tracking/"
-
         if not path.startswith(prefix):
             self._send_json({"error": "Endpoint not found"}, status=HTTPStatus.NOT_FOUND)
             return
 
         job_id = unquote(path.removeprefix(prefix)).strip()
-        if not job_id or "/" in job_id:
+        if not job_id or "/" in job_id or "\\" in job_id:
             self._send_json({"error": "A valid job ID is required"}, status=HTTPStatus.BAD_REQUEST)
             return
 
@@ -708,380 +399,11 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         except (json.JSONDecodeError, UnicodeDecodeError, ValidationError, ValueError) as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
 
-    def _get_benchmark_case(self, raw_dataset_id: str, raw_case_id: str) -> None:
-        """Return one explicitly selected private benchmark case."""
-        if self.benchmark_service is None:
-            self._send_json(
-                {"error": "Benchmark review is unavailable"},
-                status=HTTPStatus.SERVICE_UNAVAILABLE,
-            )
-            return
-        try:
-            dataset_id = _clean_path_identifier(raw_dataset_id, "dataset ID")
-            case_id = _clean_path_identifier(raw_case_id, "case ID")
-            self._send_json(self.benchmark_service.case_detail(dataset_id, case_id))
-        except BenchmarkNotFoundError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
-        except (BenchmarkRepositoryError, ValueError) as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
-
-    def _put_benchmark_review(self, raw_dataset_id: str, raw_case_id: str) -> None:
-        """Persist one attested approve or reject decision for a benchmark case."""
-        if self.benchmark_service is None:
-            self._send_json(
-                {"error": "Benchmark review is unavailable"},
-                status=HTTPStatus.SERVICE_UNAVAILABLE,
-            )
-            return
-        try:
-            dataset_id = _clean_path_identifier(raw_dataset_id, "dataset ID")
-            case_id = _clean_path_identifier(raw_case_id, "case ID")
-            content_length = int(self.headers.get("Content-Length", "0"))
-            if content_length <= 0 or content_length > MAX_REVIEW_REQUEST_BYTES:
-                raise ValueError("Review body must be between 1 byte and 512 KB")
-            payload = json.loads(self.rfile.read(content_length))
-            submission = BenchmarkReviewSubmission.model_validate(payload)
-            saved = self.benchmark_service.review(dataset_id, case_id, submission)
-            self._send_json(saved)
-        except BenchmarkNotFoundError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
-        except BenchmarkConflictError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
-        except (json.JSONDecodeError, ValidationError, ValueError) as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
-
-    def _get_evaluation_adjudications(self, raw_report_id: str) -> None:
-        """Return private source context for review-required error components."""
-        if self.evaluation_adjudication_service is None:
-            self._send_json(
-                {"error": "Evaluation adjudication is unavailable"},
-                status=HTTPStatus.SERVICE_UNAVAILABLE,
-            )
-            return
-        try:
-            self._send_json(
-                self.evaluation_adjudication_service.queue(unquote(raw_report_id))
-            )
-        except AdjudicationNotFoundError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
-        except AdjudicationConflictError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
-        except AdjudicationError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
-
-    def _put_evaluation_adjudication(
-        self,
-        raw_report_id: str,
-        raw_classification_id: str,
-    ) -> None:
-        """Persist one attested error classification decision."""
-        if self.evaluation_adjudication_service is None:
-            self._send_json(
-                {"error": "Evaluation adjudication is unavailable"},
-                status=HTTPStatus.SERVICE_UNAVAILABLE,
-            )
-            return
-        try:
-            content_length = int(self.headers.get("Content-Length", "0"))
-            if content_length <= 0 or content_length > MAX_REVIEW_REQUEST_BYTES:
-                raise ValueError("Review body must be between 1 byte and 512 KB")
-            payload = json.loads(self.rfile.read(content_length))
-            if not isinstance(payload, dict):
-                raise ValueError("Request body must be a JSON object")
-            submission = AdjudicationSubmission.model_validate(payload)
-            saved = self.evaluation_adjudication_service.adjudicate(
-                unquote(raw_report_id),
-                unquote(raw_classification_id),
-                submission,
-            )
-            self._send_json(saved)
-        except AdjudicationNotFoundError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
-        except AdjudicationConflictError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
-        except AdjudicationError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
-        except (json.JSONDecodeError, ValidationError, ValueError) as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
-
-    def do_PATCH(self) -> None:  # noqa: N802
-        """Persist an in-progress candidate review without publishing it."""
-        path = urlsplit(self.path).path
-        review_prefix = "/api/resume-reviews/"
-        if not path.startswith(review_prefix):
-            self._send_json({"error": "Endpoint not found"}, status=HTTPStatus.NOT_FOUND)
-            return
-        self._save_resume_review_draft(path.removeprefix(review_prefix))
-
-    def _save_resume_review_draft(self, raw_extraction_id: str) -> None:
-        """Save corrected facts and independently approved review sections."""
-        if self.profile_repository is None:
-            self._send_json(
-                {"error": "Candidate profile repository is unavailable"},
-                status=HTTPStatus.SERVICE_UNAVAILABLE,
-            )
-            return
-        extraction_id = unquote(raw_extraction_id).strip()
-        if not extraction_id or "/" in extraction_id:
-            self._send_json(
-                {"error": "A valid extraction ID is required"},
-                status=HTTPStatus.BAD_REQUEST,
-            )
-            return
-        try:
-            content_length = int(self.headers.get("Content-Length", "0"))
-            if content_length <= 0 or content_length > MAX_REVIEW_REQUEST_BYTES:
-                raise ValueError("Review body must be between 1 byte and 512 KB")
-            payload = json.loads(self.rfile.read(content_length))
-            if not isinstance(payload, dict):
-                raise ValueError("Request body must be a JSON object")
-            draft = ResumeExtractionReviewDraft.model_validate(payload)
-            saved = self.profile_repository.save_extraction_review_draft(
-                extraction_id,
-                draft,
-                profile_id=self.default_profile_id,
-            )
-            self._send_json(
-                {
-                    "extraction_id": saved.extraction_id,
-                    "review_status": saved.review_status.value,
-                    "reviewed_sections": [
-                        section.value for section in saved.reviewed_sections
-                    ],
-                    "review_updated_at": saved.review_updated_at,
-                }
-            )
-        except ProfileRecordNotFoundError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
-        except ProfileRepositoryConflictError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
-        except (json.JSONDecodeError, UnicodeDecodeError, ValidationError, ValueError) as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
-
-    def _approve_resume_review(self, raw_extraction_id: str) -> None:
-        """Approve one complete, candidate-reviewed structured extraction."""
-        if self.profile_repository is None:
-            self._send_json(
-                {"error": "Candidate profile repository is unavailable"},
-                status=HTTPStatus.SERVICE_UNAVAILABLE,
-            )
-            return
-        extraction_id = unquote(raw_extraction_id).strip()
-        if not extraction_id or "/" in extraction_id:
-            self._send_json(
-                {"error": "A valid extraction ID is required"},
-                status=HTTPStatus.BAD_REQUEST,
-            )
-            return
-        try:
-            content_length = int(self.headers.get("Content-Length", "0"))
-            if content_length <= 0 or content_length > MAX_REVIEW_REQUEST_BYTES:
-                raise ValueError("Review body must be between 1 byte and 512 KB")
-            payload = json.loads(self.rfile.read(content_length))
-            if not isinstance(payload, dict):
-                raise ValueError("Request body must be a JSON object")
-            submission = ResumeExtractionReviewSubmission.model_validate(payload)
-            approved = self.profile_repository.approve_extraction_review(
-                extraction_id,
-                submission,
-                profile_id=self.default_profile_id,
-            )
-            self._send_json(
-                {
-                    "extraction_id": approved.extraction_id,
-                    "review_status": approved.review_status.value,
-                    "reviewed_sections": [
-                        section.value for section in approved.reviewed_sections
-                    ],
-                    "reviewed_at": approved.reviewed_at,
-                }
-            )
-        except ProfileRecordNotFoundError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
-        except ProfileRepositoryConflictError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
-        except (json.JSONDecodeError, UnicodeDecodeError, ValidationError, ValueError) as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
-
     def do_POST(self) -> None:  # noqa: N802
-        """Run safe, local dashboard actions that do not perform live extraction."""
-        path = urlsplit(self.path).path
-        if path == "/api/pipeline-runs":
-            self._start_pipeline_run()
+        """Reject writes other than the explicit application-tracking PUT."""
+        if self._reject_foreign_request(mutating=True):
             return
-        if path == "/api/data-snapshots":
-            self._create_data_snapshot()
-            return
-        comparison_prefix = "/api/application-comparisons/"
-        if path.startswith(comparison_prefix):
-            self._run_application_comparison(path.removeprefix(comparison_prefix))
-            return
-        if path != "/api/reporting/generate":
-            self._send_json({"error": "Endpoint not found"}, status=HTTPStatus.NOT_FOUND)
-            return
-        try:
-            with self.reporting_lock:
-                result = ScheduledReportingService(
-                    Config(),
-                    gold_root=self.gold_root,
-                    tracking_path=self.tracking_repository.path,
-                    report_root=self.report_root,
-                    alert_state_path=self.alert_state_path,
-                ).run()
-            self._send_json(result.summary(), status=HTTPStatus.CREATED)
-        except (FileNotFoundError, ValueError, json.JSONDecodeError, ValidationError) as exc:
-            self._send_json(
-                {"error": str(exc)},
-                status=HTTPStatus.SERVICE_UNAVAILABLE,
-            )
-
-    def _start_pipeline_run(self) -> None:
-        """Queue one predefined pipeline operation without blocking HTTP requests."""
-        if self.pipeline_controller is None:
-            self._send_json(
-                {"error": "Pipeline controls are unavailable"},
-                status=HTTPStatus.SERVICE_UNAVAILABLE,
-            )
-            return
-        try:
-            content_length = int(self.headers.get("Content-Length", "0"))
-            if content_length <= 0 or content_length > MAX_REQUEST_BYTES:
-                raise ValueError("Request body must be between 1 byte and 64 KB")
-            payload = json.loads(self.rfile.read(content_length))
-            request = PipelineRunRequest.model_validate(payload)
-            run = self.pipeline_controller.start(request.action)
-            self._send_json(run.model_dump(mode="json"), status=HTTPStatus.ACCEPTED)
-        except PipelineRunConflictError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
-        except (json.JSONDecodeError, ValidationError, ValueError) as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
-
-    def _create_data_snapshot(self) -> None:
-        """Create one non-private recovery snapshot from fixed project roots."""
-        if self.data_management_service is None:
-            self._send_json(
-                {"error": "Data management is unavailable"},
-                status=HTTPStatus.SERVICE_UNAVAILABLE,
-            )
-            return
-        if self.pipeline_controller is not None:
-            control = self.pipeline_controller.snapshot()
-            if control["active_run_id"] is not None:
-                self._send_json(
-                    {"error": "Wait for the active pipeline operation before creating a snapshot"},
-                    status=HTTPStatus.CONFLICT,
-                )
-                return
-        try:
-            with self.data_management_lock:
-                snapshot = self.data_management_service.create_snapshot()
-            self._send_json(snapshot.model_dump(mode="json"), status=HTTPStatus.CREATED)
-        except (OSError, ValueError) as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
-
-    def _download_data_snapshot(self, raw_filename: str) -> None:
-        """Download one catalogued snapshot without exposing arbitrary files."""
-        if self.data_management_service is None:
-            self._send_json(
-                {"error": "Data management is unavailable"},
-                status=HTTPStatus.SERVICE_UNAVAILABLE,
-            )
-            return
-        filename = unquote(raw_filename).strip()
-        if not filename or "/" in filename or "\\" in filename:
-            self._send_json(
-                {"error": "A valid snapshot filename is required"},
-                status=HTTPStatus.BAD_REQUEST,
-            )
-            return
-        try:
-            path = self.data_management_service.snapshot_path(filename)
-        except FileNotFoundError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
-            return
-        except ValueError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
-            return
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "application/zip")
-        self.send_header("Content-Disposition", f'attachment; filename="{path.name}"')
-        self.send_header("Content-Length", str(path.stat().st_size))
-        self.end_headers()
-        with path.open("rb") as stream:
-            while chunk := stream.read(1024 * 1024):
-                self.wfile.write(chunk)
-
-    def _get_application_comparisons(self, raw_job_id: str) -> None:
-        """Return saved comparison runs for one canonical opportunity."""
-        if self.profile_repository is None:
-            self._send_json(
-                {"error": "Candidate profile repository is unavailable"},
-                status=HTTPStatus.SERVICE_UNAVAILABLE,
-            )
-            return
-        job_id = unquote(raw_job_id).strip()
-        if not job_id or "/" in job_id:
-            self._send_json(
-                {"error": "A valid job ID is required"},
-                status=HTTPStatus.BAD_REQUEST,
-            )
-            return
-        self._send_json(
-            load_application_comparisons(
-                self.profile_repository,
-                self.default_profile_id,
-                job_id,
-            )
-        )
-
-    def _run_application_comparison(self, raw_job_id: str) -> None:
-        """Compare one approved resume extraction to an exact Gold mart row."""
-        if self.profile_repository is None:
-            self._send_json(
-                {"error": "Candidate profile repository is unavailable"},
-                status=HTTPStatus.SERVICE_UNAVAILABLE,
-            )
-            return
-        job_id = unquote(raw_job_id).strip()
-        if not job_id or "/" in job_id:
-            self._send_json(
-                {"error": "A valid job ID is required"},
-                status=HTTPStatus.BAD_REQUEST,
-            )
-            return
-        try:
-            content_length = int(self.headers.get("Content-Length", "0"))
-            if content_length <= 0 or content_length > MAX_REQUEST_BYTES:
-                raise ValueError("Request body must be between 1 byte and 64 KB")
-            payload = json.loads(self.rfile.read(content_length))
-            request = ApplicationComparisonRequest.model_validate(payload)
-            mart = load_opportunities_mart(self.mart_path)
-            opportunity = next(
-                (
-                    item
-                    for item in mart["opportunities"]
-                    if isinstance(item, dict) and item.get("job_id") == job_id
-                ),
-                None,
-            )
-            if opportunity is None:
-                raise ProfileRecordNotFoundError(f"opportunity not found: {job_id}")
-            run = DeterministicApplicationComparisonService(
-                self.profile_repository,
-                Config().settings.application_comparison,
-            ).compare(
-                profile_id=self.default_profile_id,
-                resume_version_id=request.resume_version_id,
-                opportunity=opportunity,
-                gold_input_fingerprint=mart.get("input_fingerprint"),
-            )
-            self._send_json(run.model_dump(mode="json"), status=HTTPStatus.CREATED)
-        except ProfileRecordNotFoundError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
-        except ProfileRepositoryConflictError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
-        except (json.JSONDecodeError, ValidationError, ValueError) as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+        self._send_json({"error": "Endpoint not found"}, status=HTTPStatus.NOT_FOUND)
 
     def _send_json(
         self,
@@ -1098,8 +420,11 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def end_headers(self) -> None:
-        """Prevent stale local assets and API payloads during active development."""
+        """Prevent stale assets, MIME sniffing, and framing by other sites."""
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
         super().end_headers()
 
     def log_message(self, format: str, *args: object) -> None:
@@ -1115,54 +440,18 @@ def create_server(
     static_dir: Path = STATIC_DIR,
     tracking_path: Path = DEFAULT_TRACKING_PATH,
     gold_root: Path = DEFAULT_GOLD_ROOT,
-    report_root: Path = DEFAULT_REPORT_ROOT,
-    alert_state_path: Path = DEFAULT_ALERT_STATE_PATH,
-    operations_state_path: Path = DEFAULT_OPERATIONS_STATE_PATH,
-    backup_root: Path | None = None,
-    data_project_root: Path = PROJECT_ROOT,
-    profile_database: Path | None = None,
-    benchmark_database: Path | None = None,
-    pipeline_controller: PipelineOperationsController | None = None,
-    model_evaluation_root: Path = DEFAULT_MODEL_EVALUATION_ROOT,
-    evaluation_project_root: Path = PROJECT_ROOT,
 ) -> DashboardHTTPServer:
     """Create a configured threaded dashboard server."""
-    config = Config()
-    profile_repository = CandidateProfileRepository(
-        profile_database or config.settings.paths.profile_database
-    )
-    migration = DefaultProfileMigrator(profile_repository, config).migrate()
+    allowed_hosts = LOOPBACK_HOSTS | {host.strip("[]").casefold()}
     handler = type(
         "ConfiguredDashboardRequestHandler",
         (DashboardRequestHandler,),
         {
             "mart_path": mart_path,
             "gold_root": gold_root,
-            "report_root": report_root,
-            "alert_state_path": alert_state_path,
             "static_dir": static_dir,
-            "profile_repository": profile_repository,
-            "default_profile_id": migration.profile.profile_id,
-            "tracking_repository": ApplicationTrackingRepository(
-                tracking_path,
-                profile_repository=profile_repository,
-                profile_id=migration.profile.profile_id,
-            ),
-            "pipeline_controller": pipeline_controller
-            or PipelineOperationsController(PROJECT_ROOT, operations_state_path),
-            "data_management_service": DataManagementService(data_project_root, backup_root),
-            "model_evaluation_root": model_evaluation_root,
-            "evaluation_project_root": evaluation_project_root,
-            "evaluation_adjudication_service": ErrorAdjudicationService(
-                model_evaluation_root,
-                evaluation_project_root,
-            ),
-            "benchmark_service": BenchmarkDashboardService(
-                PrivateBenchmarkRepository(
-                    benchmark_database or config.settings.paths.model_benchmark_database
-                ),
-                config.titles,
-            ),
+            "tracking_repository": ApplicationTrackingRepository(tracking_path),
+            "allowed_hosts": frozenset(allowed_hosts),
         },
     )
     return DashboardHTTPServer((host, port), handler)
@@ -1176,13 +465,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mart", type=Path, default=DEFAULT_MART_PATH)
     parser.add_argument("--tracking", type=Path, default=DEFAULT_TRACKING_PATH)
     parser.add_argument("--gold-root", type=Path, default=DEFAULT_GOLD_ROOT)
-    parser.add_argument("--report-root", type=Path, default=DEFAULT_REPORT_ROOT)
-    parser.add_argument("--alert-state", type=Path, default=DEFAULT_ALERT_STATE_PATH)
-    parser.add_argument("--operations-state", type=Path, default=DEFAULT_OPERATIONS_STATE_PATH)
-    parser.add_argument("--backup-root", type=Path)
-    parser.add_argument("--profile-database", type=Path)
-    parser.add_argument("--benchmark-database", type=Path)
-    parser.add_argument("--model-evaluation-root", type=Path, default=DEFAULT_MODEL_EVALUATION_ROOT)
     return parser
 
 
@@ -1196,13 +478,6 @@ def main(argv: list[str] | None = None) -> int:
             mart_path=args.mart,
             tracking_path=args.tracking,
             gold_root=args.gold_root,
-            report_root=args.report_root,
-            alert_state_path=args.alert_state,
-            operations_state_path=args.operations_state,
-            backup_root=args.backup_root,
-            profile_database=args.profile_database,
-            benchmark_database=args.benchmark_database,
-            model_evaluation_root=args.model_evaluation_root,
         )
     except OSError as exc:
         print(

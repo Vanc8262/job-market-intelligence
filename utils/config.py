@@ -12,12 +12,6 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 TConfigModel = TypeVar("TConfigModel", bound=BaseModel)
-Weekday = Literal["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
-
-
-def _default_reporting_weekdays() -> list[Weekday]:
-    """Return the default weekday reporting schedule."""
-    return ["MON", "TUE", "WED", "THU", "FRI"]
 
 
 class ConfigError(RuntimeError):
@@ -45,11 +39,18 @@ class PathConfig(BaseModel):
     cache_dir: Path
     checkpoint_dir: Path
     log_dir: Path
-    profile_database: Path = Path("data/private/profile_metadata.sqlite3")
-    private_resume_dir: Path = Path("data/private/resumes")
-    model_benchmark_database: Path = Path("data/private/model_benchmarks.sqlite3")
-    model_benchmark_dir: Path = Path("data/private/model_benchmarks")
-    resume_benchmark_pack_dir: Path = Path("data/private/resume_benchmark_packs")
+
+    def anchored(self, project_root: Path) -> PathConfig:
+        """Return a copy with relative paths resolved against the project root.
+
+        Scripts can then be launched from any working directory without writing
+        data or logs into that directory.
+        """
+        values = {
+            name: value if value.is_absolute() else project_root / value
+            for name, value in self.model_dump().items()
+        }
+        return PathConfig.model_validate(values)
 
 
 class StorageConfig(BaseModel):
@@ -91,71 +92,6 @@ class ProcessingConfig(BaseModel):
     strict_validation: bool = True
 
 
-class CandidateProfileSettings(BaseModel):
-    """Local candidate-profile bootstrap settings."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    default_profile_id: str = Field(
-        default="profile-default",
-        min_length=1,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
-    )
-
-
-class ResumeIngestionConfig(BaseModel):
-    """Security and quality limits for local resume ingestion."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    max_file_size_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
-    max_pdf_pages: int = Field(default=20, ge=1, le=500)
-    max_docx_entries: int = Field(default=500, ge=1, le=5000)
-    max_docx_uncompressed_bytes: int = Field(default=25 * 1024 * 1024, ge=1)
-    max_docx_compression_ratio: float = Field(default=100, ge=1)
-    max_extracted_characters: int = Field(default=100_000, ge=1)
-    minimum_characters: int = Field(default=200, ge=1)
-    minimum_words: int = Field(default=40, ge=1)
-    minimum_alphanumeric_ratio: float = Field(default=0.45, ge=0, le=1)
-    maximum_replacement_ratio: float = Field(default=0.01, ge=0, le=1)
-    minimum_quality_score: float = Field(default=0.65, ge=0, le=1)
-
-
-class ApplicationComparisonConfig(BaseModel):
-    """Weights and thresholds for deterministic resume-to-job comparison."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    skills_weight: float = Field(default=40, ge=0)
-    role_weight: float = Field(default=20, ge=0)
-    experience_weight: float = Field(default=20, ge=0)
-    education_weight: float = Field(default=10, ge=0)
-    projects_weight: float = Field(default=10, ge=0)
-    matched_threshold: float = Field(default=80, ge=0, le=100)
-    partial_threshold: float = Field(default=50, ge=0, le=100)
-    max_job_skills: int = Field(default=100, ge=1, le=500)
-
-    @model_validator(mode="after")
-    def validate_comparison_policy(self) -> ApplicationComparisonConfig:
-        """Require usable weights and ordered finding thresholds."""
-        if self.total_weight <= 0:
-            raise ValueError("application comparison weights must have a positive total")
-        if self.partial_threshold >= self.matched_threshold:
-            raise ValueError("partial threshold must be below matched threshold")
-        return self
-
-    @property
-    def total_weight(self) -> float:
-        """Return the configured total before unavailable signals are excluded."""
-        return (
-            self.skills_weight
-            + self.role_weight
-            + self.experience_weight
-            + self.education_weight
-            + self.projects_weight
-        )
-
-
 class SettingsConfig(BaseModel):
     """Validated contents of settings.yaml."""
 
@@ -168,11 +104,6 @@ class SettingsConfig(BaseModel):
     logging: LoggingLevelConfig
     scraping: ScrapingConfig
     processing: ProcessingConfig
-    candidate_profile: CandidateProfileSettings = Field(default_factory=CandidateProfileSettings)
-    resume_ingestion: ResumeIngestionConfig = Field(default_factory=ResumeIngestionConfig)
-    application_comparison: ApplicationComparisonConfig = Field(
-        default_factory=ApplicationComparisonConfig
-    )
 
 
 class SourceAccessPolicy(StrEnum):
@@ -434,51 +365,6 @@ class LifecycleConfig(BaseModel):
     update_silver_status: bool = True
 
 
-class ReportingScheduleConfig(BaseModel):
-    """Configured cadence for the external scheduler entry point."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    enabled: bool = False
-    cadence: Literal["daily", "weekly"] = "daily"
-    time: str = Field(default="07:30", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
-    timezone: str = Field(default="America/New_York", min_length=1)
-    weekdays: list[Weekday] = Field(default_factory=_default_reporting_weekdays)
-    run_pipeline: bool = False
-
-
-class ReportingAlertConfig(BaseModel):
-    """Rules that turn pipeline and candidate evidence into alerts."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    quality_failure: bool = True
-    pipeline_failure: bool = True
-    stale_pipeline_hours: int = Field(default=36, ge=0)
-    new_strong_matches_minimum: int = Field(default=1, ge=0)
-    removed_shortlisted: bool = True
-    application_follow_up_days: int = Field(default=7, ge=0)
-
-
-class ReportingOutputConfig(BaseModel):
-    """Digest content and retained dashboard history limits."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    top_opportunities: int = Field(default=15, ge=1, le=100)
-    alert_history_limit: int = Field(default=100, ge=1, le=1000)
-
-
-class ReportingConfig(BaseModel):
-    """Scheduled reporting, alert, and output configuration."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    schedule: ReportingScheduleConfig = Field(default_factory=ReportingScheduleConfig)
-    alerts: ReportingAlertConfig = Field(default_factory=ReportingAlertConfig)
-    report: ReportingOutputConfig = Field(default_factory=ReportingOutputConfig)
-
-
 class GenericYamlConfig(BaseModel):
     """Validated wrapper for extensible YAML configuration files."""
 
@@ -635,89 +521,13 @@ class PhenomTarget(ExtractorTargetBase):
     path_prefix: str = Field(default="/us/en", min_length=1)
 
 
-class SmartRecruitersTarget(ExtractorTargetBase):
-    """Configuration for one SmartRecruiters public company board."""
-
-    source: Literal["smartrecruiters"]
-    company_identifier: str = Field(..., min_length=1)
-    page_size: int = Field(default=100, ge=1, le=100)
-
-
-class WorkableTarget(ExtractorTargetBase):
-    """Configuration for one Workable public account."""
-
-    source: Literal["workable"]
-    account_subdomain: str = Field(
-        ...,
-        min_length=1,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9-]*$",
-    )
-
-
-class USAJobsTarget(ExtractorTargetBase):
-    """Configuration for bounded USAJOBS public-announcement searches."""
-
-    source: Literal["usajobs"]
-    api_key_env: str = Field(
-        default="USAJOBS_API_KEY",
-        pattern=r"^[A-Z][A-Z0-9_]*$",
-    )
-    user_agent_email_env: str = Field(
-        default="USAJOBS_USER_AGENT_EMAIL",
-        pattern=r"^[A-Z][A-Z0-9_]*$",
-    )
-    results_per_page: int = Field(default=100, ge=1, le=500)
-    max_pages: int = Field(default=5, ge=1, le=100)
-
-    @model_validator(mode="after")
-    def validate_result_cap(self) -> USAJobsTarget:
-        """Stay within the Search API's documented per-query row ceiling."""
-        if self.results_per_page * self.max_pages > 10_000:
-            raise ValueError("USAJOBS target cannot request more than 10,000 rows")
-        return self
-
-
-class JobicyTarget(ExtractorTargetBase):
-    """Configuration for one persistently cached Jobicy discovery scope."""
-
-    source: Literal["jobicy"]
-    count: int = Field(default=200, ge=1, le=200)
-    geo: str | None = Field(default=None, min_length=1)
-    industry: str | None = Field(default=None, min_length=1)
-    cache_ttl_minutes: int = Field(default=60, ge=60)
-
-
-class HandshakeEduTarget(ExtractorTargetBase):
-    """Configuration for one authorized, institution-scoped EDU API subscription."""
-
-    source: Literal["handshake"]
-    institution_scope: str = Field(
-        ...,
-        min_length=1,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$",
-    )
-    institution_name: str | None = Field(default=None, min_length=1)
-    api_key_env: str = Field(
-        default="HANDSHAKE_EDU_API_KEY",
-        pattern=r"^[A-Z][A-Z0-9_]*$",
-    )
-    page_size: int = Field(default=50, ge=1, le=100)
-    updated_since: str | None = Field(default=None, min_length=1)
-    authorized_use_confirmed: bool = False
-
-
 ExtractorTarget = Annotated[
     GreenhouseTarget
     | LeverTarget
     | AshbyTarget
     | WorkdayTarget
     | NextEraTarget
-    | PhenomTarget
-    | SmartRecruitersTarget
-    | WorkableTarget
-    | USAJobsTarget
-    | JobicyTarget
-    | HandshakeEduTarget,
+    | PhenomTarget,
     Field(discriminator="source"),
 ]
 
@@ -765,7 +575,6 @@ class Config:
         self._candidate_collection: CandidateCollectionConfig | None = None
         self._data_quality: DataQualityConfig | None = None
         self._lifecycle: LifecycleConfig | None = None
-        self._reporting: ReportingConfig | None = None
         self._companies: GenericYamlConfig | None = None
         self._salary: GenericYamlConfig | None = None
         self._locations: GenericYamlConfig | None = None
@@ -775,12 +584,19 @@ class Config:
         self._initialized = True
 
     @property
+    def project_root(self) -> Path:
+        """Return the project directory that contains the config directory."""
+        return self._config_dir.resolve().parent
+
+    @property
     def settings(self) -> SettingsConfig:
         """Return validated project settings."""
         if self._settings is None:
             data = self._read_yaml("settings.yaml")
             data = self._apply_settings_overrides(data)
-            self._settings = self._validate(SettingsConfig, data, "settings.yaml")
+            settings = self._validate(SettingsConfig, data, "settings.yaml")
+            settings.paths = settings.paths.anchored(self.project_root)
+            self._settings = settings
         return self._settings
 
     @property
@@ -844,17 +660,6 @@ class Config:
                 "lifecycle.yaml",
             )
         return self._lifecycle
-
-    @property
-    def reporting(self) -> ReportingConfig:
-        """Return scheduled reporting and alert policy."""
-        if self._reporting is None:
-            self._reporting = self._validate(
-                ReportingConfig,
-                self._read_yaml("reporting.yaml"),
-                "reporting.yaml",
-            )
-        return self._reporting
 
     @property
     def salary(self) -> GenericYamlConfig:
@@ -921,7 +726,6 @@ class Config:
         self._candidate_collection = None
         self._data_quality = None
         self._lifecycle = None
-        self._reporting = None
         self._companies = None
         self._salary = None
         self._locations = None

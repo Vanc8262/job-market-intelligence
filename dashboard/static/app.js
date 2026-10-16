@@ -5,11 +5,11 @@ const ACTIVE_STATUSES = new Set(["applied", "interviewing", "offer"]);
 const STATUS_OPTIONS = ["new", "reviewing", "saved", "applied", "interviewing", "offer", "rejected", "archived"];
 const SIGNAL_KEYS = ["skills", "title", "experience", "location"];
 const POSITIVE_FEEDBACK_STATUSES = new Set(["reviewing", "saved", "applied", "interviewing", "offer"]);
-const state = { mart: null, market: null, operations: null, dataManagement: null, reporting: null, evaluations: null, selectedEvaluationId: null, evaluationAdjudications: {}, selectedAdjudicationId: null, adjudicationError: null, benchmarks: null, selectedBenchmarkId: null, selectedBenchmarkCaseId: null, benchmarkDetail: null, benchmarkDraft: null, benchmarkLoading: false, resumeReviews: null, reviewDraft: null, reviewExpanded: { skills: true, employment: false, education: false, projects: false }, selectedExtractionId: null, candidateProfile: null, resumeVersions: [], applicationComparisons: {}, opportunities: [], tracking: {}, filtered: [], page: 1, band: "all", view: "opportunities", marketView: "overview", operationsView: "overview", selectedJobId: null, simulatorWeights: null };
+const state = { mart: null, market: null, operations: null, opportunities: [], tracking: {}, filtered: [], page: 1, band: "all", view: "opportunities", marketView: "overview", operationsView: "overview", selectedJobId: null, simulatorWeights: null };
 const elements = {};
 
 document.addEventListener("DOMContentLoaded", () => {
-  ["freshnessLabel", "showingMetric", "strongMetric", "shortlistMetric", "applicationMetric", "showingLabel", "strongLabel", "shortlistLabel", "applicationLabel", "searchInput", "employerFilter", "familyFilter", "seniorityFilter", "workplaceFilter", "lifecycleFilter", "applicationFilter", "salaryFilter", "sortSelect", "opportunitiesBody", "resultCount", "activeFilters", "loadingState", "emptyState", "errorState", "errorMessage", "retryButton", "resetFilters", "emptyReset", "previousPage", "nextPage", "pageLabel", "bandFilters", "detailDrawer", "drawerBackdrop", "drawerContent", "drawerRank", "closeDrawer", "filtersPanel", "filterToggle", "viewSwitch", "viewTitle", "resultsPanel", "intelligencePanel", "intelligenceTabs", "intelligenceContent", "intelligenceFreshness", "qualityBadge", "operationsPanel", "operationsTabs", "operationsContent", "operationsFreshness", "operationsBadge", "refreshOperations", "pipelineAction", "runPipeline", "operationRunFeedback", "simulatorPanel", "simulatorContent", "simulatorStatus", "resumeReviewPanel", "resumeReviewContent", "resumeReviewSummary", "resumeReviewSelect", "reportingPanel", "reportingContent", "reportingFreshness", "reportingStatus", "generateReport", "evaluationsPanel", "evaluationsContent", "evaluationsFreshness", "evaluationStatus", "evaluationSelect", "benchmarksPanel", "benchmarksFreshness", "benchmarkStatus", "benchmarkDatasetSelect", "benchmarkCaseStatus", "benchmarkCaseSearch", "benchmarkQueueTitle", "benchmarkQueueCount", "benchmarkCaseList", "benchmarkDetail", "pageName"].forEach((id) => { elements[id] = document.getElementById(id); });
+  ["freshnessLabel", "showingMetric", "strongMetric", "shortlistMetric", "applicationMetric", "showingLabel", "strongLabel", "shortlistLabel", "applicationLabel", "searchInput", "employerFilter", "familyFilter", "seniorityFilter", "workplaceFilter", "lifecycleFilter", "applicationFilter", "salaryFilter", "sortSelect", "opportunitiesBody", "resultCount", "activeFilters", "loadingState", "emptyState", "errorState", "errorMessage", "retryButton", "resetFilters", "emptyReset", "previousPage", "nextPage", "pageLabel", "bandFilters", "detailDrawer", "drawerBackdrop", "drawerContent", "drawerRank", "closeDrawer", "filtersPanel", "filterToggle", "viewSwitch", "viewTitle", "resultsPanel", "intelligencePanel", "intelligenceTabs", "intelligenceContent", "intelligenceFreshness", "qualityBadge", "operationsPanel", "operationsTabs", "operationsContent", "operationsFreshness", "operationsBadge", "refreshOperations", "simulatorPanel", "simulatorContent", "simulatorStatus", "pageName"].forEach((id) => { elements[id] = document.getElementById(id); });
   bindEvents();
   loadData();
 });
@@ -47,34 +47,15 @@ function bindEvents() {
     elements.operationsTabs.querySelectorAll("button").forEach((item) => item.classList.toggle("active", item === button));
     renderPipelineOperations();
   });
-  elements.operationsContent.addEventListener("click", handleDataManagementClick);
   elements.refreshOperations.addEventListener("click", () => refreshPipelineOperations());
-  elements.runPipeline.addEventListener("click", runPipelineOperation);
   elements.simulatorContent.addEventListener("change", handleSimulatorChange);
   elements.simulatorContent.addEventListener("click", handleSimulatorClick);
-  elements.generateReport.addEventListener("click", generateReport);
-  elements.evaluationSelect.addEventListener("change", async () => { state.selectedEvaluationId = elements.evaluationSelect.value; state.selectedAdjudicationId = null; await loadEvaluationAdjudications(state.selectedEvaluationId, false); render(); });
-  elements.evaluationsContent.addEventListener("click", handleEvaluationClick);
-  elements.evaluationsContent.addEventListener("submit", submitEvaluationAdjudication);
-  elements.benchmarkDatasetSelect.addEventListener("change", selectBenchmarkDataset);
-  elements.benchmarkCaseStatus.addEventListener("change", renderBenchmarks);
-  elements.benchmarkCaseSearch.addEventListener("input", renderBenchmarks);
-  elements.benchmarkCaseList.addEventListener("click", handleBenchmarkCaseClick);
-  elements.benchmarkDetail.addEventListener("click", handleBenchmarkDetailClick);
-  elements.benchmarkDetail.addEventListener("input", handleBenchmarkDetailInput);
-  elements.benchmarkDetail.addEventListener("submit", submitBenchmarkReview);
-  elements.resumeReviewSelect.addEventListener("change", selectResumeReview);
-  elements.resumeReviewContent.addEventListener("click", handleResumeReviewClick);
-  elements.resumeReviewContent.addEventListener("change", handleResumeReviewChange);
-  elements.resumeReviewContent.addEventListener("input", handleResumeReviewInput);
-  elements.resumeReviewContent.addEventListener("submit", approveResumeReview);
   elements.opportunitiesBody.addEventListener("click", (event) => { const row = event.target.closest("tr[data-job-id]"); if (row) openDrawer(row.dataset.jobId); });
   elements.opportunitiesBody.addEventListener("keydown", (event) => {
     if (event.key === "Enter" || event.key === " ") { const row = event.target.closest("tr[data-job-id]"); if (row) { event.preventDefault(); openDrawer(row.dataset.jobId); } }
   });
   elements.drawerContent.addEventListener("submit", saveTracking);
   elements.drawerContent.addEventListener("change", handleTrackingFormChange);
-  elements.drawerContent.addEventListener("click", handleComparisonClick);
   elements.resetFilters.addEventListener("click", resetFilters);
   elements.emptyReset.addEventListener("click", resetFilters);
   elements.retryButton.addEventListener("click", loadData);
@@ -91,48 +72,22 @@ async function loadData() {
   elements.errorState.hidden = true;
   elements.emptyState.hidden = true;
   try {
-    const [martResponse, trackingResponse, profileResponse, marketResponse, operationsResponse, dataResponse, reportingResponse, reviewResponse, evaluationResponse, benchmarkResponse] = await Promise.all([fetch("/api/opportunities", { cache: "no-store" }), fetch("/api/application-tracking", { cache: "no-store" }), fetch("/api/candidate-profile", { cache: "no-store" }), fetch("/api/market-intelligence", { cache: "no-store" }), fetch("/api/pipeline-operations", { cache: "no-store" }), fetch("/api/data-management", { cache: "no-store" }), fetch("/api/reporting", { cache: "no-store" }), fetch("/api/resume-reviews", { cache: "no-store" }), fetch("/api/model-evaluations", { cache: "no-store" }), fetch("/api/benchmarks", { cache: "no-store" })]);
-    if (!martResponse.ok || !trackingResponse.ok || !profileResponse.ok || !marketResponse.ok || !operationsResponse.ok || !dataResponse.ok || !reportingResponse.ok || !reviewResponse.ok || !evaluationResponse.ok || !benchmarkResponse.ok) throw new Error("Dashboard data could not be loaded");
-    const [mart, tracking, candidateProfile, market, operations, dataManagement, reporting, resumeReviews, evaluations, benchmarks] = await Promise.all([martResponse.json(), trackingResponse.json(), profileResponse.json(), marketResponse.json(), operationsResponse.json(), dataResponse.json(), reportingResponse.json(), reviewResponse.json(), evaluationResponse.json(), benchmarkResponse.json()]);
+    const [martResponse, trackingResponse, marketResponse, operationsResponse] = await Promise.all([fetch("/api/opportunities", { cache: "no-store" }), fetch("/api/application-tracking", { cache: "no-store" }), fetch("/api/market-intelligence", { cache: "no-store" }), fetch("/api/pipeline-operations", { cache: "no-store" })]);
+    if (!martResponse.ok) throw new Error((await martResponse.json().catch(() => ({}))).error || "Opportunity data could not be loaded");
+    if (!trackingResponse.ok) throw new Error("Application tracking could not be loaded");
+    const [mart, tracking] = await Promise.all([martResponse.json(), trackingResponse.json()]);
     if (!Array.isArray(mart.opportunities)) throw new Error("The Gold mart has no opportunities array");
     state.mart = mart;
     state.opportunities = mart.opportunities;
     state.tracking = tracking.records || {};
-    state.candidateProfile = candidateProfile.profile;
-    state.resumeVersions = candidateProfile.resume_versions || [];
-    state.market = market;
-    state.operations = operations;
-    state.dataManagement = dataManagement;
-    state.reporting = reporting;
-    state.evaluations = evaluations;
-    state.benchmarks = benchmarks;
-    const benchmarkDatasets = benchmarks.datasets || [];
-    const activeBenchmark = benchmarkDatasets.find((item) => item.draft_count > 0) || benchmarkDatasets[0];
-    state.selectedBenchmarkId = activeBenchmark?.dataset_id || null;
-    const activeBenchmarkCase = activeBenchmark?.cases?.find((item) => item.status === "draft") || activeBenchmark?.cases?.[0];
-    state.selectedBenchmarkCaseId = activeBenchmarkCase?.case_id || null;
-    await loadBenchmarkCase(state.selectedBenchmarkId, state.selectedBenchmarkCaseId, false);
-    state.selectedEvaluationId = evaluations.reports?.[0]?.report_id || null;
-    state.evaluationAdjudications = {};
-    state.selectedAdjudicationId = null;
-    await loadEvaluationAdjudications(state.selectedEvaluationId, false);
-    state.resumeReviews = resumeReviews;
-    const reviewItems = resumeReviews.items || [];
-    const firstPending = reviewItems.find((item) => item.extraction.can_review) || reviewItems[0];
-    state.selectedExtractionId = firstPending?.extraction.extraction_id || null;
-    state.reviewDraft = firstPending ? structuredClone(firstPending.extraction) : null;
+    state.market = marketResponse.ok ? await marketResponse.json() : null;
+    state.operations = operationsResponse.ok ? await operationsResponse.json() : null;
     state.simulatorWeights = currentScoringWeights();
     populateFilters();
     elements.freshnessLabel.textContent = `Gold refreshed ${formatTimestamp(mart.generated_at)}`;
-    elements.intelligenceFreshness.textContent = `Snapshot refreshed ${formatTimestamp(market.generated_at)}`;
-    elements.operationsFreshness.textContent = `Latest evidence ${formatTimestamp(operations.generated_at)}`;
-    elements.reportingFreshness.textContent = reporting.generated_at ? `Latest report ${formatTimestamp(reporting.generated_at)}` : "No report generated yet";
-    elements.evaluationsFreshness.textContent = evaluations.generated_at ? `Latest run ${formatTimestamp(evaluations.generated_at)}` : "No model evaluations recorded";
-    elements.benchmarksFreshness.textContent = `${number(benchmarks.case_count)} cases across ${number(benchmarks.dataset_count)} benchmarks`;
-    populateEvaluationSelect();
-    populateBenchmarkSelect();
+    elements.intelligenceFreshness.textContent = state.market ? `Snapshot refreshed ${formatTimestamp(state.market.generated_at)}` : "Market summaries unavailable. Run scripts/build_gold.py.";
+    elements.operationsFreshness.textContent = state.operations ? `Latest evidence ${formatTimestamp(state.operations.generated_at)}` : "Pipeline evidence unavailable. Run the pipeline first.";
     applyFilters(true);
-    schedulePipelinePoll();
     elements.loadingState.hidden = true;
   } catch (error) {
     elements.loadingState.hidden = true;
@@ -154,68 +109,21 @@ function populateSelect(select, values, labeler = (value) => value) {
   select.replaceChildren(first, ...values.map((value) => { const option = document.createElement("option"); option.value = value; option.textContent = labeler(value); return option; }));
 }
 function trackingFor(jobId) { return state.tracking[jobId] || { shortlisted: false, status: "new", priority: "none", notes: "" }; }
-function populateEvaluationSelect() {
-  const reports = state.evaluations?.reports || [];
-  elements.evaluationSelect.replaceChildren(...reports.map((report) => {
-    const option = document.createElement("option");
-    option.value = report.report_id;
-    option.textContent = `${formatLabel(report.task)} · ${formatTimestamp(report.created_at)}`;
-    return option;
-  }));
-  elements.evaluationSelect.value = state.selectedEvaluationId || "";
-  elements.evaluationSelect.disabled = reports.length === 0;
-}
-function selectedEvaluation() { return (state.evaluations?.reports || []).find((report) => report.report_id === state.selectedEvaluationId) || state.evaluations?.reports?.[0] || null; }
-function populateBenchmarkSelect() {
-  const datasets = state.benchmarks?.datasets || [];
-  elements.benchmarkDatasetSelect.replaceChildren(...datasets.map((dataset) => { const option = document.createElement("option"); option.value = dataset.dataset_id; option.textContent = `${formatLabel(dataset.task)} · ${dataset.dataset_id}`; return option; }));
-  elements.benchmarkDatasetSelect.value = state.selectedBenchmarkId || "";
-  elements.benchmarkDatasetSelect.disabled = datasets.length === 0;
-}
-function selectedBenchmark() { return (state.benchmarks?.datasets || []).find((dataset) => dataset.dataset_id === state.selectedBenchmarkId) || null; }
-async function loadEvaluationAdjudications(reportId, rerender = true) {
-  if (!reportId) return;
-  const report = (state.evaluations?.reports || []).find((item) => item.report_id === reportId);
-  if (!report?.error_analysis) { state.evaluationAdjudications[reportId] = null; if (rerender) render(); return; }
-  state.adjudicationError = null;
-  try {
-    const response = await fetch(`/api/model-evaluations/${encodeURIComponent(reportId)}/adjudications`, { cache: "no-store" });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "Adjudication queue could not be loaded");
-    state.evaluationAdjudications[reportId] = payload;
-    const selectedExists = payload.items?.some((item) => item.classification_id === state.selectedAdjudicationId);
-    if (!selectedExists) state.selectedAdjudicationId = payload.items?.find((item) => item.status === "pending")?.classification_id || payload.items?.[0]?.classification_id || null;
-  } catch (error) {
-    state.adjudicationError = error.message;
-    state.evaluationAdjudications[reportId] = null;
-  }
-  if (rerender) render();
-}
 function setDashboardView() {
   const intelligence = state.view === "intelligence";
   const operations = state.view === "operations";
   const simulator = state.view === "simulator";
-  const resumeReview = state.view === "resume-review";
-  const reporting = state.view === "reporting";
-  const evaluations = state.view === "evaluations";
-  const benchmarks = state.view === "benchmarks";
-  elements.filtersPanel.hidden = intelligence || operations || simulator || resumeReview || reporting || evaluations || benchmarks;
-  elements.resultsPanel.hidden = intelligence || operations || simulator || resumeReview || reporting || evaluations || benchmarks;
+  const panelMode = intelligence || operations || simulator;
+  elements.filtersPanel.hidden = panelMode;
+  elements.resultsPanel.hidden = panelMode;
   elements.intelligencePanel.hidden = !intelligence;
   elements.operationsPanel.hidden = !operations;
   elements.simulatorPanel.hidden = !simulator;
-  elements.resumeReviewPanel.hidden = !resumeReview;
-  elements.reportingPanel.hidden = !reporting;
-  elements.evaluationsPanel.hidden = !evaluations;
-  elements.benchmarksPanel.hidden = !benchmarks;
-  document.querySelector(".content-grid").classList.toggle("market-mode", intelligence);
-  document.querySelector(".content-grid").classList.toggle("operations-mode", operations);
-  document.querySelector(".content-grid").classList.toggle("simulator-mode", simulator);
-  document.querySelector(".content-grid").classList.toggle("resume-review-mode", resumeReview);
-  document.querySelector(".content-grid").classList.toggle("reporting-mode", reporting);
-  document.querySelector(".content-grid").classList.toggle("evaluations-mode", evaluations);
-  document.querySelector(".content-grid").classList.toggle("benchmarks-mode", benchmarks);
-  elements.pageName.textContent = intelligence ? "Market intelligence" : operations ? "Pipeline operations" : simulator ? "Weight simulator" : resumeReview ? "Resume review" : benchmarks ? "Benchmark review" : evaluations ? "Model evaluations" : reporting ? "Alerts & reports" : "Opportunities";
+  const grid = document.querySelector(".content-grid");
+  grid.classList.toggle("market-mode", intelligence);
+  grid.classList.toggle("operations-mode", operations);
+  grid.classList.toggle("simulator-mode", simulator);
+  elements.pageName.textContent = intelligence ? "Market intelligence" : operations ? "Pipeline operations" : simulator ? "Weight simulator" : "Opportunities";
   elements.viewTitle.textContent = state.view === "shortlist" ? "Shortlist" : "Current opportunities";
 }
 
@@ -250,63 +158,9 @@ function render() {
   if (state.view === "intelligence") { renderMarketIntelligence(); return; }
   if (state.view === "operations") { renderPipelineOperations(); return; }
   if (state.view === "simulator") { renderWeightSimulator(); return; }
-  if (state.view === "resume-review") { renderResumeReview(); return; }
-  if (state.view === "benchmarks") { renderBenchmarks(); return; }
-  if (state.view === "reporting") { renderReporting(); return; }
-  if (state.view === "evaluations") { renderEvaluations(); return; }
   renderActiveFilters(); renderTable(); renderPagination();
 }
 function renderMetrics() {
-  if (state.view === "benchmarks" && state.benchmarks) {
-    const dataset = selectedBenchmark();
-    elements.showingLabel.textContent = "Benchmark cases";
-    elements.strongLabel.textContent = "Pending review";
-    elements.shortlistLabel.textContent = "Approved";
-    elements.applicationLabel.textContent = "Rejected";
-    elements.showingMetric.textContent = number(dataset?.case_count || 0);
-    elements.strongMetric.textContent = number(dataset?.draft_count || 0);
-    elements.shortlistMetric.textContent = number(dataset?.approved_count || 0);
-    elements.applicationMetric.textContent = number(dataset?.rejected_count || 0);
-    return;
-  }
-  if (state.view === "evaluations" && state.evaluations) {
-    const report = selectedEvaluation();
-    elements.showingLabel.textContent = "Evaluation runs";
-    elements.strongLabel.textContent = "Result";
-    elements.shortlistLabel.textContent = "Exact F1";
-    elements.applicationLabel.textContent = "Cases";
-    elements.showingMetric.textContent = number(state.evaluations.report_count);
-    elements.strongMetric.textContent = report ? (report.passed ? "Passed" : "Review") : "--";
-    elements.shortlistMetric.textContent = report ? formatPercent(report.metrics.f1) : "--";
-    elements.applicationMetric.textContent = report ? `${number(report.successful_case_count)} / ${number(report.case_count)}` : "--";
-    return;
-  }
-  if (state.view === "resume-review" && state.resumeReviews) {
-    const items = state.resumeReviews.items || [];
-    const selected = selectedReviewItem();
-    elements.showingLabel.textContent = "Extractions";
-    elements.strongLabel.textContent = "Pending review";
-    elements.shortlistLabel.textContent = "Approved";
-    elements.applicationLabel.textContent = "Text quality";
-    elements.showingMetric.textContent = number(items.length);
-    elements.strongMetric.textContent = number(state.resumeReviews.pending_count);
-    elements.shortlistMetric.textContent = number(state.resumeReviews.approved_count);
-    elements.applicationMetric.textContent = selected ? formatPercent(selected.extraction.quality_score) : "--";
-    return;
-  }
-  if (state.view === "reporting" && state.reporting) {
-    const latest = state.reporting.latest_report;
-    const summary = latest?.summary || {};
-    elements.showingLabel.textContent = "Active alerts";
-    elements.strongLabel.textContent = "New alerts";
-    elements.shortlistLabel.textContent = "Strong matches";
-    elements.applicationLabel.textContent = "Report status";
-    elements.showingMetric.textContent = number(state.reporting.active_alerts);
-    elements.strongMetric.textContent = number(summary.new_alerts || 0);
-    elements.shortlistMetric.textContent = number(summary.strong_matches || 0);
-    elements.applicationMetric.textContent = latest ? formatLabel(latest.status) : "Pending";
-    return;
-  }
   if (state.view === "simulator" && state.market) {
     const simulation = calculateSimulation();
     const feedback = calculateCalibration();
@@ -406,7 +260,7 @@ function renderMarketOverview() {
     ${marketKpi("Postings analyzed", skills.records_analyzed, `${skills.excluded_inactive} inactive excluded`)}
     ${marketKpi("Distinct skills", skills.coverage.distinct_skills, `${formatPercent(skills.coverage.posting_share)} skill coverage`)}
     ${marketKpi("Strong and moderate", Number(score.strong_matches || 0) + Number(score.moderate_matches || 0), `${formatScore(score.maximum)} highest relevance`)}
-    ${marketKpi("Employers", employers.distinct_employers, `${lifecycle.current_counts.active || 0} lifecycle-active postings`)}
+    ${marketKpi("Employers", employers.distinct_employers, `${(lifecycle.current_counts || {}).active || 0} lifecycle-active postings`)}
     ${marketKpi("Distinct titles", titles.distinct_titles, `${titles.families.length} role families`)}
     ${marketKpi("Salary disclosed", salaries.coverage.postings_with_salary, `${formatPercent(salaries.coverage.posting_share)} of postings`)}
     <section class="intel-block">${intelHeading("Skills in demand", "Top 10 by posting count")}${rankingList(skills.skills, "skill", "posting_count", 10)}</section>
@@ -458,379 +312,6 @@ function rankingList(items, labelKey, valueKey, limit = 10, formatter = number) 
 function marketTable(headers, rows) { return `<div class="intel-table-shell"><table class="intel-table"><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>`; }
 function qualityList(metrics) { return `<div class="quality-list">${(metrics || []).map((item) => `<div class="quality-row"><span>${escapeHtml(formatLabel(item.name))}</span><span class="${item.passed ? "quality-pass" : "quality-fail"}">${item.passed ? "Passed" : "Failed"} / ${escapeHtml(formatMetricValue(item.value))}</span></div>`).join("")}</div>`; }
 function formatMetricValue(value) { return Number(value) <= 1 ? formatPercent(value) : number(value); }
-
-async function loadBenchmarkCase(datasetId, caseId, rerender = true) {
-  state.benchmarkDetail = null;
-  state.benchmarkDraft = null;
-  if (!datasetId || !caseId) { if (rerender) renderBenchmarks(); return; }
-  state.benchmarkLoading = true;
-  if (rerender) renderBenchmarks();
-  try {
-    const response = await fetch(`/api/benchmarks/${encodeURIComponent(datasetId)}/cases/${encodeURIComponent(caseId)}`, { cache: "no-store" });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "Benchmark case could not be loaded");
-    state.benchmarkDetail = payload;
-    state.benchmarkDraft = structuredClone(payload.case);
-  } catch (error) {
-    state.benchmarkDetail = { error: error.message };
-  } finally {
-    state.benchmarkLoading = false;
-    if (rerender) renderBenchmarks();
-  }
-}
-
-async function selectBenchmarkDataset() {
-  state.selectedBenchmarkId = elements.benchmarkDatasetSelect.value || null;
-  const dataset = selectedBenchmark();
-  const selected = dataset?.cases?.find((item) => item.status === "draft") || dataset?.cases?.[0];
-  state.selectedBenchmarkCaseId = selected?.case_id || null;
-  await loadBenchmarkCase(state.selectedBenchmarkId, state.selectedBenchmarkCaseId, false);
-  renderMetrics();
-  renderBenchmarks();
-}
-
-function filteredBenchmarkCases(dataset) {
-  const status = elements.benchmarkCaseStatus.value;
-  const query = elements.benchmarkCaseSearch.value.trim().toLowerCase();
-  return (dataset?.cases || []).filter((item) => {
-    if (status && item.status !== status) return false;
-    if (!query) return true;
-    return [item.case_id, item.label, ...(item.tags || [])].filter(Boolean).join(" ").toLowerCase().includes(query);
-  });
-}
-
-function renderBenchmarks() {
-  const dataset = selectedBenchmark();
-  if (!dataset) {
-    elements.benchmarkStatus.textContent = "No benchmarks";
-    elements.benchmarkStatus.classList.add("attention");
-    elements.benchmarkCaseList.innerHTML = `<div class="benchmark-empty">No benchmark datasets are available.</div>`;
-    elements.benchmarkDetail.innerHTML = "";
-    return;
-  }
-  elements.benchmarkDatasetSelect.value = dataset.dataset_id;
-  elements.benchmarkStatus.textContent = dataset.status === "frozen" ? "Frozen" : `${number(dataset.draft_count)} pending`;
-  elements.benchmarkStatus.classList.toggle("attention", dataset.draft_count > 0);
-  elements.benchmarkQueueTitle.textContent = `${formatLabel(dataset.task)} · v${dataset.version}`;
-  const cases = filteredBenchmarkCases(dataset);
-  elements.benchmarkQueueCount.textContent = `${number(cases.length)} of ${number(dataset.case_count)}`;
-  elements.benchmarkCaseList.innerHTML = cases.map((item) => {
-    const active = item.case_id === state.selectedBenchmarkCaseId;
-    const meta = item.task === "title_normalization" ? `${number(item.answer_count)} answer${item.answer_count === 1 ? "" : "s"}` : item.task === "resume_ner" ? `${number(item.entity_count)} entities` : `${number(item.aspect_count)} aspects`;
-    return `<button class="benchmark-case-row ${active ? "active" : ""}" type="button" data-benchmark-case-id="${escapeHtml(item.case_id)}"><span><strong>${escapeHtml(item.label || item.case_id)}</strong><small>${escapeHtml(item.case_id)}</small></span><span class="benchmark-row-meta"><span class="benchmark-pill ${escapeHtml(item.status)}">${escapeHtml(item.status === "draft" ? "Pending" : formatLabel(item.status))}</span><small>${escapeHtml(meta)}</small></span></button>`;
-  }).join("") || `<div class="benchmark-empty">No cases match the current filters.</div>`;
-  if (state.benchmarkLoading) { elements.benchmarkDetail.innerHTML = `<div class="benchmark-empty">Loading selected case...</div>`; return; }
-  if (state.benchmarkDetail?.error) { elements.benchmarkDetail.innerHTML = `<div class="benchmark-empty error">${escapeHtml(state.benchmarkDetail.error)}</div>`; return; }
-  if (!state.benchmarkDetail || !state.benchmarkDraft) { elements.benchmarkDetail.innerHTML = `<div class="benchmark-empty">Select a case to review.</div>`; return; }
-  elements.benchmarkDetail.innerHTML = renderBenchmarkDetail(state.benchmarkDetail, state.benchmarkDraft);
-}
-
-function renderBenchmarkDetail(detail, draft) {
-  const readonly = !detail.can_review;
-  const disabled = readonly ? "disabled" : "";
-  const warnings = (detail.drafting_warnings || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
-  const sources = (detail.source_references || []).map((item) => `<li><strong>${escapeHtml(formatLabel(item.kind))}</strong><span>${escapeHtml(item.reference_id)}</span></li>`).join("");
-  const reviews = (detail.reviews || []).slice().reverse().map((item) => `<li><span class="benchmark-pill ${escapeHtml(item.decision === "approve" ? "approved" : "rejected")}">${escapeHtml(formatLabel(item.decision))}</span><div><strong>${escapeHtml(item.reviewer)}</strong><span>${escapeHtml(formatTimestamp(item.reviewed_at))}${item.is_current_revision ? " · current revision" : " · prior revision"}</span>${item.notes ? `<p>${escapeHtml(item.notes)}</p>` : ""}</div></li>`).join("");
-  const editor = draft.task === "resume_ner" ? renderResumeBenchmarkEditor(draft, readonly) : draft.task === "title_normalization" ? renderTitleBenchmarkEditor(draft, readonly) : draft.task === "application_comparison" ? renderComparisonBenchmarkEditor(draft, readonly) : renderGenericBenchmarkEditor(draft, readonly);
-  const actions = readonly ? `<div class="benchmark-readonly">This frozen benchmark is read-only.</div>` : `<form class="benchmark-review-form"><div class="benchmark-review-fields"><label><span>Reviewer</span><input name="reviewer" maxlength="200" value="candidate-owner" required></label><label class="wide"><span>Review notes</span><textarea name="notes" maxlength="4000" rows="2"></textarea></label><label class="benchmark-attest wide"><input name="attest" type="checkbox" required><span>I reviewed this case and attest that the annotations are correct.</span></label></div><div class="benchmark-review-actions"><span id="benchmarkReviewFeedback" role="status"></span><button class="danger-button" type="submit" data-decision="reject">Reject</button><button class="save-button" type="submit" data-decision="approve">Approve</button></div></form>`;
-  return `<div class="benchmark-detail-header"><div><span>${escapeHtml(formatLabel(draft.task))}</span><h2>${escapeHtml(benchmarkDetailTitle(draft))}</h2><code>${escapeHtml(draft.case_id)}</code></div><span class="benchmark-pill ${escapeHtml(detail.status)}">${escapeHtml(detail.status === "draft" ? "Pending" : formatLabel(detail.status))}</span></div>${warnings ? `<section class="benchmark-alert"><h3>Draft warnings</h3><ul>${warnings}</ul></section>` : ""}${editor}<div class="benchmark-meta-grid"><section><h3>Provenance</h3><ul class="benchmark-source-list">${sources || "<li>No source references</li>"}</ul></section><section><h3>Review history</h3><ul class="benchmark-history">${reviews || "<li>No decisions recorded</li>"}</ul></section></div>${actions}`;
-}
-
-function benchmarkDetailTitle(draft) {
-  if (draft.query) return draft.query;
-  if (draft.task === "application_comparison") return (draft.job_text || "").split("\n")[0].replace(/^Job title:\s*/, "") || draft.case_id;
-  return draft.case_id;
-}
-
-function renderResumeBenchmarkEditor(draft, readonly) {
-  const disabled = readonly ? "disabled" : "";
-  const rows = (draft.expected_entities || []).map((entity, index) => `<tr data-entity-index="${index}"><td><input data-entity-field="label" value="${escapeHtml(entity.label)}" ${disabled}></td><td><input data-entity-field="text" value="${escapeHtml(entity.text)}" ${disabled}></td><td><input data-entity-field="start" type="number" min="0" value="${number(entity.start)}" ${disabled}></td><td><input data-entity-field="end" type="number" min="1" value="${number(entity.end)}" ${disabled}></td><td>${readonly ? "" : `<button class="icon-button benchmark-remove-entity" type="button" title="Remove entity" aria-label="Remove entity">&times;</button>`}</td></tr>`).join("");
-  return `<section class="benchmark-editor"><div class="benchmark-section-heading"><div><h3>Expected entities</h3><span>${number((draft.expected_entities || []).length)} annotations</span></div>${readonly ? "" : `<button class="secondary-button" id="benchmarkAddEntity" type="button">Add entity</button>`}</div><div class="benchmark-entity-shell"><table class="benchmark-entity-table"><thead><tr><th>Label</th><th>Text</th><th>Start</th><th>End</th><th></th></tr></thead><tbody>${rows}</tbody></table></div><label class="benchmark-tags"><span>Tags</span><input id="benchmarkTags" value="${escapeHtml((draft.tags || []).join(", "))}" ${disabled}></label><div class="benchmark-source-text"><span>Private source text</span><pre>${escapeHtml(draft.text)}</pre></div></section>`;
-}
-
-function renderTitleBenchmarkEditor(draft, readonly) {
-  const disabled = readonly ? "disabled" : "";
-  const relevant = new Set(draft.relevant_candidate_ids || []);
-  const candidates = (draft.candidates || []).map((candidate) => `<label class="benchmark-candidate ${relevant.has(candidate.candidate_id) ? "selected" : ""}"><input type="checkbox" data-candidate-id="${escapeHtml(candidate.candidate_id)}" ${relevant.has(candidate.candidate_id) ? "checked" : ""} ${disabled}><span><strong>${escapeHtml(candidate.title)}</strong><small>${escapeHtml(candidate.candidate_id)}</small></span></label>`).join("");
-  return `<section class="benchmark-editor"><label class="benchmark-query"><span>Observed title</span><input id="benchmarkTitleQuery" value="${escapeHtml(draft.query)}" ${disabled}></label><label class="benchmark-tags"><span>Tags</span><input id="benchmarkTags" value="${escapeHtml((draft.tags || []).join(", "))}" ${disabled}></label><div class="benchmark-section-heading"><div><h3>Relevant canonical titles</h3><span>${number(relevant.size)} selected</span></div></div><div class="benchmark-candidates">${candidates}</div></section>`;
-}
-
-function renderComparisonBenchmarkEditor(draft, readonly) {
-  const disabled = readonly ? "disabled" : "";
-  const aspects = ["requirement_coverage", "seniority_fit", "domain_alignment", "ats_keyword_overlap"];
-  const scoreRows = aspects.map((aspect) => {
-    const phrases = (draft.expected_evidence_phrases?.[aspect] || []).join("\n");
-    return `<section class="benchmark-comparison-aspect"><div><strong>${escapeHtml(formatLabel(aspect))}</strong><label><span>Expected score</span><input type="number" min="0" max="100" step="5" value="${number(draft.expected_scores?.[aspect] ?? 0)}" data-comparison-score="${escapeHtml(aspect)}" ${disabled}></label></div><label><span>Exact evidence phrases, one per line</span><textarea rows="4" data-comparison-evidence="${escapeHtml(aspect)}" ${disabled}>${escapeHtml(phrases)}</textarea></label></section>`;
-  }).join("");
-  return `<section class="benchmark-editor benchmark-comparison-editor"><div class="benchmark-source-pair"><div class="benchmark-source-text"><span>Reviewed resume</span><pre>${escapeHtml(draft.resume_text)}</pre></div><div class="benchmark-source-text"><span>Job description</span><pre>${escapeHtml(draft.job_text)}</pre></div></div><div class="benchmark-section-heading"><div><h3>Human fit annotations</h3><span>Use rubric anchors and exact source phrases</span></div></div><div class="benchmark-comparison-aspects">${scoreRows}</div><div class="benchmark-comparison-settings"><label><span>Score tolerance</span><input id="benchmarkComparisonTolerance" type="number" min="0" max="100" step="1" value="${number(draft.tolerance ?? 10)}" ${disabled}></label><label class="benchmark-tags"><span>Tags</span><input id="benchmarkTags" value="${escapeHtml((draft.tags || []).join(", "))}" ${disabled}></label></div></section>`;
-}
-
-function renderGenericBenchmarkEditor(draft, readonly) {
-  return `<section class="benchmark-editor"><label class="benchmark-json"><span>Typed case JSON</span><textarea id="benchmarkCaseJson" rows="22" ${readonly ? "disabled" : ""}>${escapeHtml(JSON.stringify(draft, null, 2))}</textarea></label></section>`;
-}
-
-async function handleBenchmarkCaseClick(event) {
-  const button = event.target.closest("[data-benchmark-case-id]");
-  if (!button) return;
-  state.selectedBenchmarkCaseId = button.dataset.benchmarkCaseId;
-  await loadBenchmarkCase(state.selectedBenchmarkId, state.selectedBenchmarkCaseId);
-}
-
-function handleBenchmarkDetailClick(event) {
-  if (event.target.id === "benchmarkAddEntity") {
-    state.benchmarkDraft.expected_entities.push({ label: "SKILL", text: "", start: 0, end: 1, confidence: null });
-    renderBenchmarks();
-    return;
-  }
-  const remove = event.target.closest(".benchmark-remove-entity");
-  if (remove) {
-    const row = remove.closest("tr[data-entity-index]");
-    state.benchmarkDraft.expected_entities.splice(Number(row.dataset.entityIndex), 1);
-    renderBenchmarks();
-  }
-}
-
-function handleBenchmarkDetailInput(event) {
-  if (!state.benchmarkDraft) return;
-  if (event.target.id === "benchmarkTitleQuery") state.benchmarkDraft.query = event.target.value;
-  if (event.target.id === "benchmarkTags") state.benchmarkDraft.tags = event.target.value.split(",").map((item) => item.trim()).filter(Boolean);
-  if (event.target.id === "benchmarkComparisonTolerance") state.benchmarkDraft.tolerance = Number(event.target.value);
-  if (event.target.matches("[data-comparison-score]")) state.benchmarkDraft.expected_scores[event.target.dataset.comparisonScore] = Number(event.target.value);
-  if (event.target.matches("[data-comparison-evidence]")) state.benchmarkDraft.expected_evidence_phrases[event.target.dataset.comparisonEvidence] = event.target.value.split("\n").map((item) => item.trim()).filter(Boolean);
-  if (event.target.matches("[data-candidate-id]")) {
-    const selected = [...elements.benchmarkDetail.querySelectorAll("[data-candidate-id]:checked")].map((item) => item.dataset.candidateId);
-    state.benchmarkDraft.relevant_candidate_ids = selected;
-    renderBenchmarks();
-    return;
-  }
-  if (event.target.matches("[data-entity-field]")) {
-    const row = event.target.closest("tr[data-entity-index]");
-    const entity = state.benchmarkDraft.expected_entities[Number(row.dataset.entityIndex)];
-    const field = event.target.dataset.entityField;
-    entity[field] = field === "start" || field === "end" ? Number(event.target.value) : event.target.value;
-  }
-}
-
-async function submitBenchmarkReview(event) {
-  const form = event.target.closest(".benchmark-review-form");
-  if (!form) return;
-  event.preventDefault();
-  const detail = state.benchmarkDetail;
-  const feedback = document.getElementById("benchmarkReviewFeedback");
-  const submitter = event.submitter;
-  const data = new FormData(form);
-  let revisedCase = state.benchmarkDraft;
-  const generic = document.getElementById("benchmarkCaseJson");
-  try {
-    if (generic) revisedCase = JSON.parse(generic.value);
-  } catch (error) {
-    feedback.textContent = `Invalid case JSON: ${error.message}`;
-    return;
-  }
-  form.querySelectorAll("button").forEach((button) => { button.disabled = true; });
-  feedback.textContent = "Saving decision...";
-  try {
-    const response = await fetch(`/api/benchmarks/${encodeURIComponent(state.selectedBenchmarkId)}/cases/${encodeURIComponent(state.selectedBenchmarkCaseId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reviewer: data.get("reviewer"), decision: submitter.dataset.decision, notes: data.get("notes"), attest: data.get("attest") === "on", expected_case_fingerprint: detail.case_fingerprint, case: revisedCase }) });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "Benchmark review could not be saved");
-    state.benchmarkDetail = payload;
-    state.benchmarkDraft = structuredClone(payload.case);
-    await refreshBenchmarks();
-  } catch (error) {
-    feedback.textContent = error.message;
-    form.querySelectorAll("button").forEach((button) => { button.disabled = false; });
-  }
-}
-
-async function refreshBenchmarks() {
-  const response = await fetch("/api/benchmarks", { cache: "no-store" });
-  const payload = await response.json();
-  if (!response.ok) throw new Error(payload.error || "Benchmark state could not be refreshed");
-  state.benchmarks = payload;
-  populateBenchmarkSelect();
-  elements.benchmarksFreshness.textContent = `${number(payload.case_count)} cases across ${number(payload.dataset_count)} benchmarks`;
-  const dataset = selectedBenchmark();
-  const current = dataset?.cases?.find((item) => item.case_id === state.selectedBenchmarkCaseId);
-  if (!current) state.selectedBenchmarkCaseId = dataset?.cases?.find((item) => item.status === "draft")?.case_id || dataset?.cases?.[0]?.case_id || null;
-  await loadBenchmarkCase(state.selectedBenchmarkId, state.selectedBenchmarkCaseId, false);
-  renderMetrics();
-  renderBenchmarks();
-}
-
-function renderEvaluations() {
-  const report = selectedEvaluation();
-  if (!report) {
-    elements.evaluationStatus.textContent = "No runs";
-    elements.evaluationStatus.classList.add("attention");
-    elements.evaluationsContent.innerHTML = `<section class="evaluation-empty"><strong>No model evaluations found</strong><span>Evaluation reports will appear after a model benchmark run completes.</span></section>`;
-    return;
-  }
-  elements.evaluationSelect.value = report.report_id;
-  elements.evaluationStatus.textContent = report.passed ? "Passed" : "Review required";
-  elements.evaluationStatus.classList.toggle("attention", !report.passed);
-  const metrics = report.metrics || {};
-  const thresholds = (report.thresholds || []).map((item) => `<tr><td><strong>${escapeHtml(formatLabel(item.metric))}</strong></td><td class="number-cell">${evaluationMetric(item.value)}</td><td><span class="evaluation-result ${item.passed ? "passed" : "failed"}">${item.passed ? "Passed" : "Failed"}</span></td><td>${escapeHtml(item.explanation)}</td></tr>`).join("");
-  const labels = (report.label_metrics || []).map((item) => `<tr><td><strong>${escapeHtml(item.label)}</strong></td><td class="number-cell">${number(item.support)}</td><td class="number-cell">${number(item.predicted)}</td><td class="number-cell">${formatPercent(item.accuracy)}</td><td class="number-cell">${formatPercent(item.precision)}</td><td class="number-cell">${formatPercent(item.recall)}</td><td class="number-cell"><strong>${formatPercent(item.f1)}</strong></td><td class="number-cell">${number(item.false_positive)}</td><td class="number-cell">${number(item.false_negative)}</td></tr>`).join("");
-  const slices = (report.slices || []).map((item) => `<tr><td><strong>${escapeHtml(formatLabel(item.name.replace(":", " / ")))}</strong></td><td class="number-cell">${number(item.case_count)}</td><td class="number-cell">${evaluationMetric(item.precision)}</td><td class="number-cell">${evaluationMetric(item.recall)}</td><td class="number-cell">${evaluationMetric(item.f1)}</td><td class="number-cell">${evaluationMetric(item.overlap_f1)}</td></tr>`).join("");
-  const analysis = report.error_analysis;
-  const adjudications = state.evaluationAdjudications[report.report_id];
-  const errorRows = Object.entries(analysis?.summary || {}).map(([kind, count]) => `<tr><td><strong>${escapeHtml(formatLabel(kind))}</strong></td><td class="number-cell">${number(count)}</td></tr>`).join("");
-  const weaknessRows = (analysis?.slice_weaknesses || []).map((item) => `<tr><td><strong>${escapeHtml(formatLabel(item.tag.replace(":", " / ")))}</strong></td><td class="number-cell">${number(item.case_count)}</td><td class="number-cell">${evaluationMetric(item.value)}</td><td class="number-cell">${evaluationMetric(item.delta)}</td></tr>`).join("");
-  const cases = [...(report.case_results || [])].sort((a, b) => Number(a.metrics?.exact_f1 ?? 1) - Number(b.metrics?.exact_f1 ?? 1)).slice(0, 12).map((item) => { const errorCount = Object.values(item.error_classifications || {}).reduce((total, count) => total + Number(count || 0), 0); return `<tr><td><strong>${escapeHtml(item.case_id.replace("pack-technical-resumes-v1-", ""))}</strong><span class="job-meta">${escapeHtml((item.tags || []).find((tag) => tag.startsWith("bucket:"))?.replace("bucket:", "") || "unsliced")}</span></td><td class="number-cell">${evaluationMetric(item.metrics?.exact_precision)}</td><td class="number-cell">${evaluationMetric(item.metrics?.exact_recall)}</td><td class="number-cell"><strong>${evaluationMetric(item.metrics?.exact_f1)}</strong></td><td class="number-cell">${evaluationMetric(item.metrics?.overlap_f1)}</td><td class="number-cell">${number(errorCount)}</td><td class="number-cell">${formatDuration(item.duration_ms)}</td></tr>`; }).join("");
-  elements.evaluationsContent.innerHTML = `<div class="evaluation-layout">
-    <section class="evaluation-run-summary">
-      <div><span>Model</span><strong>${escapeHtml(report.model_id)}</strong></div><div><span>Task</span><strong>${escapeHtml(formatLabel(report.task))}</strong></div><div><span>Run</span><strong>${escapeHtml(formatTimestamp(report.created_at))}</strong></div><div><span>Successful cases</span><strong>${number(report.successful_case_count)} / ${number(report.case_count)}</strong></div>
-    </section>
-    <section class="evaluation-metrics" aria-label="Evaluation metrics">
-      ${evaluationKpi("Entity accuracy", metrics.accuracy, "Exact TP divided by TP, FP, and FN")}${evaluationKpi("Precision", metrics.precision, "Exact entity precision")}${evaluationKpi("Recall", metrics.recall, "Exact entity recall")}${evaluationKpi("F1 score", metrics.f1, "Exact entity F1")}${evaluationKpi("Overlap F1", metrics.overlap_f1, "Boundary-tolerant entity F1")}
-    </section>
-    <section class="evaluation-block wide">${evaluationHeading("Exact-span confusion matrix", "Rows are expected labels; columns are predicted labels")}${renderConfusionMatrix(report.confusion_matrix)}</section>
-    <section class="evaluation-block wide">${evaluationHeading("Label performance", `${(report.label_metrics || []).length} evaluated labels`)}${labels ? evaluationTable(["Label", "Expected", "Predicted", "Accuracy", "Precision", "Recall", "F1", "FP", "FN"], labels, "label-metrics-table") : `<div class="evaluation-unavailable">Per-label metrics are not available for this task.</div>`}</section>
-    <section class="evaluation-block">${evaluationHeading("Quality gates", report.passed ? "All configured gates passed" : "One or more configured gates failed")}${evaluationTable(["Metric", "Value", "Result", "Requirement"], thresholds, "threshold-table")}</section>
-    <section class="evaluation-block">${evaluationHeading("Slices", "Role bucket and document layout")}${slices ? evaluationTable(["Slice", "Cases", "Precision", "Recall", "F1", "Overlap F1"], slices, "slice-table") : `<div class="evaluation-unavailable">No evaluation slices recorded.</div>`}</section>
-    <section class="evaluation-block">${evaluationHeading("Error classifications", analysis ? `${number(analysis.total_count)} components / ${number(analysis.review_required_count)} require review` : "Available in schema v3 reports")}${errorRows ? evaluationTable(["Classification", "Components"], errorRows, "error-classification-table") : `<div class="evaluation-unavailable">This report has no persisted error classifications.</div>`}</section>
-    <section class="evaluation-block">${evaluationHeading("Weak slices", "At least five points below overall exact F1")}${weaknessRows ? evaluationTable(["Slice", "Cases", "F1", "Delta"], weaknessRows, "weak-slice-table") : `<div class="evaluation-unavailable">No weak layout or role slices detected.</div>`}</section>
-    ${renderAdjudicationQueue(adjudications, analysis)}
-    <section class="evaluation-block wide">${evaluationHeading("Lowest exact-F1 cases", "Prioritized for error analysis")}${evaluationTable(["Case", "Precision", "Recall", "F1", "Overlap F1", "Errors", "Runtime"], cases, "case-metrics-table")}</section>
-  </div>`;
-}
-
-function renderAdjudicationQueue(queue, analysis) {
-  if (!analysis) return "";
-  if (state.adjudicationError) return `<section class="evaluation-block wide">${evaluationHeading("Adjudication queue", "Private review context")}<div class="evaluation-unavailable">${escapeHtml(state.adjudicationError)}</div></section>`;
-  if (!queue) return `<section class="evaluation-block wide">${evaluationHeading("Adjudication queue", "Loading private review context")}<div class="evaluation-unavailable">Loading review-required components...</div></section>`;
-  const ordered = [...(queue.items || [])].sort((left, right) => Number(left.status === "reviewed") - Number(right.status === "reviewed") || left.case_id.localeCompare(right.case_id));
-  const rows = ordered.map((item) => {
-    const expected = (item.expected || []).map((value) => `${value.label}: ${value.text}`).join(", ") || "None";
-    const predicted = (item.predicted || []).map((value) => `${value.label}: ${value.text}`).join(", ") || "None";
-    return `<tr><td><strong>${escapeHtml(item.case_id.replace("pack-technical-resumes-v1-", ""))}</strong><span class="job-meta">${escapeHtml(item.classification_id)}</span></td><td>${escapeHtml(formatLabel(item.original_kind))}</td><td title="${escapeHtml(expected)}">${escapeHtml(expected)}</td><td title="${escapeHtml(predicted)}">${escapeHtml(predicted)}</td><td><span class="evaluation-result ${item.status === "reviewed" ? "passed" : "failed"}">${escapeHtml(formatLabel(item.status))}</span></td><td><button class="secondary-button adjudication-open" type="button" data-adjudication-id="${escapeHtml(item.classification_id)}">${item.status === "reviewed" ? "Review" : "Adjudicate"}</button></td></tr>`;
-  }).join("");
-  const selected = ordered.find((item) => item.classification_id === state.selectedAdjudicationId);
-  return `<section class="evaluation-block wide">${evaluationHeading("Adjudication queue", `${number(queue.pending_count)} pending / ${number(queue.reviewed_count)} reviewed`)}${rows ? evaluationTable(["Case", "Automatic class", "Expected", "Predicted", "Status", "Action"], rows, "adjudication-table") : `<div class="evaluation-unavailable">No components require human review.</div>`}</section>${selected ? renderAdjudicationDetail(selected, queue) : ""}`;
-}
-
-function renderAdjudicationDetail(item, queue) {
-  const latest = item.latest_decision;
-  const kinds = ["incorrect_model_prediction", "boundary_only_disagreement", "label_or_ontology_problem", "benchmark_annotation_mistake"];
-  const selectedKind = item.final_kind || item.original_kind;
-  const options = kinds.map((kind) => `<option value="${kind}" ${kind === selectedKind ? "selected" : ""}>${escapeHtml(formatLabel(kind))}</option>`).join("");
-  const expected = (item.expected || []).map((value) => `<li><strong>${escapeHtml(value.label)}</strong><code>${escapeHtml(value.text)}</code><span>${number(value.start)}:${number(value.end)}</span></li>`).join("") || `<li><span>No expected annotation overlaps this component.</span></li>`;
-  const predicted = (item.predicted || []).map((value) => `<li><strong>${escapeHtml(value.label)}</strong><code>${escapeHtml(value.text)}</code><span>${number(value.start)}:${number(value.end)}</span></li>`).join("") || `<li><span>No model prediction overlaps this component.</span></li>`;
-  return `<section class="evaluation-block wide adjudication-detail">${evaluationHeading("Adjudicate component", `${escapeHtml(item.classification_id)} / revision ${number(queue.revision)}`)}
-    <div class="adjudication-context"><span>Private source context</span><pre>${escapeHtml(item.context.text)}</pre></div>
-    <div class="adjudication-evidence"><div><h3>Expected</h3><ul>${expected}</ul></div><div><h3>Predicted</h3><ul>${predicted}</ul></div></div>
-    <p class="adjudication-rationale">${escapeHtml(item.rationale)}</p>
-    <form class="adjudication-form" data-report-id="${escapeHtml(queue.report_id)}" data-classification-id="${escapeHtml(item.classification_id)}">
-      <label><span>Final classification</span><select name="final_kind" required>${options}</select></label>
-      <label><span>Reviewer</span><input name="reviewer" type="text" maxlength="200" value="${escapeHtml(latest?.reviewer || "candidate-owner")}" required></label>
-      <label class="wide"><span>Review notes</span><textarea name="notes" maxlength="4000" required>${escapeHtml(latest?.notes || "")}</textarea></label>
-      <label class="adjudication-attest wide"><input name="attest" type="checkbox" required><span>I reviewed the source context and attest that this classification is correct.</span></label>
-      <div class="adjudication-actions wide"><span class="adjudication-feedback">${latest ? `Previously reviewed ${escapeHtml(formatTimestamp(latest.decided_at))}. Saving creates a new history entry.` : "Decision history is append-only."}</span><button class="save-button" type="submit">Save adjudication</button></div>
-    </form>
-  </section>`;
-}
-
-function handleEvaluationClick(event) {
-  const button = event.target.closest("[data-adjudication-id]");
-  if (!button) return;
-  state.selectedAdjudicationId = button.dataset.adjudicationId;
-  renderEvaluations();
-  document.querySelector(".adjudication-detail")?.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-async function submitEvaluationAdjudication(event) {
-  const form = event.target.closest(".adjudication-form");
-  if (!form) return;
-  event.preventDefault();
-  const queue = state.evaluationAdjudications[form.dataset.reportId];
-  const button = form.querySelector("button[type='submit']");
-  const feedback = form.querySelector(".adjudication-feedback");
-  const data = new FormData(form);
-  button.disabled = true;
-  feedback.textContent = "Saving review...";
-  try {
-    const response = await fetch(`/api/model-evaluations/${encodeURIComponent(form.dataset.reportId)}/adjudications/${encodeURIComponent(form.dataset.classificationId)}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reviewer: data.get("reviewer"), final_kind: data.get("final_kind"), notes: data.get("notes"), expected_revision: queue.revision, report_sha256: queue.report_sha256, attest: data.get("attest") === "on" }),
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Adjudication could not be saved");
-    await loadEvaluationAdjudications(form.dataset.reportId, false);
-    renderEvaluations();
-  } catch (error) {
-    feedback.textContent = error.message;
-    button.disabled = false;
-  }
-}
-
-function evaluationKpi(label, value, title) { return `<div title="${escapeHtml(title)}"><span>${escapeHtml(label)}</span><strong>${evaluationMetric(value)}</strong></div>`; }
-function evaluationHeading(title, detail) { return `<div class="evaluation-heading"><h2>${escapeHtml(title)}</h2><span>${escapeHtml(detail)}</span></div>`; }
-function evaluationTable(headers, rows, className) { return `<div class="evaluation-table-shell"><table class="evaluation-table ${className}"><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>`; }
-function evaluationMetric(value) { return value === null || value === undefined ? "--" : formatPercent(value); }
-function formatDuration(value) { const milliseconds = Number(value || 0); return milliseconds >= 1000 ? `${(milliseconds / 1000).toFixed(1)}s` : `${Math.round(milliseconds)}ms`; }
-function renderConfusionMatrix(matrix) {
-  if (!matrix) return `<div class="evaluation-unavailable">A confusion matrix is not applicable to this evaluation task.</div>`;
-  const maximum = Math.max(Number(matrix.maximum || 0), 1);
-  const header = matrix.columns.map((label) => `<th title="Predicted ${escapeHtml(label)}">${escapeHtml(label)}</th>`).join("");
-  const rows = matrix.rows.map((row, rowIndex) => `<tr><th title="Expected ${escapeHtml(row)}">${escapeHtml(row)}</th>${matrix.values[rowIndex].map((value, columnIndex) => {
-    const column = matrix.columns[columnIndex]; const heat = value ? 0.12 + (Number(value) / maximum * 0.76) : 0;
-    const kind = row === "SPURIOUS" || column === "MISSED" ? "error-axis" : row === column ? "diagonal" : "confused";
-    return `<td class="matrix-cell ${kind}" style="--heat:${heat.toFixed(3)}" title="Expected ${escapeHtml(row)}, predicted ${escapeHtml(column)}: ${number(value)}">${value ? number(value) : ""}</td>`;
-  }).join("")}</tr>`).join("");
-  return `<div class="confusion-shell"><table class="confusion-matrix"><thead><tr><th>Expected / predicted</th>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
-}
-
-async function generateReport() {
-  const button = elements.generateReport;
-  button.disabled = true;
-  button.textContent = "Generating";
-  try {
-    const response = await fetch("/api/reporting/generate", { method: "POST" });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Report generation failed");
-    const reportingResponse = await fetch("/api/reporting", { cache: "no-store" });
-    if (!reportingResponse.ok) throw new Error("Generated report could not be reloaded");
-    state.reporting = await reportingResponse.json();
-    elements.reportingFreshness.textContent = `Latest report ${formatTimestamp(state.reporting.generated_at)}`;
-    renderMetrics();
-    renderReporting();
-  } catch (error) {
-    elements.reportingFreshness.textContent = error.message;
-  } finally {
-    button.disabled = false;
-    button.textContent = "Generate report";
-  }
-}
-
-function alertRows(alerts) {
-  if (!alerts.length) return `<div class="report-empty">No alerts in this group</div>`;
-  return `<div class="alert-list">${alerts.map((alert) => `<article class="alert-row"><span class="alert-severity ${escapeHtml(alert.severity)}">${escapeHtml(formatLabel(alert.severity))}</span><div><strong>${escapeHtml(alert.title)}</strong><p>${escapeHtml(alert.detail)}</p><span>${escapeHtml(formatLabel(alert.rule))} / ${alert.job_ids?.length || 0} linked opportunities</span></div><time>${escapeHtml(formatTimestamp(alert.last_seen_at))}</time></article>`).join("")}</div>`;
-}
-
-function renderReporting() {
-  if (!state.reporting) { elements.reportingContent.innerHTML = `<div class="intel-empty">Reporting status is unavailable</div>`; return; }
-  const schedule = state.reporting.configured_schedule || {};
-  elements.reportingStatus.textContent = schedule.enabled ? `${formatLabel(schedule.cadence)} schedule configured` : "Schedule not registered";
-  elements.reportingStatus.classList.toggle("pending", !schedule.enabled);
-  const latest = state.reporting.latest_report;
-  if (!latest) {
-    elements.reportingContent.innerHTML = `<section class="report-first-run"><strong>No reporting baseline exists</strong><span>Generate the first report from current Gold evidence to initialize alert history.</span></section>`;
-    return;
-  }
-  const active = (state.reporting.alerts || []).filter((alert) => alert.status === "active");
-  const resolved = (state.reporting.alerts || []).filter((alert) => alert.status === "resolved");
-  const summary = latest.summary || {};
-  const opportunityRows = (latest.top_opportunities || []).map((item) => `<tr><td class="number-cell"><strong>${number(item.rank)}</strong></td><td><span class="job-title">${escapeHtml(item.title)}</span><span class="job-meta">${escapeHtml(item.location || "Unknown")}</span></td><td>${escapeHtml(item.employer)}</td><td><span class="score-badge score-${escapeHtml(item.match_band)}">${formatScore(item.resume_relevance_score)}</span></td><td><span>${escapeHtml(formatSource(item.source))}</span>${item.source_url ? `<span class="job-meta"><a class="table-link" href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">Open</a></span>` : ""}</td></tr>`).join("");
-  const scheduleDays = schedule.cadence === "weekly" ? (schedule.weekdays || []).join(", ") : "Every day";
-  elements.reportingContent.innerHTML = `<div class="report-grid">
-    <section class="report-block alert-inbox"><div class="report-heading"><div><h2>Active alerts</h2><span>Current conditions requiring attention</span></div><span class="report-count">${active.length}</span></div>${alertRows(active)}</section>
-    <section class="report-block schedule-block"><div class="report-heading"><div><h2>Schedule</h2><span>External task registration</span></div><span class="schedule-indicator ${schedule.enabled ? "" : "pending"}">${schedule.enabled ? "Enabled" : "Disabled"}</span></div><dl class="report-facts"><div><dt>Cadence</dt><dd>${escapeHtml(formatLabel(schedule.cadence))}</dd></div><div><dt>Time</dt><dd>${escapeHtml(schedule.time || "--")}</dd></div><div><dt>Timezone</dt><dd>${escapeHtml(schedule.timezone || "--")}</dd></div><div><dt>Days</dt><dd>${escapeHtml(scheduleDays)}</dd></div><div><dt>Pipeline refresh</dt><dd>${schedule.run_pipeline ? "Enabled" : "Report only"}</dd></div><div><dt>Last generated</dt><dd>${escapeHtml(formatTimestamp(latest.generated_at))}</dd></div></dl></section>
-    <section class="report-block report-summary"><div class="report-heading"><div><h2>Latest digest</h2><span>${escapeHtml(latest.report_id)}</span></div><span class="report-health ${latest.status === "healthy" ? "" : "attention"}">${escapeHtml(formatLabel(latest.status))}</span></div><div class="digest-metrics"><div><span>Active opportunities</span><strong>${number(summary.active_opportunities)}</strong></div><div><span>Strong matches</span><strong>${number(summary.strong_matches)}</strong></div><div><span>Moderate matches</span><strong>${number(summary.moderate_matches)}</strong></div><div><span>Shortlisted</span><strong>${number(summary.shortlisted)}</strong></div><div><span>Applications</span><strong>${number(summary.active_applications)}</strong></div><div><span>Resolved alerts</span><strong>${number(summary.resolved_alerts)}</strong></div></div></section>
-    <section class="report-block wide"><div class="report-heading"><div><h2>Top opportunities</h2><span>Snapshot captured in the latest report</span></div></div>${marketTable(["Rank", "Opportunity", "Employer", "Score", "Source"], opportunityRows)}</section>
-    <section class="report-block wide"><div class="report-heading"><div><h2>Resolved history</h2><span>Conditions cleared by later report runs</span></div><span class="report-count quiet">${resolved.length}</span></div>${alertRows(resolved.slice(0, 20))}</section>
-  </div>`;
-}
 
 function currentScoringProfile() {
   return state.market?.summaries?.relevance?.profile || {};
@@ -994,35 +475,11 @@ async function refreshPipelineOperations(silent = false) {
     elements.operationsFreshness.textContent = `Latest evidence ${formatTimestamp(result.generated_at)}`;
     renderMetrics();
     renderPipelineOperations();
-    schedulePipelinePoll();
   } catch (error) {
     elements.operationsFreshness.textContent = error.message;
     elements.operationsContent.innerHTML = `<div class="ops-status-line failed"><div><strong>Refresh failed</strong><span>${escapeHtml(error.message)}</span></div></div>`;
   } finally {
     if (!silent) { button.disabled = false; button.classList.remove("refresh-spin"); }
-  }
-}
-
-function schedulePipelinePoll() { clearTimeout(state.pipelinePollTimer); state.pipelinePollTimer = null; if (state.operations?.control?.active_run_id) state.pipelinePollTimer = setTimeout(() => refreshPipelineOperations(true), 2000); }
-
-async function runPipelineOperation() {
-  const action = elements.pipelineAction.value;
-  if (action === "full_pipeline" && !window.confirm("Start live collection against all enabled targets and rebuild downstream layers?")) return;
-  elements.runPipeline.disabled = true;
-  elements.operationRunFeedback.className = "operations-feedback pending";
-  elements.operationRunFeedback.textContent = "Starting pipeline operation...";
-  try {
-    const response = await fetch("/api/pipeline-runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Pipeline operation could not be started");
-    state.operationsView = "runs";
-    elements.operationsTabs.querySelectorAll("button").forEach((button) => button.classList.toggle("active", button.dataset.operationsView === "runs"));
-    elements.operationRunFeedback.textContent = `${formatLabel(result.action)} queued`;
-    await refreshPipelineOperations(true);
-  } catch (error) {
-    elements.operationRunFeedback.className = "operations-feedback error";
-    elements.operationRunFeedback.textContent = error.message;
-    elements.runPipeline.disabled = false;
   }
 }
 
@@ -1032,12 +489,7 @@ function renderPipelineOperations() {
   elements.operationsBadge.textContent = operations.status === "healthy" ? "Pipeline healthy" : operations.status === "stale" ? "Evidence stale" : "Attention required";
   elements.operationsBadge.classList.toggle("failed", operations.status === "failed");
   elements.operationsBadge.classList.toggle("stale", operations.status === "stale");
-  const control = operations.control || { can_start: false, runs: [] };
-  elements.runPipeline.disabled = !control.can_start;
-  elements.pipelineAction.disabled = !control.can_start;
-  if (control.active_run_id) { elements.operationRunFeedback.className = "operations-feedback pending"; elements.operationRunFeedback.textContent = "Pipeline operation running"; }
-  else if (elements.operationRunFeedback.textContent === "Pipeline operation running") { elements.operationRunFeedback.className = "operations-feedback success"; elements.operationRunFeedback.textContent = "Pipeline operation finished"; }
-  const renderers = { overview: renderOperationsOverview, collection: renderCollectionOperations, quality: renderQualityOperations, lifecycle: renderLifecycleOperations, outputs: renderGoldOperations, data: renderDataManagement, runs: renderPipelineRuns };
+  const renderers = { overview: renderOperationsOverview, collection: renderCollectionOperations, quality: renderQualityOperations, lifecycle: renderLifecycleOperations, outputs: renderGoldOperations };
   elements.operationsContent.innerHTML = (renderers[state.operationsView] || renderers.overview)();
 }
 
@@ -1070,53 +522,6 @@ function renderOperationsOverview() {
 
 function operationStageStatus(passed, freshness) { if (!passed) return "failed"; return freshness?.status === "fresh" ? "passed" : "stale"; }
 
-function renderPipelineRuns() {
-  const runs = state.operations.control?.runs || [];
-  if (!runs.length) return `<div class="intel-empty">No dashboard-initiated pipeline runs yet</div>`;
-  return `<div class="ops-run-list">${runs.map((run) => `<section class="ops-run"><div class="ops-run-heading"><div><strong>${escapeHtml(formatLabel(run.action))}</strong><span>${escapeHtml(run.run_id)}</span></div>${opsBadge(formatLabel(run.status), run.status === "failed" ? "failed" : run.status === "running" || run.status === "queued" ? "warning" : "")}</div><div class="ops-run-meta"><span>Requested ${escapeHtml(formatTimestamp(run.requested_at))}</span><span>${run.started_at && run.finished_at ? escapeHtml(formatDuration(run.started_at, run.finished_at)) : run.status === "running" ? "In progress" : "Waiting"}</span></div><div class="ops-run-stages">${(run.stages || []).map((stage) => `<div><span class="stage-indicator ${stage.status === "failed" ? "failed" : stage.status === "running" || stage.status === "queued" ? "stale" : ""}"></span><strong>${escapeHtml(stage.name)}</strong><span>${escapeHtml(formatLabel(stage.status))}</span><time>${escapeHtml(formatTimestamp(stage.finished_at || stage.started_at))}</time>${stage.output_tail ? `<details><summary>Output</summary><pre>${escapeHtml(stage.output_tail)}</pre></details>` : ""}</div>`).join("")}</div></section>`).join("")}</div>`;
-}
-
-function renderDataManagement() {
-  const data = state.dataManagement;
-  if (!data) return `<div class="intel-empty">Data inventory is unavailable</div>`;
-  const lineage = data.lineage || {};
-  const integrity = data.integrity || {};
-  const unmanaged = data.unmanaged || {};
-  const assetRows = (data.assets || []).map((asset) => `<tr><td><strong>${escapeHtml(asset.label)}</strong><span class="job-meta">${escapeHtml(asset.path)}</span></td><td>${opsBadge(formatLabel(asset.status), asset.status === "missing" ? "failed" : asset.status === "empty" ? "warning" : "")}</td><td>${escapeHtml(formatLabel(asset.classification))}</td><td class="number-cell">${number(asset.file_count)}</td><td class="number-cell">${formatBytes(asset.size_bytes)}</td><td>${escapeHtml(formatTimestamp(asset.latest_modified_at))}</td><td>${escapeHtml(Object.entries(asset.formats || {}).map(([format, count]) => `${format} ${count}`).join(", ") || "None")}</td></tr>`).join("");
-  const snapshots = (data.snapshots || []).map((snapshot) => `<div class="data-snapshot-row"><div><strong>${escapeHtml(snapshot.filename)}</strong><span>${number(snapshot.file_count)} files / ${formatBytes(snapshot.archive_bytes)} / ${escapeHtml(formatTimestamp(snapshot.created_at))}</span></div><a class="secondary-button" href="/api/data-snapshots/${encodeURIComponent(snapshot.filename)}" download>Download</a></div>`).join("") || `<div class="intel-empty compact">No recovery snapshots created</div>`;
-  const unmanagedNames = (unmanaged.directories || []).map((name) => `<span class="skill-chip">${escapeHtml(name)}</span>`).join("");
-  return `<div class="intel-grid three">
-    ${marketKpi("Managed storage", formatBytes(data.total_bytes), `${number(data.total_files)} files`)}
-    ${marketKpi("Unmanaged storage", formatBytes(unmanaged.size_bytes), `${number(unmanaged.directory_count)} directories`)}
-    ${marketKpi("Integrity", integrity.passed ? "Passed" : "Review", integrity.lineage_consistent ? "Lineage consistent" : "Lineage mismatch")}
-    <section class="ops-status-line ${integrity.passed ? "" : "stale"} wide"><div><strong>${integrity.passed ? "Managed data boundaries are consistent" : "Data management review recommended"}</strong><span>${number(integrity.temporary_files)} temporary files, ${number((integrity.missing_gold_outputs || []).length)} missing Gold outputs, storage format ${escapeHtml(data.storage_format)}.</span></div></section>
-    <section class="intel-block">${intelHeading("Pipeline lineage", lineage.consistent ? "Linked run identifiers agree" : "Run identifiers need review")}${opsMeta([["Collection run", lineage.collection_run_id], ["Quality source", lineage.quality_collection_run_id], ["Lifecycle source", lineage.lifecycle_collection_run_id], ["Gold run", lineage.gold_run_id], ["Gold datasets", lineage.gold_dataset_count], ["Missing outputs", (lineage.missing_gold_outputs || []).join(", ") || "None"]])}</section>
-    <section class="intel-block data-snapshot-block">${intelHeading("Recovery snapshots", "Private candidate data is excluded")}<button class="save-button" type="button" id="createDataSnapshot" ${state.operations?.control?.active_run_id ? "disabled" : ""}>Create snapshot</button><span class="save-feedback" id="dataSnapshotFeedback" role="status" aria-live="polite"></span><div class="data-snapshot-list">${snapshots}</div></section>
-    <section class="intel-block wide">${intelHeading("Managed assets", `${number((data.assets || []).length)} explicit storage boundaries`)}${marketTable(["Asset", "Status", "Classification", "Files", "Size", "Latest", "Formats"], assetRows)}</section>
-    <section class="intel-block wide">${intelHeading("Unmanaged directories", `${number(unmanaged.file_count)} files / ${formatBytes(unmanaged.size_bytes)}`)}<div class="chip-list">${unmanagedNames || `<span class="job-meta">No unmanaged data directories</span>`}</div></section>
-  </div>`;
-}
-
-async function handleDataManagementClick(event) {
-  const button = event.target.closest("#createDataSnapshot");
-  if (!button) return;
-  const feedback = document.getElementById("dataSnapshotFeedback");
-  button.disabled = true;
-  feedback.className = "save-feedback";
-  feedback.textContent = "Creating snapshot...";
-  try {
-    const response = await fetch("/api/data-snapshots", { method: "POST" });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Data snapshot could not be created");
-    const refreshed = await fetch("/api/data-management", { cache: "no-store" });
-    if (!refreshed.ok) throw new Error("Snapshot inventory could not be refreshed");
-    state.dataManagement = await refreshed.json();
-    renderPipelineOperations();
-  } catch (error) { button.disabled = false; feedback.className = "save-feedback error"; feedback.textContent = error.message; }
-}
-
-function formatBytes(value) { const bytes = Number(value || 0); if (bytes < 1024) return `${bytes} B`; const units = ["KB", "MB", "GB", "TB"]; let amount = bytes / 1024; let index = 0; while (amount >= 1024 && index < units.length - 1) { amount /= 1024; index += 1; } return `${amount.toFixed(amount >= 10 ? 1 : 2)} ${units[index]}`; }
-
 function renderCollectionOperations() {
   const collection = state.operations.collection;
   const rows = (collection.targets || []).map((target) => `<tr><td><strong>${escapeHtml(target.target || "Unknown")}</strong><span class="job-meta">${escapeHtml(formatLabel(target.source))}</span></td><td>${opsBadge(target.succeeded ? "Passed" : "Failed", target.succeeded ? "" : "failed")}</td><td class="number-cell">${number(target.references_discovered)}</td><td class="number-cell">${number(target.references_selected)}</td><td class="number-cell">${number(target.postings_extracted)}</td><td class="number-cell">${number(target.raw_records_saved)}</td><td class="number-cell">${number(target.posting_failures)}</td><td>${escapeHtml(target.error || "None")}</td></tr>`).join("");
@@ -1144,125 +549,6 @@ function renderGoldOperations() {
   return `<div class="intel-grid"><section class="intel-block">${intelHeading("Build provenance", formatTimestamp(gold.generated_at))}${opsMeta([["Run ID", gold.run_id], ["Profile", gold.profile_name], ["Input fingerprint", gold.input_fingerprint], ["Records analyzed", gold.records_analyzed]])}</section><section class="intel-block">${intelHeading("Build exclusions", "Canonical validation")}${opsMeta([["Silver records found", gold.silver_records_found], ["Inactive excluded", gold.excluded_inactive], ["Invalid Silver", gold.invalid_silver_records], ["Build failures", (gold.failures || []).length]])}</section><section class="intel-block wide">${intelHeading("Published Gold datasets", `${number(Object.keys(gold.datasets || {}).length)} outputs`)}${marketTable(["Dataset", "Storage key", "Relative path", "Status"], rows)}</section></div>`;
 }
 
-function selectedReviewItem() { return (state.resumeReviews?.items || []).find((item) => item.extraction.extraction_id === state.selectedExtractionId) || null; }
-function selectResumeReview() { state.selectedExtractionId = elements.resumeReviewSelect.value || null; const selected = selectedReviewItem(); state.reviewDraft = selected ? structuredClone(selected.extraction) : null; state.reviewExpanded = { skills: true, employment: false, education: false, projects: false }; renderMetrics(); renderResumeReview(); }
-
-function renderResumeReview() {
-  const items = state.resumeReviews?.items || [];
-  elements.resumeReviewSelect.innerHTML = items.map((item) => { const extraction = item.extraction; const suffix = extraction.review_status === "pending" ? "Pending" : formatLabel(extraction.review_status); return `<option value="${escapeHtml(extraction.extraction_id)}" ${extraction.extraction_id === state.selectedExtractionId ? "selected" : ""}>${escapeHtml(item.resume_version.version_label)} / ${suffix}</option>`; }).join("");
-  elements.resumeReviewSelect.disabled = items.length === 0;
-  elements.resumeReviewSummary.textContent = items.length ? `${number(state.resumeReviews.pending_count)} pending / ${number(state.resumeReviews.approved_count)} approved` : "No resume extractions are available for review";
-  const selected = selectedReviewItem();
-  if (!selected || !state.reviewDraft) { const missing = number(state.resumeReviews?.resumes_without_extraction || 0); elements.resumeReviewContent.innerHTML = `<div class="review-empty"><strong>No structured extraction to review</strong><span>${missing} resume version(s) do not yet have an extraction.</span></div>`; return; }
-  const extraction = state.reviewDraft;
-  const readonly = !selected.extraction.can_review;
-  const reviewed = new Set(extraction.reviewed_sections || []);
-  const disabled = readonly ? "disabled" : "";
-  const completeness = structuredCompleteness(extraction);
-  elements.resumeReviewContent.innerHTML = `
-    <div class="review-context"><div><span>Resume</span><strong>${escapeHtml(selected.resume_version.version_label)}</strong></div><div><span>Extraction</span><strong>${escapeHtml(formatLabel(extraction.status))}</strong></div><div><span>Text quality</span><strong>${formatPercent(extraction.quality_score)}</strong></div><div><span>Structured</span><strong>${formatPercent(completeness.score)} <small>${number(completeness.fact_count)} facts</small></strong></div><div><span>Review progress</span><strong class="review-state ${escapeHtml(extraction.review_status)}">${number(reviewed.size)} / 4 sections</strong></div></div>
-    ${(extraction.warnings || []).length ? `<div class="review-warning"><strong>Extraction warnings</strong><span>${escapeHtml(extraction.warnings.join(" / "))}</span></div>` : ""}
-    <form id="resumeReviewForm" class="resume-review-form">
-      ${renderReviewSection("Skills", "skills", "Confirm names, normalization, category, and confidence.", renderSkillEditors(extraction.skills || [], readonly || reviewed.has("skills")), reviewed.has("skills"), readonly, completeness.section_counts.skills)}
-      ${renderReviewSection("Employment", "employment", "Verify employers, titles, dates, locations, and accomplishments.", renderEmploymentEditors(extraction.work_experience || [], readonly || reviewed.has("employment")), reviewed.has("employment"), readonly, completeness.section_counts.employment)}
-      ${renderReviewSection("Education", "education", "Verify institutions, credentials, fields of study, and dates.", renderEducationEditors(extraction.education || [], readonly || reviewed.has("education")), reviewed.has("education"), readonly, completeness.section_counts.education)}
-      ${renderReviewSection("Projects", "projects", "Verify project names, descriptions, technologies, and outcomes.", renderProjectEditors(extraction.projects || [], readonly || reviewed.has("projects")), reviewed.has("projects"), readonly, completeness.section_counts.projects)}
-      <section class="review-submit-block"><label class="review-comment"><span>Review note</span><textarea name="review_comment" maxlength="2000" rows="3" ${disabled} placeholder="Optional note about corrections">${escapeHtml(extraction.review_comment || "")}</textarea></label><div class="review-submit-actions">${readonly ? "" : `<button class="secondary-button" id="saveResumeDraft" type="button">Save draft</button>`}<button class="save-button" id="approveResumeReview" type="submit" ${disabled}>${readonly ? "Review completed" : "Complete review"}</button><span class="save-feedback" id="resumeReviewFeedback" role="status" aria-live="polite">${readonly && extraction.reviewed_at ? `Approved ${escapeHtml(formatTimestamp(extraction.reviewed_at))}` : extraction.review_updated_at ? `Draft saved ${escapeHtml(formatTimestamp(extraction.review_updated_at))}` : ""}</span></div></section>
-    </form>`;
-  updateReviewApprovalButton();
-}
-
-function renderReviewSection(title, key, description, content, approved, readonly, count) { const expanded = state.reviewExpanded[key]; const locked = readonly || approved; return `<section class="review-section ${approved ? "approved" : ""}" data-review-section="${key}"><div class="review-section-heading"><button class="review-section-toggle" type="button" data-toggle-review="${key}" aria-expanded="${expanded}"><span class="review-chevron ${expanded ? "expanded" : ""}" aria-hidden="true"></span><span><strong>${title}</strong><small>${number(count)} ${count === 1 ? "entry" : "entries"} / ${approved ? "Approved" : "Needs review"}</small></span></button><div class="review-section-actions"><button class="secondary-button review-add" type="button" data-add-review="${key}" ${locked ? "disabled" : ""}>Add</button>${readonly ? "" : `<button class="${approved ? "secondary-button" : "save-button"}" type="button" data-section-review="${key}" data-approved="${approved}">${approved ? "Reopen" : "Approve section"}</button>`}</div></div><div class="review-section-body" ${expanded ? "" : "hidden"}><p class="review-section-description">${description}</p><div class="review-editors">${content}</div></div></section>`; }
-function renderSkillEditors(skills, readonly) { if (!skills.length) return `<div class="review-empty-row">No skills extracted. Add any missing skills before approving.</div>`; return `<div class="review-skill-header"><span>Skill</span><span>Normalized</span><span>Category</span><span>Confidence</span></div>${skills.map((skill, index) => `<div class="review-editor review-skill" data-index="${index}">${reviewField("Skill", "name", skill.name, readonly, true)}${reviewField("Normalized", "normalized_name", skill.normalized_name, readonly)}${reviewField("Category", "category", skill.category, readonly)}${reviewField("Confidence", "confidence", skill.confidence, readonly, true, "number", "0", "1", "0.01")}${evidencePreview(skill.evidence)}${removeReviewButton("skills", index, readonly)}</div>`).join("")}`; }
-function renderEmploymentEditors(items, readonly) { if (!items.length) return `<div class="review-empty-row">No employment extracted. Add work history before approving if needed.</div>`; return items.map((item, index) => `<div class="review-editor review-employment" data-index="${index}">${reviewField("Employer", "employer", item.employer, readonly, true)}${reviewField("Title", "title", item.title, readonly, true)}${reviewField("Location", "location", item.location, readonly)}${reviewField("Start", "start", dateInputValue(item.start), readonly, false, "text", null, null, null, "YYYY or YYYY-MM")}${reviewField("End", "end", dateInputValue(item.end), readonly, false, "text", null, null, null, "YYYY or YYYY-MM")}${reviewCheckbox("Current role", "is_current", item.is_current, readonly)}${reviewTextarea("Highlights, one per line", "highlights", item.highlights, readonly)}${reviewField("Skills, comma separated", "skills", (item.skills || []).join(", "), readonly)}${evidencePreview(item.evidence)}${removeReviewButton("employment", index, readonly)}</div>`).join(""); }
-function renderEducationEditors(items, readonly) { if (!items.length) return `<div class="review-empty-row">No education extracted. Add credentials before approving if needed.</div>`; return items.map((item, index) => `<div class="review-editor review-education" data-index="${index}">${reviewField("Institution", "institution", item.institution, readonly, true)}${reviewField("Degree", "degree", item.degree, readonly)}${reviewField("Field of study", "field_of_study", item.field_of_study, readonly)}${reviewField("Graduation", "graduation", dateInputValue(item.graduation), readonly, false, "text", null, null, null, "YYYY or YYYY-MM")}${reviewTextarea("Highlights, one per line", "highlights", item.highlights, readonly)}${evidencePreview(item.evidence)}${removeReviewButton("education", index, readonly)}</div>`).join(""); }
-function renderProjectEditors(items, readonly) { if (!items.length) return `<div class="review-empty-row">No projects extracted. Add relevant projects before approving if needed.</div>`; return items.map((item, index) => `<div class="review-editor review-project" data-index="${index}">${reviewField("Project", "name", item.name, readonly, true)}${reviewTextarea("Description", "description", item.description ? [item.description] : [], readonly)}${reviewField("Technologies, comma separated", "technologies", (item.technologies || []).join(", "), readonly)}${reviewTextarea("Highlights, one per line", "highlights", item.highlights, readonly)}${evidencePreview(item.evidence)}${removeReviewButton("projects", index, readonly)}</div>`).join(""); }
-function reviewField(label, name, value, readonly, required = false, type = "text", min = null, max = null, step = null, placeholder = "") { return `<label class="review-field"><span>${escapeHtml(label)}</span><input name="${name}" type="${type}" value="${escapeHtml(value ?? "")}" ${required ? "required" : ""} ${readonly ? "disabled" : ""} ${min !== null ? `min="${min}"` : ""} ${max !== null ? `max="${max}"` : ""} ${step !== null ? `step="${step}"` : ""} placeholder="${placeholder}"></label>`; }
-function reviewTextarea(label, name, values, readonly) { return `<label class="review-field review-field-wide"><span>${escapeHtml(label)}</span><textarea name="${name}" rows="3" ${readonly ? "disabled" : ""}>${escapeHtml((values || []).join("\n"))}</textarea></label>`; }
-function reviewCheckbox(label, name, checked, readonly) { return `<label class="review-inline-check"><input name="${name}" type="checkbox" ${checked ? "checked" : ""} ${readonly ? "disabled" : ""}><span>${escapeHtml(label)}</span></label>`; }
-function removeReviewButton(section, index, readonly) { return `<button class="icon-button review-remove" type="button" data-remove-review="${section}" data-index="${index}" aria-label="Remove entry" title="Remove entry" ${readonly ? "disabled" : ""}>&times;</button>`; }
-function evidencePreview(evidence) { const excerpts = (evidence || []).slice(0, 2).map((item) => `${item.section}: ${item.text}`).join(" / "); return excerpts ? `<details class="review-evidence"><summary>Source evidence</summary><p>${escapeHtml(excerpts)}</p></details>` : ""; }
-function dateInputValue(value) { if (!value) return ""; return value.month ? `${value.year}-${String(value.month).padStart(2, "0")}` : String(value.year); }
-
-async function handleResumeReviewClick(event) {
-  const toggle = event.target.closest("button[data-toggle-review]");
-  const add = event.target.closest("button[data-add-review]");
-  const remove = event.target.closest("button[data-remove-review]");
-  const sectionReview = event.target.closest("button[data-section-review]");
-  const saveDraft = event.target.closest("#saveResumeDraft");
-  if (!toggle && !add && !remove && !sectionReview && !saveDraft) return;
-  try { syncReviewDraft(); } catch (error) { showReviewFeedback(error.message, true); return; }
-  if (toggle) { const key = toggle.dataset.toggleReview; state.reviewExpanded[key] = !state.reviewExpanded[key]; renderResumeReview(); return; }
-  if (add) { addReviewEntry(add.dataset.addReview); state.reviewExpanded[add.dataset.addReview] = true; renderResumeReview(); return; }
-  if (remove) { removeReviewEntry(remove.dataset.removeReview, Number(remove.dataset.index)); renderResumeReview(); return; }
-  if (saveDraft) { await saveResumeReviewDraft(); return; }
-  const key = sectionReview.dataset.sectionReview;
-  const approved = sectionReview.dataset.approved === "true";
-  if (!approved && !validateReviewSection(key)) return;
-  const sections = new Set(state.reviewDraft.reviewed_sections || []);
-  if (approved) sections.delete(key); else sections.add(key);
-  state.reviewDraft.reviewed_sections = [...sections];
-  state.reviewExpanded[key] = approved;
-  await saveResumeReviewDraft();
-}
-function handleResumeReviewChange() { handleResumeReviewInput(); }
-function handleResumeReviewInput() { const feedback = document.getElementById("resumeReviewFeedback"); if (feedback && selectedReviewItem()?.extraction.can_review) { feedback.textContent = "Unsaved changes"; feedback.className = "save-feedback pending"; } }
-function addReviewEntry(section) { const defaults = { skills: { name: "", normalized_name: null, category: null, confidence: 1, evidence: [] }, employment: { employer: "", title: "", location: null, start: null, end: null, is_current: false, highlights: [], skills: [], evidence: [] }, education: { institution: "", degree: null, field_of_study: null, graduation: null, highlights: [], evidence: [] }, projects: { name: "", description: null, technologies: [], highlights: [], evidence: [] } }; const fields = { skills: "skills", employment: "work_experience", education: "education", projects: "projects" }; state.reviewDraft[fields[section]].push(defaults[section]); }
-function removeReviewEntry(section, index) { const fields = { skills: "skills", employment: "work_experience", education: "education", projects: "projects" }; state.reviewDraft[fields[section]].splice(index, 1); }
-
-function syncReviewDraft() {
-  const form = document.getElementById("resumeReviewForm");
-  if (!form || !state.reviewDraft) return;
-  state.reviewDraft.skills = [...form.querySelectorAll(".review-skill")].map((row) => { const prior = state.reviewDraft.skills[Number(row.dataset.index)] || {}; return mergeReviewIdentity(prior, { name: reviewValue(row, "name"), normalized_name: nullable(reviewValue(row, "normalized_name")), category: nullable(reviewValue(row, "category")), confidence: Number(reviewValue(row, "confidence")), evidence: prior.evidence || [] }); });
-  state.reviewDraft.work_experience = [...form.querySelectorAll(".review-employment")].map((row) => { const prior = state.reviewDraft.work_experience[Number(row.dataset.index)] || {}; const current = row.querySelector('[name="is_current"]').checked; return mergeReviewIdentity(prior, { employer: reviewValue(row, "employer"), title: reviewValue(row, "title"), location: nullable(reviewValue(row, "location")), start: parseResumeDate(reviewValue(row, "start")), end: current ? null : parseResumeDate(reviewValue(row, "end")), is_current: current, highlights: lineValues(reviewValue(row, "highlights")), skills: commaValues(reviewValue(row, "skills")), evidence: prior.evidence || [] }); });
-  state.reviewDraft.education = [...form.querySelectorAll(".review-education")].map((row) => { const prior = state.reviewDraft.education[Number(row.dataset.index)] || {}; return mergeReviewIdentity(prior, { institution: reviewValue(row, "institution"), degree: nullable(reviewValue(row, "degree")), field_of_study: nullable(reviewValue(row, "field_of_study")), graduation: parseResumeDate(reviewValue(row, "graduation")), highlights: lineValues(reviewValue(row, "highlights")), evidence: prior.evidence || [] }); });
-  state.reviewDraft.projects = [...form.querySelectorAll(".review-project")].map((row) => { const prior = state.reviewDraft.projects[Number(row.dataset.index)] || {}; const description = reviewValue(row, "description").trim(); return mergeReviewIdentity(prior, { name: reviewValue(row, "name"), description: description || null, technologies: commaValues(reviewValue(row, "technologies")), highlights: lineValues(reviewValue(row, "highlights")), evidence: prior.evidence || [] }); });
-  state.reviewDraft.review_comment = form.elements.review_comment.value;
-}
-function mergeReviewIdentity(prior, value) { return { ...Object.fromEntries(Object.entries(prior || {}).filter(([key]) => key.endsWith("_id"))), ...value }; }
-function reviewValue(row, name) { return row.querySelector(`[name="${name}"]`)?.value || ""; }
-function nullable(value) { const cleaned = value.trim(); return cleaned || null; }
-function lineValues(value) { return value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean); }
-function commaValues(value) { return value.split(",").map((item) => item.trim()).filter(Boolean); }
-function parseResumeDate(value) { const cleaned = value.trim(); if (!cleaned) return null; const match = /^(19|20|21)\d{2}(?:-(0[1-9]|1[0-2]))?$/.exec(cleaned); if (!match) throw new Error(`Use YYYY or YYYY-MM for dates: ${cleaned}`); const [year, month] = cleaned.split("-").map(Number); return { year, month: month || null, precision: month ? "month" : "year", display_text: cleaned }; }
-function structuredCompleteness(extraction) { const section_counts = { skills: (extraction.skills || []).length, employment: (extraction.work_experience || []).length, education: (extraction.education || []).length, projects: (extraction.projects || []).length }; const populated = Object.values(section_counts).filter((count) => count > 0).length; return { score: populated / 4, fact_count: Object.values(section_counts).reduce((total, count) => total + count, 0), section_counts }; }
-function validateReviewSection(key) { const section = document.querySelector(`[data-review-section="${key}"]`); const invalid = [...(section?.querySelectorAll("[required]") || [])].find((input) => !input.checkValidity()); if (!invalid) return true; state.reviewExpanded[key] = true; invalid.reportValidity(); showReviewFeedback(`Complete required ${formatLabel(key)} fields before approval`, true); return false; }
-function reviewPayload() { return { skills: state.reviewDraft.skills, work_experience: state.reviewDraft.work_experience, education: state.reviewDraft.education, projects: state.reviewDraft.projects, approved_sections: state.reviewDraft.reviewed_sections || [], review_comment: state.reviewDraft.review_comment || "" }; }
-function updateReviewApprovalButton() { const button = document.getElementById("approveResumeReview"); if (!button || !selectedReviewItem()?.extraction.can_review) return; button.disabled = new Set(state.reviewDraft?.reviewed_sections || []).size !== 4; }
-function showReviewFeedback(message, error = false) { const feedback = document.getElementById("resumeReviewFeedback"); if (!feedback) return; feedback.textContent = message; feedback.className = `save-feedback ${error ? "error" : "success"}`; }
-
-async function refreshResumeReviews() { const refreshed = await fetch("/api/resume-reviews", { cache: "no-store" }); if (!refreshed.ok) throw new Error("Saved review could not be refreshed"); state.resumeReviews = await refreshed.json(); const updated = selectedReviewItem(); state.reviewDraft = updated ? structuredClone(updated.extraction) : null; renderMetrics(); renderResumeReview(); }
-
-async function saveResumeReviewDraft() {
-  const selected = selectedReviewItem();
-  if (!selected?.extraction.can_review) return;
-  try {
-    syncReviewDraft();
-    showReviewFeedback("Saving draft...");
-    const response = await fetch(`/api/resume-reviews/${encodeURIComponent(state.selectedExtractionId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(reviewPayload()) });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Resume review draft could not be saved");
-    await refreshResumeReviews();
-  } catch (error) { showReviewFeedback(error.message, true); }
-}
-
-async function approveResumeReview(event) {
-  event.preventDefault();
-  const selected = selectedReviewItem();
-  if (!selected?.extraction.can_review) return;
-  const button = document.getElementById("approveResumeReview");
-  try {
-    syncReviewDraft();
-    if (state.reviewDraft.reviewed_sections.length !== 4) throw new Error("Review and approve all four sections first");
-    button.disabled = true;
-    showReviewFeedback("Saving reviewed facts...");
-    const response = await fetch(`/api/resume-reviews/${encodeURIComponent(state.selectedExtractionId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(reviewPayload()) });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Resume review could not be approved");
-    await refreshResumeReviews();
-  } catch (error) { button.disabled = false; showReviewFeedback(error.message, true); }
-}
-
 function stageRow(name, status, detail, timestamp, freshness) { const age = freshness?.age_hours == null ? "age unavailable" : `${number(freshness.age_hours)}h old`; return `<div class="ops-stage"><span class="stage-indicator ${status}"></span><strong>${escapeHtml(name)}${status === "stale" ? `<small>${escapeHtml(age)}</small>` : ""}</strong><span>${escapeHtml(detail)}</span><time>${escapeHtml(formatTimestamp(timestamp))}</time></div>`; }
 function opsBadge(label, style = "") { return `<span class="ops-badge ${style}">${escapeHtml(label)}</span>`; }
 function opsMeta(items) { return `<div class="ops-meta">${items.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value ?? "Not available")}</strong></div>`).join("")}</div>`; }
@@ -1284,7 +570,6 @@ function openDrawer(jobId) {
   elements.drawerRank.textContent = `Rank ${item.rank} / ${formatLabel(item.match_band)} match`;
   elements.drawerContent.innerHTML = drawerMarkup(item);
   elements.drawerBackdrop.hidden = false; elements.detailDrawer.classList.add("open"); elements.detailDrawer.setAttribute("aria-hidden", "false"); document.body.style.overflow = "hidden"; elements.closeDrawer.focus();
-  loadApplicationComparisons(jobId);
 }
 function closeDrawer() {
   if (!elements.detailDrawer.classList.contains("open")) return;
@@ -1299,69 +584,13 @@ async function saveTracking(event) {
   event.preventDefault();
   const jobId = state.selectedJobId; if (!jobId) return;
   const form = event.target; const button = form.querySelector("button[type='submit']"); const feedback = form.querySelector(".save-feedback"); const data = new FormData(form);
-  const payload = { shortlisted: data.get("shortlisted") === "on", status: data.get("status"), priority: data.get("priority"), application_date: data.get("application_date") || null, follow_up_date: data.get("follow_up_date") || null, resume_version_id: data.get("resume_version_id") || null, notes: data.get("notes") || "" };
+  const payload = { shortlisted: data.get("shortlisted") === "on", status: data.get("status"), priority: data.get("priority"), application_date: data.get("application_date") || null, follow_up_date: data.get("follow_up_date") || null, notes: data.get("notes") || "" };
   button.disabled = true; feedback.className = "save-feedback"; feedback.textContent = "Saving";
   try {
     const response = await fetch(`/api/application-tracking/${encodeURIComponent(jobId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     const result = await response.json(); if (!response.ok) throw new Error(result.error || "Tracking update failed");
     state.tracking[jobId] = result; feedback.classList.add("success"); feedback.textContent = `Saved ${formatTimestamp(result.updated_at)}`; applyFilters(false);
   } catch (error) { feedback.classList.add("error"); feedback.textContent = error.message; } finally { button.disabled = false; }
-}
-
-async function loadApplicationComparisons(jobId) {
-  const container = document.getElementById("applicationComparisonResult");
-  if (!container) return;
-  try {
-    const response = await fetch(`/api/application-comparisons/${encodeURIComponent(jobId)}`, { cache: "no-store" });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Comparison history could not be loaded");
-    state.applicationComparisons[jobId] = result;
-    if (state.selectedJobId === jobId) container.innerHTML = renderApplicationComparison(result.latest);
-  } catch (error) { if (state.selectedJobId === jobId) container.innerHTML = `<div class="comparison-empty error">${escapeHtml(error.message)}</div>`; }
-}
-
-function handleComparisonClick(event) {
-  const button = event.target.closest("#runApplicationComparison");
-  if (button) runApplicationComparison(button);
-}
-
-async function runApplicationComparison(button) {
-  const jobId = state.selectedJobId;
-  const select = document.getElementById("comparisonResumeVersion");
-  const container = document.getElementById("applicationComparisonResult");
-  if (!jobId || !select?.value || !container) return;
-  button.disabled = true;
-  container.innerHTML = `<div class="comparison-empty">Running deterministic comparison...</div>`;
-  try {
-    const response = await fetch(`/api/application-comparisons/${encodeURIComponent(jobId)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resume_version_id: select.value }) });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Application comparison failed");
-    state.applicationComparisons[jobId] = { job_id: jobId, latest: result, comparisons: [result, ...(state.applicationComparisons[jobId]?.comparisons || [])] };
-    container.innerHTML = renderApplicationComparison(result);
-  } catch (error) { container.innerHTML = `<div class="comparison-empty error">${escapeHtml(error.message)}</div>`; }
-  finally { button.disabled = false; }
-}
-
-function approvedResumeVersions() {
-  const approvedIds = new Set((state.resumeReviews?.items || []).filter((item) => item.extraction.review_status === "approved").map((item) => item.resume_version.resume_version_id));
-  return state.resumeVersions.filter((version) => approvedIds.has(version.resume_version_id));
-}
-
-function applicationComparisonMarkup(item, tracking) {
-  const versions = approvedResumeVersions();
-  const selectedId = versions.some((version) => version.resume_version_id === tracking.resume_version_id) ? tracking.resume_version_id : versions.find((version) => version.is_active)?.resume_version_id || versions[0]?.resume_version_id || "";
-  const options = versions.map((version) => `<option value="${escapeHtml(version.resume_version_id)}" ${version.resume_version_id === selectedId ? "selected" : ""}>${escapeHtml(version.version_label)}</option>`).join("");
-  return `<section class="comparison-section"><div class="section-heading"><h3>Application comparison</h3><span class="comparison-method">Rules v1.0.0</span></div><div class="comparison-controls"><label class="tracking-field"><span>Approved resume</span><select id="comparisonResumeVersion" ${versions.length ? "" : "disabled"}><option value="">${versions.length ? "Select resume" : "Approve a resume extraction first"}</option>${options}</select></label><button class="save-button" id="runApplicationComparison" type="button" ${versions.length ? "" : "disabled"}>Compare</button></div><div id="applicationComparisonResult">${renderApplicationComparison(state.applicationComparisons[item.job_id]?.latest, true)}</div></section>`;
-}
-
-function renderApplicationComparison(run, loading = false) {
-  if (!run) return `<div class="comparison-empty">${loading ? "Loading prior comparisons..." : "No comparison has been run for this opportunity."}</div>`;
-  const metrics = (run.metrics || []).map((metric) => `<div class="comparison-metric"><div><strong>${escapeHtml(formatLabel(metric.name))}</strong><span>${escapeHtml(metric.explanation)}</span></div><b>${formatScore(metric.value)}</b></div>`).join("");
-  const matched = (run.findings || []).filter((finding) => finding.kind === "matched");
-  const gaps = (run.findings || []).filter((finding) => finding.kind === "missing" || finding.kind === "partial");
-  const findingRows = [...matched.slice(0, 8), ...gaps.slice(0, 12)].map((finding) => `<li class="comparison-finding ${escapeHtml(finding.kind)}"><span>${escapeHtml(formatLabel(finding.kind))}</span><div><strong>${escapeHtml(finding.subject)}</strong><p>${escapeHtml(finding.explanation)}</p></div></li>`).join("");
-  const warnings = (run.warnings || []).map((warning) => `<li>${escapeHtml(warning)}</li>`).join("");
-  return `<div class="comparison-score"><div>${formatScore(run.overall_score)}</div><p><strong>Application evidence score</strong><span>Compared ${escapeHtml(formatTimestamp(run.completed_at))} / ${escapeHtml(run.analyzer_name)} ${escapeHtml(run.analyzer_version)}</span></p></div><div class="comparison-metrics">${metrics}</div>${findingRows ? `<h4>Evidence and gaps</h4><ul class="comparison-findings">${findingRows}</ul>` : ""}${warnings ? `<details class="comparison-warnings"><summary>Unavailable signals (${(run.warnings || []).length})</summary><ul>${warnings}</ul></details>` : ""}`;
 }
 
 function drawerMarkup(item) {
@@ -1375,10 +604,8 @@ function drawerMarkup(item) {
     <section class="tracking-section"><div class="section-heading"><h3>Application tracking</h3><span class="tracking-updated">${tracking.updated_at ? `Updated ${escapeHtml(formatTimestamp(tracking.updated_at))}` : "Not tracked yet"}</span></div>
       <form id="trackingForm" class="tracking-form"><label class="shortlist-control"><input type="checkbox" name="shortlisted" ${tracking.shortlisted ? "checked" : ""}><span>Shortlist this opportunity</span></label>
         <div class="tracking-grid">${selectField("Status", "status", "trackingStatus", tracking.status, STATUS_OPTIONS)}${selectField("Priority", "priority", "trackingPriority", tracking.priority, ["none", "low", "medium", "high"])}${inputField("Application date", "application_date", "applicationDate", "date", tracking.application_date)}${inputField("Follow-up date", "follow_up_date", "followUpDate", "date", tracking.follow_up_date)}</div>
-        ${resumeVersionField(tracking.resume_version_id)}
         <label class="tracking-field"><span>Notes</span><textarea name="notes" id="trackingNotes" maxlength="5000" rows="4" placeholder="Contacts, preparation, next action">${escapeHtml(tracking.notes || "")}</textarea></label>
         <div class="tracking-actions"><button class="save-button" type="submit">Save tracking</button><span class="save-feedback" role="status" aria-live="polite"></span></div></form></section>
-    ${applicationComparisonMarkup(item, tracking)}
     <div class="detail-facts">${fact("Workplace", formatLabel(item.workplace_type))}${fact("Seniority", formatLabel(item.seniority || "unknown"))}${fact("Compensation", formatSalary(item))}${fact("Lifecycle", formatLabel(item.lifecycle_status))}${fact("Last seen", formatDate(item.last_seen_at))}${fact("Source", formatLabel(item.source))}</div>
     <section class="detail-section"><div class="section-heading"><h3>Resume relevance</h3><span class="match-band">${escapeHtml(item.match_band)} match</span></div><div class="score-overview"><div class="score-number">${formatScore(item.resume_relevance_score)}</div><div class="score-copy"><strong>${item.rank === 1 ? "Highest-ranked opportunity" : `Opportunity rank ${item.rank}`}</strong><span>${item.score_cap_reason ? `Score capped: ${formatLabel(item.score_cap_reason)}` : "No eligibility cap applied"}</span></div></div><div class="component-list">${components}</div></section>
     <section class="detail-section"><div class="section-heading"><h3>Matched skills</h3><span class="match-band">${(item.matched_skills || []).length} matched</span></div><div class="chip-list">${skillChips}</div></section>
@@ -1386,15 +613,10 @@ function drawerMarkup(item) {
 }
 
 function selectField(label, name, id, value, options) { return `<label class="tracking-field"><span>${escapeHtml(label)}</span><select name="${name}" id="${id}">${options.map((option) => `<option value="${option}" ${option === value ? "selected" : ""}>${formatLabel(option)}</option>`).join("")}</select></label>`; }
-function resumeVersionField(selectedId) {
-  const options = state.resumeVersions.map((version) => `<option value="${escapeHtml(version.resume_version_id)}" ${version.resume_version_id === selectedId ? "selected" : ""}>${escapeHtml(version.version_label)}${version.is_active ? " (Active)" : ""}</option>`).join("");
-  const emptyLabel = state.resumeVersions.length ? "No resume selected" : "No uploaded resumes";
-  return `<label class="tracking-field"><span>Resume version</span><select name="resume_version_id" id="resumeVersionId" ${state.resumeVersions.length ? "" : "disabled"}><option value="">${emptyLabel}</option>${options}</select></label>`;
-}
 function inputField(label, name, id, type, value, placeholder = "") { return `<label class="tracking-field"><span>${escapeHtml(label)}</span><input name="${name}" id="${id}" type="${type}" value="${escapeHtml(value || "")}" maxlength="200" placeholder="${escapeHtml(placeholder)}"></label>`; }
 function fact(label, value) { return `<div class="fact"><span class="fact-label">${escapeHtml(label)}</span><span class="fact-value">${escapeHtml(value || "Not available")}</span></div>`; }
 function formatLabel(value) { return String(value || "unknown").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()); }
-function formatSource(value) { return String(value || "unknown").toLowerCase() === "usajobs" ? "USAJOBS" : formatLabel(value); }
+function formatSource(value) { return formatLabel(value); }
 function formatScore(value) { return Number(value || 0).toFixed(Number(value || 0) % 1 === 0 ? 0 : 1); }
 function number(value) { return Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: 1 }); }
 function formatPercent(value) { return `${(Number(value || 0) * 100).toFixed(1)}%`; }

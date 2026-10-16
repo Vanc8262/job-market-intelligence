@@ -9,14 +9,6 @@ from pipeline.candidate_collection import (
 from pipeline.data_quality import DataQualityGateway, DataQualityResult, QualityMetric
 from pipeline.extraction import ExtractionBatchResult, ExtractionRunner, TargetExtractionOutcome
 from pipeline.lifecycle import LifecycleResult, PostingLifecycleRunner
-from pipeline.manual_import import (
-    ManualImportFailure,
-    ManualImportProvenance,
-    ManualImportResult,
-    ManualInputKind,
-    ManualOpportunity,
-    ManualOpportunityImporter,
-)
 from pipeline.processing import (
     BronzeToSilverResult,
     BronzeToSilverRunner,
@@ -36,12 +28,6 @@ __all__ = [
     "ExtractionBatchResult",
     "ExtractionRunner",
     "LifecycleResult",
-    "ManualImportFailure",
-    "ManualImportProvenance",
-    "ManualImportResult",
-    "ManualInputKind",
-    "ManualOpportunity",
-    "ManualOpportunityImporter",
     "PostingLifecycleRunner",
     "ProcessingFailure",
     "QualityMetric",

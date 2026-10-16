@@ -89,17 +89,6 @@ def test_config_loads_settings_and_sources() -> None:
         == SourceAccessPolicy.UNSUPPORTED_AUTOMATION
     )
     assert config.sources.sources["handshake"].access_policy == SourceAccessPolicy.PARTNER_API
-    assert config.sources.sources["smartrecruiters"].enabled is True
-    assert (
-        config.sources.sources["smartrecruiters"].access_policy
-        == SourceAccessPolicy.PUBLIC_API
-    )
-    assert config.sources.sources["workable"].enabled is True
-    assert config.sources.sources["workable"].access_policy == SourceAccessPolicy.PUBLIC_API
-    assert config.sources.sources["usajobs"].enabled is True
-    assert config.sources.sources["usajobs"].access_policy == SourceAccessPolicy.PUBLIC_API
-    assert config.sources.sources["jobicy"].enabled is True
-    assert config.sources.sources["jobicy"].access_policy == SourceAccessPolicy.PUBLIC_API
     assert config.sources.sources["icims"].access_policy == SourceAccessPolicy.PARTNER_API
     assert (
         config.sources.sources["oracle_recruiting"].access_policy
@@ -123,21 +112,7 @@ def test_config_loads_settings_and_sources() -> None:
     assert config.candidate_collection.per_target_limit == 25
     assert len(config.candidate_collection.queries) == 6
     assert config.data_quality.thresholds.valid_title_coverage == 0.99
-    assert config.reporting.alerts.stale_pipeline_hours == 36
-    assert config.reporting.schedule.enabled is False
-    assert config.settings.paths.profile_database == Path("data/private/profile_metadata.sqlite3")
-    assert config.settings.paths.private_resume_dir == Path("data/private/resumes")
-    assert config.settings.paths.model_benchmark_database == Path(
-        "data/private/model_benchmarks.sqlite3"
-    )
-    assert config.settings.paths.model_benchmark_dir == Path("data/private/model_benchmarks")
-    assert config.settings.candidate_profile.default_profile_id == "profile-default"
-    assert config.settings.resume_ingestion.max_file_size_bytes == 10 * 1024 * 1024
-    assert config.settings.resume_ingestion.max_pdf_pages == 20
-    assert config.settings.resume_ingestion.minimum_quality_score == 0.65
-    assert config.settings.application_comparison.skills_weight == 40
-    assert config.settings.application_comparison.projects_weight == 10
-    assert config.settings.application_comparison.matched_threshold == 80
+    assert "usajobs" not in config.sources.sources
 
 
 def test_source_access_policies_gate_enabled_automation() -> None:

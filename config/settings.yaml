@@ -10,11 +10,6 @@ paths:
   cache_dir: data/cache
   checkpoint_dir: data/checkpoints
   log_dir: logs
-  profile_database: data/private/profile_metadata.sqlite3
-  private_resume_dir: data/private/resumes
-  model_benchmark_database: data/private/model_benchmarks.sqlite3
-  model_benchmark_dir: data/private/model_benchmarks
-  resume_benchmark_pack_dir: data/private/resume_benchmark_packs
 storage:
   default: json
   compression: zstd
@@ -32,27 +27,3 @@ scraping:
 processing:
   batch_size: 1000
   strict_validation: true
-candidate_profile:
-  default_profile_id: profile-default
-resume_ingestion:
-  max_file_size_bytes: 10485760
-  max_pdf_pages: 20
-  max_docx_entries: 500
-  max_docx_uncompressed_bytes: 26214400
-  max_docx_compression_ratio: 100
-  max_extracted_characters: 100000
-  minimum_characters: 200
-  minimum_words: 40
-  minimum_alphanumeric_ratio: 0.45
-  maximum_replacement_ratio: 0.01
-  minimum_quality_score: 0.65
-application_comparison:
-  # Evidence-first default: approved skills carry the largest share.
-  skills_weight: 40
-  role_weight: 20
-  experience_weight: 20
-  education_weight: 10
-  projects_weight: 10
-  matched_threshold: 80
-  partial_threshold: 50
-  max_job_skills: 100

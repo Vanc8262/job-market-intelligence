@@ -87,8 +87,11 @@ def configure_logging(config: Config | None = None) -> None:
     if file_config.get("enabled", True):
         log_dir = Path(settings.paths.log_dir)
         log_dir.mkdir(parents=True, exist_ok=True)
+        root = active_config.project_root
+        application_log = _anchor(file_config.get("application_log"), log_dir / "jmip.log", root)
+        error_log = _anchor(file_config.get("error_log"), log_dir / "errors.log", root)
         logger.add(
-            file_config.get("application_log", str(log_dir / "jmip.log")),
+            application_log,
             level=settings.logging.level,
             rotation=file_config.get("rotation", "00:00"),
             retention=file_config.get("retention", "30 days"),
@@ -96,13 +99,21 @@ def configure_logging(config: Config | None = None) -> None:
             format=format_config.get("file"),
         )
         logger.add(
-            file_config.get("error_log", str(log_dir / "errors.log")),
+            error_log,
             level="ERROR",
             rotation=file_config.get("rotation", "00:00"),
             retention=file_config.get("retention", "30 days"),
             compression=file_config.get("compression", "zip"),
             format=format_config.get("file"),
         )
+
+
+def _anchor(configured: object, default: Path, project_root: Path) -> Path:
+    """Resolve a configured log file path against the project root, not the CWD."""
+    if not configured:
+        return default
+    path = Path(str(configured))
+    return path if path.is_absolute() else project_root / path
 
 
 def bind_context(

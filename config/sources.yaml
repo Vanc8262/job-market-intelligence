@@ -7,10 +7,6 @@ enabled_sources:
   - workday
   - nextera
   - phenom
-  - smartrecruiters
-  - workable
-  - usajobs
-  - jobicy
 sources:
   indeed:
     enabled: false
@@ -89,36 +85,3 @@ sources:
     access_policy: public_feed
     base_url: https://careers.chewy.com
     rate_limit_per_minute: 30
-  smartrecruiters:
-    enabled: true
-    type: ats
-    access_policy: public_api
-    base_url: https://jobs.smartrecruiters.com
-    api_base_url: https://api.smartrecruiters.com/v1
-    rate_limit_per_minute: 60
-  workable:
-    enabled: true
-    type: ats
-    access_policy: public_api
-    base_url: https://apply.workable.com
-    api_base_url: https://www.workable.com/api/accounts
-    # Public jobs are snapshot-cached; this stays below Workable's documented
-    # ceiling of 10 requests per 10 seconds even across several targets.
-    rate_limit_per_minute: 30
-  usajobs:
-    enabled: true
-    type: government
-    access_policy: public_api
-    base_url: https://www.usajobs.gov
-    api_base_url: https://data.usajobs.gov/api/Search
-    # The Search API may impose additional account limits without notice. Keep
-    # requests paced and let the shared retry policy honor 429 Retry-After values.
-    rate_limit_per_minute: 20
-  jobicy:
-    enabled: true
-    type: job_board
-    access_policy: public_api
-    base_url: https://jobicy.com
-    api_base_url: https://jobicy.com/api/v2/remote-jobs
-    # A persistent cache enforces Jobicy's stricter one-poll-per-hour fair-use rule.
-    rate_limit_per_minute: 1

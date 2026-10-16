@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>JMIP Dashboard</title>
-  <link rel="stylesheet" href="/styles.css?v=comparison-benchmark-v1">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/styles.css?v=core-v2">
 </head>
 <body>
   <header class="app-header">
@@ -28,10 +29,6 @@
     <button type="button" data-view="intelligence">Market intelligence</button>
     <button type="button" data-view="operations">Pipeline operations</button>
     <button type="button" data-view="simulator">Weight simulator</button>
-    <button type="button" data-view="resume-review">Resume review</button>
-    <button type="button" data-view="benchmarks">Benchmarks</button>
-    <button type="button" data-view="evaluations">Evaluations</button>
-    <button type="button" data-view="reporting">Alerts &amp; reports</button>
   </nav>
 
   <main class="workspace">
@@ -105,8 +102,6 @@
           <div><h1>Pipeline operations</h1><p id="operationsFreshness">Loading operational status</p></div>
           <div class="operations-actions">
             <span class="operations-health" id="operationsBadge">Status pending</span>
-            <label class="operations-run-control"><span>Action</span><select id="pipelineAction" aria-label="Pipeline action"><option value="rebuild_derived">Rebuild derived layers</option><option value="quality_check">Run quality check</option><option value="full_pipeline">Run live full pipeline</option></select></label>
-            <button class="save-button" id="runPipeline" type="button">Run</button>
             <button class="secondary-button" id="refreshOperations" type="button">Refresh</button>
           </div>
         </div>
@@ -116,10 +111,7 @@
           <button type="button" data-operations-view="quality">Data quality</button>
           <button type="button" data-operations-view="lifecycle">Lifecycle</button>
           <button type="button" data-operations-view="outputs">Gold outputs</button>
-          <button type="button" data-operations-view="data">Data assets</button>
-          <button type="button" data-operations-view="runs">Runs</button>
         </nav>
-        <div class="operations-feedback" id="operationRunFeedback" role="status" aria-live="polite"></div>
         <div class="operations-content" id="operationsContent"></div>
       </section>
 
@@ -131,54 +123,6 @@
         <div class="simulator-content" id="simulatorContent"></div>
       </section>
 
-      <section class="resume-review" id="resumeReviewPanel" aria-label="Resume extraction review" hidden>
-        <div class="resume-review-header">
-          <div><h1>Resume review</h1><p id="resumeReviewSummary">Loading extracted resume facts</p></div>
-          <label class="review-version-control"><span>Resume extraction</span><select id="resumeReviewSelect" aria-label="Resume extraction"></select></label>
-        </div>
-        <div class="resume-review-content" id="resumeReviewContent"></div>
-      </section>
-
-      <section class="reporting" id="reportingPanel" aria-label="Alerts and scheduled reports" hidden>
-        <div class="reporting-header">
-          <div><h1>Alerts &amp; reports</h1><p id="reportingFreshness">Loading reporting status</p></div>
-          <div class="reporting-actions">
-            <span class="reporting-status" id="reportingStatus">Schedule pending</span>
-            <button class="secondary-button" id="generateReport" type="button">Generate report</button>
-          </div>
-        </div>
-        <div class="reporting-content" id="reportingContent"></div>
-      </section>
-
-      <section class="evaluations" id="evaluationsPanel" aria-label="Model evaluations" hidden>
-        <div class="evaluations-header">
-          <div><h1>Model evaluations</h1><p id="evaluationsFreshness">Loading evaluation history</p></div>
-          <div class="evaluations-actions">
-            <span class="evaluation-status" id="evaluationStatus">Status pending</span>
-            <label class="evaluation-run-control"><span>Evaluation run</span><select id="evaluationSelect" aria-label="Evaluation run"></select></label>
-          </div>
-        </div>
-        <div class="evaluations-content" id="evaluationsContent"></div>
-      </section>
-
-      <section class="benchmarks" id="benchmarksPanel" aria-label="Benchmark case review" hidden>
-        <div class="benchmarks-header">
-          <div><h1>Benchmark review</h1><p id="benchmarksFreshness">Loading private benchmark state</p></div>
-          <span class="benchmark-status" id="benchmarkStatus">Status pending</span>
-        </div>
-        <div class="benchmark-toolbar">
-          <label><span>Benchmark</span><select id="benchmarkDatasetSelect" aria-label="Benchmark dataset"></select></label>
-          <label><span>Review status</span><select id="benchmarkCaseStatus"><option value="">All statuses</option><option value="draft">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></label>
-          <label class="benchmark-search"><span>Search cases</span><input id="benchmarkCaseSearch" type="search" placeholder="Case ID, title, or tag"></label>
-        </div>
-        <div class="benchmark-content">
-          <section class="benchmark-queue" aria-label="Benchmark cases">
-            <div class="benchmark-queue-heading"><strong id="benchmarkQueueTitle">Cases</strong><span id="benchmarkQueueCount">--</span></div>
-            <div class="benchmark-case-list" id="benchmarkCaseList"></div>
-          </section>
-          <section class="benchmark-detail" id="benchmarkDetail" aria-label="Selected benchmark case"></section>
-        </div>
-      </section>
     </div>
   </main>
 
@@ -187,6 +131,6 @@
     <div class="drawer-header"><span class="drawer-eyebrow" id="drawerRank">Opportunity</span><button class="icon-button" id="closeDrawer" type="button" aria-label="Close details" title="Close details">&times;</button></div>
     <div class="drawer-content" id="drawerContent"></div>
   </aside>
-  <script src="/app.js?v=comparison-benchmark-v1" defer></script>
+  <script src="/app.js?v=core-v2" defer></script>
 </body>
 </html>

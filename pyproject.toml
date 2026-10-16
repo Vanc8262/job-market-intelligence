@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "job-market-intelligence"
 version = "0.1.0"
-description = "Foundation for a source-agnostic job market intelligence platform."
+description = "Local, configuration-driven job market intelligence pipeline and dashboard."
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "JMIP Maintainers" }]
@@ -13,27 +13,21 @@ dependencies = [
   "pydantic>=2.8",
   "PyYAML>=6.0",
   "loguru>=0.7",
-  "duckdb>=1.0",
-  "pandas>=2.2",
-  "polars>=1.0",
-  "pyarrow>=16.0",
   "httpx>=0.27",
-  "playwright>=1.45",
   "beautifulsoup4>=4.12",
   "lxml>=5.2",
-  "pypdf>=5.0",
   "python-dotenv>=1.0",
-  "filelock>=3.20,<4",
 ]
 
 [project.optional-dependencies]
-ml-evaluation = [
-  "torch>=2.4",
-  "transformers>=4.48",
-  "sentence-transformers>=3.4",
-  "safetensors>=0.4",
-  "entmax>=1.3",
-  "huggingface-hub>=0.27",
+dev = [
+  "pytest>=8.2",
+  "ruff>=0.5",
+  "mypy>=1.10",
+  "types-PyYAML>=6.0",
+]
+docs = [
+  "python-docx>=1.1",
 ]
 
 [tool.setuptools]
@@ -51,12 +45,9 @@ known_first_party = [
   "dashboard",
   "enrichment",
   "extractors",
-  "model_evaluation",
   "models",
   "pipeline",
   "processors",
-  "profiles",
-  "reporting",
   "storage",
   "utils",
 ]
@@ -65,11 +56,9 @@ known_first_party = [
 line-length = 100
 target-version = "py312"
 extend-exclude = [
-  ".codex-docx",
-  ".codex-test-tmp",
   ".pytest-state",
-  ".pytest-tmp",
   "data",
+  "tmp",
 ]
 
 [tool.ruff.lint]

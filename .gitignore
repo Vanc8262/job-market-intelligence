@@ -50,6 +50,13 @@ logs/*
 !data/evaluations/.gitkeep
 !logs/.gitkeep
 
+# Local scratch output (never commit resumes, rendered previews, or stray logs)
+tmp/
+scripts/logs/
+*.log
+*.sqlite3
+*.sqlite3-journal
+
 # Editors and OS
 .idea/
 .vscode/

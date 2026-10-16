@@ -532,11 +532,7 @@ class SilverToGoldRunner:
             "normalized_title": record.position.normalized_title or record.position.title,
             "family": record.position.family,
             "seniority": record.position.seniority,
-            "employer": (
-                record.company.name
-                if record.source.name == "usajobs"
-                else record.company.normalized_name or record.company.name
-            ),
+            "employer": record.company.normalized_name or record.company.name,
             "industry": record.company.industry,
             "location": record.location.raw,
             "city": record.location.city,
@@ -801,11 +797,7 @@ class SilverToGoldRunner:
             "normalized_title": title,
             "family": record.position.family,
             "seniority": record.position.seniority,
-            "employer": (
-                record.company.name
-                if record.source.name == "usajobs"
-                else record.company.normalized_name or record.company.name
-            ),
+            "employer": record.company.normalized_name or record.company.name,
             "location": record.location.raw,
             "workplace_type": record.location.workplace_type.value,
             "source": record.source.name,
