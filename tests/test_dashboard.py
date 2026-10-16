@@ -181,6 +181,7 @@ def test_dashboard_serves_assets_health_and_opportunities(tmp_path: Path) -> Non
     _write_pipeline_outputs(gold_root)
     server = create_server(
         port=0,
+        private_root=tmp_path / "private",
         mart_path=mart_path,
         tracking_path=tracking_path,
         gold_root=gold_root,
@@ -245,6 +246,7 @@ def test_dashboard_serves_assets_health_and_opportunities(tmp_path: Path) -> Non
 def test_dashboard_reports_missing_gold_data_as_unavailable(tmp_path: Path) -> None:
     server = create_server(
         port=0,
+        private_root=tmp_path / "private",
         mart_path=tmp_path / "missing.json",
         tracking_path=tmp_path / "tracking.json",
         gold_root=tmp_path / "gold",
@@ -269,7 +271,9 @@ def test_dashboard_blocks_dns_rebinding_and_cross_site_writes(tmp_path: Path) ->
     mart_path = tmp_path / "mart.json"
     _write_mart(mart_path)
     tracking_path = tmp_path / "tracking.json"
-    server = create_server(port=0, mart_path=mart_path, tracking_path=tracking_path)
+    server = create_server(
+        port=0, private_root=tmp_path / "private", mart_path=mart_path, tracking_path=tracking_path
+    )
     body = json.dumps({"shortlisted": True}).encode()
     with _running(server) as base_url:
         rebinding = _status(
@@ -315,10 +319,16 @@ def test_dashboard_blocks_dns_rebinding_and_cross_site_writes(tmp_path: Path) ->
 
 
 def test_dashboard_rejects_a_second_server_on_the_same_port(tmp_path: Path) -> None:
-    first = create_server(port=0, tracking_path=tmp_path / "first-tracking.json")
+    first = create_server(
+        port=0, private_root=tmp_path / "private", tracking_path=tmp_path / "first-tracking.json"
+    )
     try:
         with pytest.raises(OSError):
-            create_server(port=first.server_port, tracking_path=tmp_path / "second-tracking.json")
+            create_server(
+                port=first.server_port,
+                private_root=tmp_path / "private",
+                tracking_path=tmp_path / "second-tracking.json",
+            )
     finally:
         first.server_close()
 
@@ -361,7 +371,12 @@ def test_tracking_repository_migrates_legacy_resume_label_into_notes(tmp_path: P
 def test_tracking_api_rejects_invalid_status(tmp_path: Path) -> None:
     mart_path = tmp_path / "mart.json"
     mart_path.write_text(json.dumps({"opportunities": []}), encoding="utf-8")
-    server = create_server(port=0, mart_path=mart_path, tracking_path=tmp_path / "tracking.json")
+    server = create_server(
+        port=0,
+        private_root=tmp_path / "private",
+        mart_path=mart_path,
+        tracking_path=tmp_path / "tracking.json",
+    )
     with _running(server) as base_url:
         status = _status(
             Request(
@@ -377,6 +392,7 @@ def test_tracking_api_rejects_invalid_status(tmp_path: Path) -> None:
 
 def test_dashboard_assets_reference_only_supported_features() -> None:
     javascript = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    review_script = (STATIC_DIR / "resume-review.js").read_text(encoding="utf-8")
     index = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
     assert (STATIC_DIR / "styles.css").exists()
@@ -387,23 +403,32 @@ def test_dashboard_assets_reference_only_supported_features() -> None:
         "renderWeightSimulator",
         "calculateCalibration",
         "/api/application-tracking",
+        "resume_version_id",
     ):
         assert required in javascript
+    for required in ("/api/resume-reviews", "/api/candidate-profile", "renderResumeReview"):
+        assert required in review_script
     for removed in (
         "/api/benchmarks",
         "/api/model-evaluations",
         "/api/reporting",
-        "/api/resume-reviews",
-        "/api/candidate-profile",
         "/api/application-comparisons",
         "/api/data-management",
         "/api/pipeline-runs",
     ):
-        assert removed not in javascript
-    for view in ("opportunities", "shortlist", "intelligence", "operations", "simulator"):
+        assert removed not in javascript + review_script
+    for view in (
+        "opportunities",
+        "shortlist",
+        "intelligence",
+        "operations",
+        "simulator",
+        "resume-review",
+    ):
         assert f'data-view="{view}"' in index
     assert 'data-view="benchmarks"' not in index
-    assert "/app.js?v=core-v2" in index
+    assert "/app.js?v=resume-v1" in index
+    assert "/resume-review.js?v=resume-v1" in index
 
 
 @pytest.mark.skipif(

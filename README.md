@@ -5,6 +5,10 @@ collecting job postings from public applicant-tracking-system (ATS) feeds, prese
 source evidence, producing canonical market data, ranking current opportunities against
 a candidate profile, and tracking applications in a local dashboard.
 
+JMIP is primarily a **Bayesian machine-learning project**: its analytics move from fixed
+rules toward Bayesian models that report uncertainty and keep a human in the loop
+(Phase 8). Deep-learning components may be added in later phases.
+
 Supported source families: **Greenhouse, Lever, Ashby, Workday, NextEra Energy, and
 Phenom-backed career sites**.
 
@@ -38,6 +42,7 @@ Configured targets + candidate queries
 | Silver | Validated, normalized, deduplicated job postings | `data/silver/` |
 | Gold | Current opportunities, summaries, lifecycle, and quality | `data/gold/` |
 | Tracking | Shortlist and application status you enter in the dashboard | `data/application_tracking/` |
+| Candidate | Resume files, extracted text, reviewed facts (private, never committed) | `data/private/` |
 
 All layers are stored as JSON. Everything under `data/` and `logs/` is local runtime
 state and is excluded from version control.
@@ -51,8 +56,27 @@ state and is excluded from version control.
 | 3. Transformation | Bronze-to-Silver normalization, deduplication, and validation | Complete |
 | 4. Intelligence | Lifecycle, Gold summaries, relevance scoring, and quality gateway | Complete |
 | 5. Reporting | Dashboard: opportunities, shortlist, tracking, market views, pipeline status, weight simulator | Complete |
-| 6. Candidate workflow | Resume ingestion, review, and application comparison | Not started in this codebase |
+| 6. Candidate workflow | Resume ingestion and extraction (6.1), review (6.2), application comparison (6.3) | 6.1–6.2 complete; 6.3 planned with Phase 8 |
 | 7. Model evaluation | Title-normalization and application-fit benchmarks | Not started in this codebase |
+| 8. Bayesian analytics | Bayesian quality gate, salary, relevance, survival, and trend models (stages B0–B5) | Planned |
+
+### Phase 8: Bayesian Analytics
+
+Each stage starts when its data exists. Every model is versioned in config, must pass a
+diagnostics gate (R-hat ≤ 1.01, bulk/tail ESS ≥ 400, no divergences), and stays advisory:
+changing a weight or threshold remains a human edit to YAML.
+
+| Stage | Model | Replaces or extends | Starts when |
+| --- | --- | --- | --- |
+| B0 Foundation | `bayesian/` package, `config/bayesian.yaml`, diagnostics gate, tests | — | Now |
+| B1 Quality and skills | Beta-Binomial quality gate; empirical-Bayes skill-share shrinkage | Fixed ratio thresholds; raw skill shares | Now (SciPy only) |
+| B2 Salary | Hierarchical log-salary model (family, seniority, region, employer) | Disclosed-pay statistics only | ~100 postings with pay |
+| B3 Relevance weights | Bayesian logistic regression, priors at the configured weights | Hand-set weights; simulator heuristic | 30–50 tracking labels |
+| B4 Posting survival | Weibull survival with employer/source pooling | Fixed `missing_runs_before_removed` | ~100 observed removals |
+| B5 Market trends | Negative-binomial trends and changepoint detection | Per-run snapshots | 8–12 weeks of daily runs |
+
+Planned stack: PyMC 6 with nutpie, ArviZ 1.0, and Bambi as an optional `bayes` extra.
+The full research and design notes live in the *JMIP Bayesian ML Integration Plan* doc.
 
 ## Design Principles
 
@@ -214,22 +238,62 @@ expired, and duplicate jobs in research summaries with
 ## Dashboard
 
 - **Opportunities:** ranked postings with filters, score explanations, and a detail drawer.
-- **Shortlist and tracking:** shortlist, status, priority, dates, and notes per posting.
+- **Shortlist and tracking:** shortlist, status, priority, dates, notes, and the resume
+  version used, per posting.
 - **Market intelligence:** skills, roles, employers, locations, and compensation summaries.
 - **Pipeline operations:** read-only freshness, collection, quality, lifecycle, and Gold views.
 - **Weight simulator:** test relevance weights against current Gold data without saving.
+- **Resume review:** check extracted resume facts against the source text and approve them.
 
 The server binds to `127.0.0.1` by default. It rejects requests whose `Host` is not a
 local name (preventing DNS-rebinding reads), rejects writes from other origins, and
 only accepts JSON request bodies.
 
+## Resume Workflow (Phase 6)
+
+Resumes stay on your computer. Originals, extracted text, and the candidate database live
+in `data/private/`, which Git ignores; command output never includes resume text.
+
+```powershell
+# Store, extract, and parse a PDF or DOCX; --activate makes it the active resume
+.\.venv\Scripts\python.exe scripts\manage_resumes.py ingest "C:\path\to\resume.pdf" `
+  --label "Data science v1" --activate
+
+.\.venv\Scripts\python.exe scripts\manage_resumes.py list
+.\.venv\Scripts\python.exe scripts\manage_resumes.py activate <resume-version-id>
+.\.venv\Scripts\python.exe scripts\manage_resumes.py reextract   # after parser changes
+```
+
+How it works:
+
+1. **Safe reading.** The file type is detected from its content, not its extension. Size,
+   PDF page count, password protection, and DOCX archive size, entry count, compression
+   ratio, and DTDs are checked before text is used.
+2. **Quality score.** Character and word counts, letter/digit share, and unreadable
+   characters decide whether the text passed, needs attention, or failed (for example a
+   scanned, image-only PDF). A failed extraction is stored but can never be activated.
+3. **Parsing.** A deterministic parser proposes skills (mapped to `config/skills.yaml`
+   plus your profile skills), experience, education, and projects. Every fact keeps the
+   exact span of resume text it came from. Identical files are detected by SHA-256.
+4. **Review.** Open **Resume review** in the dashboard. Click a fact's evidence chip to
+   highlight it in the source text, correct or remove facts, add missing ones, and approve
+   each section. Editing a section clears its approval. Save drafts as you go; the review
+   is final (read-only) once all four sections are approved. A stale browser tab cannot
+   overwrite a newer save.
+5. **Tracking.** The opportunity drawer records which resume version you used for an
+   application.
+
+Application comparison (6.3) will be designed alongside the Phase 8 Bayesian models, so
+resume-to-job fit is reported with uncertainty rather than as a fixed-rule score.
+
 ## Engineering Commands
 
 ```powershell
 .\.venv\Scripts\python.exe -m ruff check .
-.\.venv\Scripts\python.exe -m mypy analytics dashboard enrichment extractors models pipeline processors storage utils
+.\.venv\Scripts\python.exe -m mypy analytics dashboard enrichment extractors models pipeline processors profiles storage utils
 .\.venv\Scripts\python.exe -m pytest
 node --check dashboard/static/app.js
+node --check dashboard/static/resume-review.js
 ```
 
 `scripts/build_phase1_research_notes_doc.py` and
@@ -248,6 +312,7 @@ in `docs/`; install the optional `docs` extra (`pip install -e ".[docs]"`) first
 | Gold build manifest | `data/gold/manifest/latest.json` |
 | Latest quality report | `data/gold/data_quality/latest.json` |
 | Application tracking | `data/application_tracking/state.json` |
+| Candidate database and resumes | `data/private/candidates.sqlite3`, `data/private/resumes/` |
 
 CLI commands emit JSON summaries. Exit code `0` means success; pipeline and quality
 commands return nonzero when a required stage fails.
@@ -261,6 +326,7 @@ commands return nonzero when a required stage fails.
 - `models/`: canonical Pydantic data models.
 - `pipeline/`: collection, processing, lifecycle, and quality orchestration.
 - `processors/`: canonical validation and normalization.
+- `profiles/`: resume reading, quality checks, parsing, private storage, and review.
 - `scripts/`: supported command-line entry points.
 - `storage/`: Bronze, Silver, and Gold storage (Parquet and DuckDB adapters are placeholders).
 - `tests/`: unit and integration tests.

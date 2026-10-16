@@ -5,11 +5,11 @@ const ACTIVE_STATUSES = new Set(["applied", "interviewing", "offer"]);
 const STATUS_OPTIONS = ["new", "reviewing", "saved", "applied", "interviewing", "offer", "rejected", "archived"];
 const SIGNAL_KEYS = ["skills", "title", "experience", "location"];
 const POSITIVE_FEEDBACK_STATUSES = new Set(["reviewing", "saved", "applied", "interviewing", "offer"]);
-const state = { mart: null, market: null, operations: null, opportunities: [], tracking: {}, filtered: [], page: 1, band: "all", view: "opportunities", marketView: "overview", operationsView: "overview", selectedJobId: null, simulatorWeights: null };
+const state = { mart: null, market: null, operations: null, candidate: null, opportunities: [], tracking: {}, filtered: [], page: 1, band: "all", view: "opportunities", marketView: "overview", operationsView: "overview", selectedJobId: null, simulatorWeights: null };
 const elements = {};
 
 document.addEventListener("DOMContentLoaded", () => {
-  ["freshnessLabel", "showingMetric", "strongMetric", "shortlistMetric", "applicationMetric", "showingLabel", "strongLabel", "shortlistLabel", "applicationLabel", "searchInput", "employerFilter", "familyFilter", "seniorityFilter", "workplaceFilter", "lifecycleFilter", "applicationFilter", "salaryFilter", "sortSelect", "opportunitiesBody", "resultCount", "activeFilters", "loadingState", "emptyState", "errorState", "errorMessage", "retryButton", "resetFilters", "emptyReset", "previousPage", "nextPage", "pageLabel", "bandFilters", "detailDrawer", "drawerBackdrop", "drawerContent", "drawerRank", "closeDrawer", "filtersPanel", "filterToggle", "viewSwitch", "viewTitle", "resultsPanel", "intelligencePanel", "intelligenceTabs", "intelligenceContent", "intelligenceFreshness", "qualityBadge", "operationsPanel", "operationsTabs", "operationsContent", "operationsFreshness", "operationsBadge", "refreshOperations", "simulatorPanel", "simulatorContent", "simulatorStatus", "pageName"].forEach((id) => { elements[id] = document.getElementById(id); });
+  ["freshnessLabel", "showingMetric", "strongMetric", "shortlistMetric", "applicationMetric", "showingLabel", "strongLabel", "shortlistLabel", "applicationLabel", "searchInput", "employerFilter", "familyFilter", "seniorityFilter", "workplaceFilter", "lifecycleFilter", "applicationFilter", "salaryFilter", "sortSelect", "opportunitiesBody", "resultCount", "activeFilters", "loadingState", "emptyState", "errorState", "errorMessage", "retryButton", "resetFilters", "emptyReset", "previousPage", "nextPage", "pageLabel", "bandFilters", "detailDrawer", "drawerBackdrop", "drawerContent", "drawerRank", "closeDrawer", "filtersPanel", "filterToggle", "viewSwitch", "viewTitle", "resultsPanel", "intelligencePanel", "intelligenceTabs", "intelligenceContent", "intelligenceFreshness", "qualityBadge", "operationsPanel", "operationsTabs", "operationsContent", "operationsFreshness", "operationsBadge", "refreshOperations", "simulatorPanel", "simulatorContent", "simulatorStatus", "resumeReviewPanel", "resumeReviewContent", "resumeReviewSummary", "resumeReviewSelect", "pageName"].forEach((id) => { elements[id] = document.getElementById(id); });
   bindEvents();
   loadData();
 });
@@ -55,6 +55,7 @@ function bindEvents() {
     if (event.key === "Enter" || event.key === " ") { const row = event.target.closest("tr[data-job-id]"); if (row) { event.preventDefault(); openDrawer(row.dataset.jobId); } }
   });
   elements.drawerContent.addEventListener("submit", saveTracking);
+  bindResumeReview();
   elements.drawerContent.addEventListener("change", handleTrackingFormChange);
   elements.resetFilters.addEventListener("click", resetFilters);
   elements.emptyReset.addEventListener("click", resetFilters);
@@ -71,6 +72,7 @@ async function loadData() {
   elements.loadingState.hidden = false;
   elements.errorState.hidden = true;
   elements.emptyState.hidden = true;
+  refreshCandidateProfile();
   try {
     const [martResponse, trackingResponse, marketResponse, operationsResponse] = await Promise.all([fetch("/api/opportunities", { cache: "no-store" }), fetch("/api/application-tracking", { cache: "no-store" }), fetch("/api/market-intelligence", { cache: "no-store" }), fetch("/api/pipeline-operations", { cache: "no-store" })]);
     if (!martResponse.ok) throw new Error((await martResponse.json().catch(() => ({}))).error || "Opportunity data could not be loaded");
@@ -113,17 +115,21 @@ function setDashboardView() {
   const intelligence = state.view === "intelligence";
   const operations = state.view === "operations";
   const simulator = state.view === "simulator";
-  const panelMode = intelligence || operations || simulator;
+  const resumeReview = state.view === "resume-review";
+  const panelMode = intelligence || operations || simulator || resumeReview;
   elements.filtersPanel.hidden = panelMode;
   elements.resultsPanel.hidden = panelMode;
   elements.intelligencePanel.hidden = !intelligence;
   elements.operationsPanel.hidden = !operations;
   elements.simulatorPanel.hidden = !simulator;
+  elements.resumeReviewPanel.hidden = !resumeReview;
   const grid = document.querySelector(".content-grid");
   grid.classList.toggle("market-mode", intelligence);
   grid.classList.toggle("operations-mode", operations);
   grid.classList.toggle("simulator-mode", simulator);
-  elements.pageName.textContent = intelligence ? "Market intelligence" : operations ? "Pipeline operations" : simulator ? "Weight simulator" : "Opportunities";
+  grid.classList.toggle("resume-review-mode", resumeReview);
+  elements.pageName.textContent = intelligence ? "Market intelligence" : operations ? "Pipeline operations" : simulator ? "Weight simulator" : resumeReview ? "Resume review" : "Opportunities";
+  if (resumeReview && !state.review.list && !state.review.loading) loadResumeReviews();
   elements.viewTitle.textContent = state.view === "shortlist" ? "Shortlist" : "Current opportunities";
 }
 
@@ -158,9 +164,23 @@ function render() {
   if (state.view === "intelligence") { renderMarketIntelligence(); return; }
   if (state.view === "operations") { renderPipelineOperations(); return; }
   if (state.view === "simulator") { renderWeightSimulator(); return; }
+  if (state.view === "resume-review") { renderResumeReview(); return; }
   renderActiveFilters(); renderTable(); renderPagination();
 }
 function renderMetrics() {
+  if (state.view === "resume-review") {
+    const list = state.review.list;
+    const extraction = state.review.detail?.extraction;
+    elements.showingLabel.textContent = "Extractions";
+    elements.strongLabel.textContent = "Pending review";
+    elements.shortlistLabel.textContent = "Approved";
+    elements.applicationLabel.textContent = "Text quality";
+    elements.showingMetric.textContent = list ? number(list.items.length) : "--";
+    elements.strongMetric.textContent = list ? number(list.pending_count) : "--";
+    elements.shortlistMetric.textContent = list ? number(list.approved_count) : "--";
+    elements.applicationMetric.textContent = extraction ? formatPercent(extraction.quality_score) : "--";
+    return;
+  }
   if (state.view === "simulator" && state.market) {
     const simulation = calculateSimulation();
     const feedback = calculateCalibration();
@@ -584,7 +604,7 @@ async function saveTracking(event) {
   event.preventDefault();
   const jobId = state.selectedJobId; if (!jobId) return;
   const form = event.target; const button = form.querySelector("button[type='submit']"); const feedback = form.querySelector(".save-feedback"); const data = new FormData(form);
-  const payload = { shortlisted: data.get("shortlisted") === "on", status: data.get("status"), priority: data.get("priority"), application_date: data.get("application_date") || null, follow_up_date: data.get("follow_up_date") || null, notes: data.get("notes") || "" };
+  const payload = { shortlisted: data.get("shortlisted") === "on", status: data.get("status"), priority: data.get("priority"), application_date: data.get("application_date") || null, follow_up_date: data.get("follow_up_date") || null, resume_version_id: data.get("resume_version_id") || null, notes: data.get("notes") || "" };
   button.disabled = true; feedback.className = "save-feedback"; feedback.textContent = "Saving";
   try {
     const response = await fetch(`/api/application-tracking/${encodeURIComponent(jobId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -604,6 +624,7 @@ function drawerMarkup(item) {
     <section class="tracking-section"><div class="section-heading"><h3>Application tracking</h3><span class="tracking-updated">${tracking.updated_at ? `Updated ${escapeHtml(formatTimestamp(tracking.updated_at))}` : "Not tracked yet"}</span></div>
       <form id="trackingForm" class="tracking-form"><label class="shortlist-control"><input type="checkbox" name="shortlisted" ${tracking.shortlisted ? "checked" : ""}><span>Shortlist this opportunity</span></label>
         <div class="tracking-grid">${selectField("Status", "status", "trackingStatus", tracking.status, STATUS_OPTIONS)}${selectField("Priority", "priority", "trackingPriority", tracking.priority, ["none", "low", "medium", "high"])}${inputField("Application date", "application_date", "applicationDate", "date", tracking.application_date)}${inputField("Follow-up date", "follow_up_date", "followUpDate", "date", tracking.follow_up_date)}</div>
+        ${resumeVersionOptions(tracking.resume_version_id)}
         <label class="tracking-field"><span>Notes</span><textarea name="notes" id="trackingNotes" maxlength="5000" rows="4" placeholder="Contacts, preparation, next action">${escapeHtml(tracking.notes || "")}</textarea></label>
         <div class="tracking-actions"><button class="save-button" type="submit">Save tracking</button><span class="save-feedback" role="status" aria-live="polite"></span></div></form></section>
     <div class="detail-facts">${fact("Workplace", formatLabel(item.workplace_type))}${fact("Seniority", formatLabel(item.seniority || "unknown"))}${fact("Compensation", formatSalary(item))}${fact("Lifecycle", formatLabel(item.lifecycle_status))}${fact("Last seen", formatDate(item.last_seen_at))}${fact("Source", formatLabel(item.source))}</div>

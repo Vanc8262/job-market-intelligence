@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
@@ -15,10 +15,17 @@ from models.application_tracking import ApplicationRecord, ApplicationTrackingSt
 class ApplicationTrackingRepository:
     """Read and update a validated application-tracking JSON document."""
 
-    def __init__(self, path: Path, *, profile_id: str = "profile-default") -> None:
-        """Configure the repository with its local JSON document path."""
+    def __init__(
+        self,
+        path: Path,
+        *,
+        profile_id: str = "profile-default",
+        known_resume_versions: Callable[[], set[str]] | None = None,
+    ) -> None:
+        """Configure the JSON document path and, optionally, a resume-version check."""
         self.path = path
         self.profile_id = profile_id
+        self.known_resume_versions = known_resume_versions
         self._lock = RLock()
 
     def load(self) -> ApplicationTrackingState:
@@ -48,6 +55,13 @@ class ApplicationTrackingRepository:
                 dict(existing.model_dump()) if existing else {"job_id": job_id}
             )
             values.update(changes)
+            resume_version_id = values.get("resume_version_id")
+            if (
+                resume_version_id is not None
+                and self.known_resume_versions is not None
+                and str(resume_version_id) not in self.known_resume_versions()
+            ):
+                raise ValueError(f"resume version not found: {resume_version_id}")
 
             now = datetime.now(UTC)
             values["job_id"] = job_id

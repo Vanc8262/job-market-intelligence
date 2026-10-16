@@ -849,3 +849,53 @@ tbody tr:last-child td { border-bottom: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
 }
+
+/* Resume review (Phase 6) */
+.rr-picker { width: min(420px, 100%); }
+.rr-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr); gap: 18px; align-items: start; margin-top: 18px; }
+.rr-sections { display: grid; gap: 14px; min-width: 0; }
+.rr-card { min-width: 0; padding: 16px 18px; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 5px; }
+.rr-card.approved { border-left-color: var(--green); }
+.rr-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.rr-card-head h3 { margin: 0; font-size: 0.95rem; }
+.rr-card-head h3 .job-meta { display: inline; margin-left: 6px; }
+.rr-approve { display: inline-flex; align-items: center; gap: 7px; font-size: 0.74rem; font-weight: 720; color: #3f474d; }
+.rr-card.approved .rr-approve { color: var(--green); }
+.rr-rows { display: grid; gap: 10px; }
+.rr-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; padding: 12px; border: 1px solid #e3e7ea; border-radius: 4px; background: #fbfcfc; }
+.rr-skills { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.rr-wide { grid-column: 1 / -1; }
+.rr-meta { display: flex; align-items: flex-end; gap: 8px; min-width: 0; padding-bottom: 6px; }
+.rr-unmapped { color: #86580e; background: var(--amber-soft); border-color: #ead9b7; }
+.rr-check { display: inline-flex; align-items: center; gap: 7px; align-self: end; height: 38px; font-size: 0.74rem; color: #3f474d; }
+.rr-row-foot { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rr-evidence { max-width: 100%; padding: 3px 8px; border: 1px dashed #c4ccd2; border-radius: 4px; background: #fff; color: #3f474d; font-size: 0.68rem; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr-evidence:hover { border-color: var(--blue); color: var(--blue); }
+.rr-evidence small { color: var(--muted); }
+.rr-remove { margin-left: auto; color: var(--red); }
+.rr-none { margin: 0; white-space: normal; }
+.tracking-field.invalid input { border-color: var(--red); background: #fcf7f7; }
+.rr-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+.rr-source { position: sticky; top: 12px; min-width: 0; padding: 16px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 5px; }
+.rr-text { max-height: 62vh; overflow: auto; margin: 0; padding: 12px; border: 1px solid #e3e7ea; border-radius: 4px; background: #fbfcfc; font: 0.74rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rr-text mark { background: #ffe58f; color: inherit; border-radius: 2px; box-shadow: 0 0 0 2px #ffe58f; }
+.rr-details { margin-top: 12px; font-size: 0.74rem; }
+.rr-details summary { cursor: pointer; font-weight: 720; color: #3f474d; }
+.rr-checks, .rr-warnings { margin: 8px 0 0; padding-left: 18px; color: #4b5359; line-height: 1.5; }
+.rr-checks { list-style: none; padding-left: 0; }
+.rr-checks li { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid #eef1f3; }
+.rr-checks li b { color: var(--green); }
+.rr-checks li.failed b { color: var(--red); }
+.rr-empty { max-width: 760px; margin-top: 18px; padding: 22px 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 5px; }
+.rr-empty strong { font-size: 1rem; }
+.rr-empty p { color: var(--muted); font-size: 0.82rem; }
+.rr-empty pre { overflow-x: auto; padding: 12px; border-radius: 4px; background: #171a1f; color: #e8ecef; font-size: 0.74rem; }
+@media (max-width: 1050px) {
+  .rr-layout { grid-template-columns: minmax(0, 1fr); }
+  .rr-source { position: static; }
+}
+@media (max-width: 700px) {
+  .rr-row, .rr-skills { grid-template-columns: minmax(0, 1fr); }
+  .rr-card { padding: 14px 12px; }
+  .rr-picker { width: 100%; }
+}

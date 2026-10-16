@@ -39,6 +39,7 @@ class PathConfig(BaseModel):
     cache_dir: Path
     checkpoint_dir: Path
     log_dir: Path
+    private_dir: Path = Path("data/private")
 
     def anchored(self, project_root: Path) -> PathConfig:
         """Return a copy with relative paths resolved against the project root.
@@ -92,6 +93,37 @@ class ProcessingConfig(BaseModel):
     strict_validation: bool = True
 
 
+class CandidateProfileSettings(BaseModel):
+    """Local candidate-profile settings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    default_profile_id: str = Field(
+        default="profile-default",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
+    )
+
+
+class ResumeIngestionConfig(BaseModel):
+    """Security limits and text-quality thresholds for resume ingestion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    max_file_size_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
+    max_pdf_pages: int = Field(default=20, ge=1, le=500)
+    max_docx_entries: int = Field(default=500, ge=1, le=5000)
+    max_docx_uncompressed_bytes: int = Field(default=25 * 1024 * 1024, ge=1)
+    max_docx_compression_ratio: float = Field(default=100.0, ge=1)
+    max_extracted_characters: int = Field(default=100_000, ge=1)
+    minimum_characters: int = Field(default=200, ge=1)
+    minimum_words: int = Field(default=40, ge=1)
+    minimum_alphanumeric_ratio: float = Field(default=0.45, ge=0, le=1)
+    maximum_replacement_ratio: float = Field(default=0.01, ge=0, le=1)
+    minimum_quality_score: float = Field(default=0.75, ge=0, le=1)
+
+
 class SettingsConfig(BaseModel):
     """Validated contents of settings.yaml."""
 
@@ -104,6 +136,8 @@ class SettingsConfig(BaseModel):
     logging: LoggingLevelConfig
     scraping: ScrapingConfig
     processing: ProcessingConfig
+    candidate_profile: CandidateProfileSettings = Field(default_factory=CandidateProfileSettings)
+    resume_ingestion: ResumeIngestionConfig = Field(default_factory=ResumeIngestionConfig)
 
 
 class SourceAccessPolicy(StrEnum):

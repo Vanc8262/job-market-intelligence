@@ -16,6 +16,7 @@ TYPED_PACKAGES = [
     "models",
     "pipeline",
     "processors",
+    "profiles",
     "storage",
     "utils",
 ]
@@ -30,7 +31,10 @@ def _checks() -> list[tuple[str, list[str]]]:
     ]
     node = shutil.which("node")
     if node:
-        checks.append(("dashboard-js", [node, "--check", "dashboard/static/app.js"]))
+        for script in ("app.js", "resume-review.js"):
+            checks.append(
+                (f"dashboard-js:{script}", [node, "--check", f"dashboard/static/{script}"])
+            )
     else:
         print("[skip] dashboard-js: Node.js is not installed")
     return checks

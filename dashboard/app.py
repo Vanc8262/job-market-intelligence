@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import socket as socket_module
+from collections.abc import Callable
 from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -14,9 +15,17 @@ from socketserver import BaseServer
 from typing import Any, ClassVar, cast
 from urllib.parse import unquote, urlsplit
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
+from dashboard.resumes import load_candidate_profile, load_resume_review, load_resume_reviews
 from dashboard.tracking import ApplicationTrackingRepository
+from models.candidate import ReviewApproval, ReviewDraft
+from profiles import (
+    ProfileRecordNotFoundError,
+    ProfileRepositoryConflictError,
+    ResumeIngestionService,
+)
+from utils.config import Config
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -41,6 +50,8 @@ OPERATIONS_PATHS = {
     "manifest": Path("manifest/latest.json"),
 }
 MAX_REQUEST_BYTES = 64 * 1024
+MAX_REVIEW_REQUEST_BYTES = 512 * 1024
+RESUME_REVIEW_PREFIX = "/api/resume-reviews/"
 OPERATIONS_FRESHNESS_HOURS = 36
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
@@ -276,6 +287,7 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
     static_dir = STATIC_DIR
     tracking_repository = ApplicationTrackingRepository(DEFAULT_TRACKING_PATH)
     allowed_hosts: ClassVar[frozenset[str]] = LOOPBACK_HOSTS
+    resume_service: ClassVar[ResumeIngestionService | None] = None
 
     def __init__(
         self,
@@ -362,6 +374,21 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
                     status=HTTPStatus.SERVICE_UNAVAILABLE,
                 )
             return
+        if path == "/api/candidate-profile":
+            self._with_resume_service(load_candidate_profile)
+            return
+        if path == "/api/resume-reviews":
+            self._with_resume_service(load_resume_reviews)
+            return
+        if path.startswith(RESUME_REVIEW_PREFIX):
+            extraction_id = _path_identifier(path.removeprefix(RESUME_REVIEW_PREFIX))
+            if extraction_id is None:
+                self._send_json(
+                    {"error": "A valid extraction ID is required"}, status=HTTPStatus.BAD_REQUEST
+                )
+                return
+            self._with_resume_service(lambda service: load_resume_review(service, extraction_id))
+            return
         if path.startswith("/api/"):
             self._send_json({"error": "Endpoint not found"}, status=HTTPStatus.NOT_FOUND)
             return
@@ -369,11 +396,26 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
             self.path = "/index.html"
         super().do_GET()
 
-    def do_PUT(self) -> None:  # noqa: N802
-        """Validate and persist one candidate-controlled application record."""
+    def do_PATCH(self) -> None:  # noqa: N802
+        """Save an in-progress resume review without finalizing it."""
         if self._reject_foreign_request(mutating=True):
             return
         path = urlsplit(self.path).path
+        if not path.startswith(RESUME_REVIEW_PREFIX):
+            self._send_json({"error": "Endpoint not found"}, status=HTTPStatus.NOT_FOUND)
+            return
+        self._write_review(path.removeprefix(RESUME_REVIEW_PREFIX), ReviewDraft, approve=False)
+
+    def do_PUT(self) -> None:  # noqa: N802
+        """Approve a resume review, or persist one application-tracking record."""
+        if self._reject_foreign_request(mutating=True):
+            return
+        path = urlsplit(self.path).path
+        if path.startswith(RESUME_REVIEW_PREFIX):
+            self._write_review(
+                path.removeprefix(RESUME_REVIEW_PREFIX), ReviewApproval, approve=True
+            )
+            return
         prefix = "/api/application-tracking/"
         if not path.startswith(prefix):
             self._send_json({"error": "Endpoint not found"}, status=HTTPStatus.NOT_FOUND)
@@ -399,8 +441,67 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         except (json.JSONDecodeError, UnicodeDecodeError, ValidationError, ValueError) as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
 
+    def _with_resume_service(
+        self, build: Callable[[ResumeIngestionService], dict[str, Any]]
+    ) -> None:
+        """Send ``build(service)`` as JSON, mapping repository errors to HTTP codes."""
+        if self.resume_service is None:
+            self._send_json(
+                {"error": "Resume workflow is unavailable"}, status=HTTPStatus.SERVICE_UNAVAILABLE
+            )
+            return
+        try:
+            self._send_json(build(self.resume_service))
+        except (ProfileRecordNotFoundError, LookupError, FileNotFoundError) as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
+
+    def _write_review(self, raw_id: str, model: type[BaseModel], *, approve: bool) -> None:
+        """Validate and save a review draft or final approval for one extraction."""
+        service = self.resume_service
+        extraction_id = _path_identifier(raw_id)
+        if service is None:
+            self._send_json(
+                {"error": "Resume workflow is unavailable"}, status=HTTPStatus.SERVICE_UNAVAILABLE
+            )
+            return
+        if extraction_id is None:
+            self._send_json(
+                {"error": "A valid extraction ID is required"}, status=HTTPStatus.BAD_REQUEST
+            )
+            return
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0 or content_length > MAX_REVIEW_REQUEST_BYTES:
+                raise ValueError("Review body must be between 1 byte and 512 KB")
+            submission = model.model_validate_json(self.rfile.read(content_length))
+            profile_id = service.profile().profile_id
+            if approve:
+                saved = service.repository.approve_review(
+                    extraction_id, cast(ReviewApproval, submission), profile_id=profile_id
+                )
+            else:
+                saved = service.repository.save_review_draft(
+                    extraction_id, cast(ReviewDraft, submission), profile_id=profile_id
+                )
+            self._send_json(
+                {
+                    "extraction_id": saved.extraction_id,
+                    "revision": saved.revision,
+                    "review_status": saved.review_status.value,
+                    "approved_sections": [section.value for section in saved.approved_sections],
+                    "review_updated_at": saved.review_updated_at,
+                    "approved_at": saved.approved_at,
+                }
+            )
+        except ProfileRecordNotFoundError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
+        except ProfileRepositoryConflictError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
+        except (ValidationError, ValueError) as exc:
+            self._send_json({"error": _validation_message(exc)}, status=HTTPStatus.BAD_REQUEST)
+
     def do_POST(self) -> None:  # noqa: N802
-        """Reject writes other than the explicit application-tracking PUT."""
+        """Reject writes other than the explicit PUT and PATCH endpoints."""
         if self._reject_foreign_request(mutating=True):
             return
         self._send_json({"error": "Endpoint not found"}, status=HTTPStatus.NOT_FOUND)
@@ -440,9 +541,19 @@ def create_server(
     static_dir: Path = STATIC_DIR,
     tracking_path: Path = DEFAULT_TRACKING_PATH,
     gold_root: Path = DEFAULT_GOLD_ROOT,
+    private_root: Path | None = None,
 ) -> DashboardHTTPServer:
     """Create a configured threaded dashboard server."""
     allowed_hosts = LOOPBACK_HOSTS | {host.strip("[]").casefold()}
+    resume_service = ResumeIngestionService(Config(), private_root=private_root)
+    profile_id = resume_service.profile().profile_id
+
+    def known_resume_versions() -> set[str]:
+        return {
+            version.resume_version_id
+            for version in resume_service.repository.list_resume_versions(profile_id)
+        }
+
     handler = type(
         "ConfiguredDashboardRequestHandler",
         (DashboardRequestHandler,),
@@ -450,11 +561,35 @@ def create_server(
             "mart_path": mart_path,
             "gold_root": gold_root,
             "static_dir": static_dir,
-            "tracking_repository": ApplicationTrackingRepository(tracking_path),
+            "tracking_repository": ApplicationTrackingRepository(
+                tracking_path, profile_id=profile_id, known_resume_versions=known_resume_versions
+            ),
             "allowed_hosts": frozenset(allowed_hosts),
+            "resume_service": resume_service,
         },
     )
     return DashboardHTTPServer((host, port), handler)
+
+
+def _path_identifier(raw: str) -> str | None:
+    """Decode one URL path identifier, rejecting nested paths and traversal."""
+    value = unquote(raw).strip()
+    if not value or "/" in value or "\\" in value or value in {".", ".."} or len(value) > 200:
+        return None
+    return value
+
+
+def _validation_message(exc: Exception) -> str:
+    """Return a short, readable validation error."""
+    if isinstance(exc, ValidationError):
+        first = exc.errors()[0]
+        location = ".".join(str(part) for part in first.get("loc", ()))
+        return (
+            f"{location}: {first.get('msg', 'invalid value')}"
+            if location
+            else str(first.get("msg"))
+        )
+    return str(exc)
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light">
   <title>JMIP Dashboard</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="/styles.css?v=core-v2">
+  <link rel="stylesheet" href="/styles.css?v=resume-v1">
 </head>
 <body>
   <header class="app-header">
@@ -29,6 +29,7 @@
     <button type="button" data-view="intelligence">Market intelligence</button>
     <button type="button" data-view="operations">Pipeline operations</button>
     <button type="button" data-view="simulator">Weight simulator</button>
+    <button type="button" data-view="resume-review">Resume review</button>
   </nav>
 
   <main class="workspace">
@@ -123,6 +124,13 @@
         <div class="simulator-content" id="simulatorContent"></div>
       </section>
 
+      <section class="resume-review" id="resumeReviewPanel" aria-label="Resume review" hidden>
+        <div class="simulator-header">
+          <div><h1>Resume review</h1><p id="resumeReviewSummary">Loading resume reviews</p></div>
+          <label class="tracking-field rr-picker"><span>Resume extraction</span><select id="resumeReviewSelect" aria-label="Resume extraction"></select></label>
+        </div>
+        <div id="resumeReviewContent"></div>
+      </section>
     </div>
   </main>
 
@@ -131,6 +139,7 @@
     <div class="drawer-header"><span class="drawer-eyebrow" id="drawerRank">Opportunity</span><button class="icon-button" id="closeDrawer" type="button" aria-label="Close details" title="Close details">&times;</button></div>
     <div class="drawer-content" id="drawerContent"></div>
   </aside>
-  <script src="/app.js?v=core-v2" defer></script>
+  <script src="/app.js?v=resume-v1" defer></script>
+  <script src="/resume-review.js?v=resume-v1" defer></script>
 </body>
 </html>
