@@ -121,6 +121,7 @@ class ResumeIngestionConfig(BaseModel):
     minimum_words: int = Field(default=40, ge=1)
     minimum_alphanumeric_ratio: float = Field(default=0.45, ge=0, le=1)
     maximum_replacement_ratio: float = Field(default=0.01, ge=0, le=1)
+    maximum_repeated_line_ratio: float = Field(default=0.2, ge=0, le=1)
     minimum_quality_score: float = Field(default=0.75, ge=0, le=1)
 
 

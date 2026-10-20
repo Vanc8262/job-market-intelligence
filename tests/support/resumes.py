@@ -96,6 +96,87 @@ def make_pdf(text: str, *, lines_per_page: int = 60) -> bytes:
             f"/Contents {page_ids[index] + 1} 0 R >>".encode()
         )
         objects.append(b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream")
+    return _write_pdf(objects)
+
+
+def make_banded_pdf(
+    text: str,
+    *,
+    hidden_line: int | None = None,
+    overlays: tuple[tuple[int, float, str], ...] = (),
+) -> bytes:
+    """Return a one-page PDF laid out the way Acrobat's text editing rewrites a page.
+
+    One inner form draws every line of ``text``. Three band forms each draw that whole
+    inner form, clipped by their ``/BBox`` to a slice of lines; the middle band is also
+    moved up 6 points by its ``/Matrix``. ``hidden_line`` (0 or 1: a band edge) is left
+    out of every band, so nothing shows it. Each overlay ``(line, x, text)`` is page-level
+    text painted at that line's on-page baseline, like a correction drawn on top.
+
+    A clip-unaware extractor reads the inner form once per band: three copies.
+    """
+    lines = [_pdf_safe(line) for line in text.split("\n")]
+    baselines = [760 - 12 * index for index in range(len(lines))]
+    split = len(lines) // 2
+    skip = {hidden_line} if hidden_line is not None else set()
+    groups = [
+        [index for index in range(0, 1) if index not in skip],
+        [index for index in range(1, split) if index not in skip],
+        [index for index in range(split, len(lines)) if index not in skip],
+    ]
+    shifts = [0, 6, 0]
+    shift_of = {index: shifts[number] for number, group in enumerate(groups) for index in group}
+
+    inner = ["BT", "/F1 10 Tf", "12 TL", "50 760 Td"]
+    inner.extend(f"({line}) Tj T*" for line in lines)
+    inner.append("ET")
+    objects: list[bytes] = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+        b"",  # page, filled in below
+        b"",  # page content, filled in below
+        _stream(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] "
+            "/Resources << /Font << /F1 3 0 R >> >>",
+            "\n".join(inner),
+        ),
+    ]
+    band_entries: list[str] = []
+    page_content: list[str] = []
+    for number, group in enumerate(groups):
+        if not group:
+            continue
+        top = baselines[group[0]] + 9
+        bottom = baselines[group[-1]] - 3
+        objects.append(
+            _stream(
+                f"<< /Type /XObject /Subtype /Form /BBox [40 {bottom} 572 {top}] "
+                f"/Matrix [1 0 0 1 0 {shifts[number]}] "
+                "/Resources << /XObject << /Inner 6 0 R >> >>",
+                "/Inner Do",
+            )
+        )
+        band_entries.append(f"/Band{number} {len(objects)} 0 R")
+        page_content.append(f"/Band{number} Do")
+    for line, x, overlay in overlays:
+        y = baselines[line] + shift_of.get(line, 0)
+        page_content.append(f"BT /F1 10 Tf {x} {y} Td ({_pdf_safe(overlay)}) Tj ET")
+    objects[3] = (
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        f"/Resources << /Font << /F1 3 0 R >> /XObject << {' '.join(band_entries)} >> >> "
+        "/Contents 5 0 R >>"
+    ).encode()
+    objects[4] = _stream("<<", "\n".join(page_content))
+    return _write_pdf(objects)
+
+
+def _stream(dictionary_start: str, content: str) -> bytes:
+    data = content.encode("cp1252")
+    return f"{dictionary_start} /Length {len(data)} >>\nstream\n".encode() + data + b"\nendstream"
+
+
+def _write_pdf(objects: list[bytes]) -> bytes:
     output = io.BytesIO()
     output.write(b"%PDF-1.4\n")
     offsets: list[int] = []

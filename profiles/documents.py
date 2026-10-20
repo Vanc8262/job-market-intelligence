@@ -14,10 +14,11 @@ import zipfile
 from dataclasses import dataclass
 from xml.etree import ElementTree
 
-from pypdf import PdfReader
+from pypdf import PageObject, PdfReader
 from pypdf.errors import PdfReadError
 
 from models.candidate import ResumeMediaType
+from profiles.pdf_text import visible_page_text
 from utils.config import ResumeIngestionConfig
 
 WORD_NAMESPACE = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -99,7 +100,7 @@ def _pdf_text(content: bytes, limits: ResumeIngestionConfig) -> tuple[str, int]:
         parts: list[str] = []
         total = 0
         for page in reader.pages:
-            page_text = page.extract_text() or ""
+            page_text = _page_text(page)
             parts.append(page_text)
             total += len(page_text)
             if total > limits.max_extracted_characters * 2:
@@ -109,6 +110,14 @@ def _pdf_text(content: bytes, limits: ResumeIngestionConfig) -> tuple[str, int]:
     except (PdfReadError, ValueError, KeyError, TypeError, OSError) as exc:
         raise ResumeDocumentError(f"PDF could not be read: {exc}") from exc
     return "\n".join(parts), page_count
+
+
+def _page_text(page: PageObject) -> str:
+    """Return visible page text, falling back to pypdf's plain extraction."""
+    try:
+        return visible_page_text(page)
+    except (ValueError, KeyError, TypeError, AttributeError, IndexError, ZeroDivisionError):
+        return page.extract_text() or ""
 
 
 def _docx_text(content: bytes, limits: ResumeIngestionConfig) -> str:

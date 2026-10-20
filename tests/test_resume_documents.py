@@ -9,9 +9,20 @@ import pytest
 from pypdf import PdfReader, PdfWriter
 
 from models.candidate import ExtractionStatus, ResumeMediaType
-from profiles.documents import ResumeDocumentError, detect_media_type, extract_document_text
-from profiles.quality import assess_text_quality
-from tests.support.resumes import SAMPLE_RESUME, SCANNED_LIKE_TEXT, make_docx, make_pdf
+from profiles.documents import (
+    ResumeDocumentError,
+    detect_media_type,
+    extract_document_text,
+    normalize_text,
+)
+from profiles.quality import assess_text_quality, repeated_line_ratio
+from tests.support.resumes import (
+    SAMPLE_RESUME,
+    SCANNED_LIKE_TEXT,
+    make_banded_pdf,
+    make_docx,
+    make_pdf,
+)
 from utils.config import ResumeIngestionConfig
 
 LIMITS = ResumeIngestionConfig()
@@ -112,3 +123,37 @@ def test_quality_passes_real_text_and_fails_scanned_text() -> None:
     assert scanned_score < 0.75
     assert garbled_status == ExtractionStatus.FAILED
     assert garbled_score < 1.0
+
+
+def test_clipped_band_forms_yield_one_copy_with_overlays_in_place() -> None:
+    lines = SAMPLE_RESUME.split("\n")
+    languages = lines.index("Languages: Python, SQL, R, Java")
+    pdf = make_banded_pdf(
+        SAMPLE_RESUME,
+        hidden_line=1,
+        overlays=(
+            (1, 50, "Delray Beach, FL | jordan.rivera@example.com"),
+            (languages, 400, ", Rust"),
+        ),
+    )
+
+    document = extract_document_text(pdf, LIMITS)
+
+    expected = [line for line in lines if line]
+    expected[1] = "Delray Beach, FL | jordan.rivera@example.com"
+    expected[expected.index("Languages: Python, SQL, R, Java")] += ", Rust"
+    extracted = [line for line in document.text.split("\n") if line]
+    assert extracted == [normalize_text(line) for line in expected]
+    _, _, status = assess_text_quality(document.text, LIMITS)
+    assert status == ExtractionStatus.PASSED
+
+
+def test_repeated_content_needs_attention() -> None:
+    assert repeated_line_ratio(SAMPLE_RESUME) == 0.0
+
+    checks, _, status = assess_text_quality(SAMPLE_RESUME * 3, LIMITS)
+
+    repeated = next(check for check in checks if check.name == "repeated_line_ratio")
+    assert not repeated.passed
+    assert repeated.value > 0.6
+    assert status == ExtractionStatus.NEEDS_ATTENTION

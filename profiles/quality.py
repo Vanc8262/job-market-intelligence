@@ -12,7 +12,9 @@ def assess_text_quality(
     """Score extracted text and classify it as passed, needs attention, or failed.
 
     A scanned (image-only) PDF yields almost no text and fails; a garbled encoding
-    shows up as replacement characters or a low share of letters and digits.
+    shows up as replacement characters or a low share of letters and digits. Repeated
+    lines mean the document was read more than once (for example stacked copies of a
+    page), which would give every fact duplicate evidence.
     """
     characters = len(text)
     words = len(text.split())
@@ -36,6 +38,12 @@ def assess_text_quality(
             limits.maximum_replacement_ratio,
             "Few unreadable characters",
         ),
+        _maximum(
+            "repeated_line_ratio",
+            round(repeated_line_ratio(text), 4),
+            limits.maximum_repeated_line_ratio,
+            "Content is not repeated",
+        ),
         QualityCheck(
             name="not_truncated",
             passed=not truncated,
@@ -56,6 +64,19 @@ def assess_text_quality(
     else:
         status = ExtractionStatus.FAILED
     return checks, score, status
+
+
+def repeated_line_ratio(text: str) -> float:
+    """Return the share of substantial lines (four or more words) that repeat earlier ones.
+
+    Short lines such as a city or an employer name legitimately recur on a resume, so
+    they are ignored; fewer than five substantial lines is too little to judge.
+    """
+    lines = [" ".join(line.split()).casefold() for line in text.splitlines()]
+    substantial = [line for line in lines if len(line.split()) >= 4]
+    if len(substantial) < 5:
+        return 0.0
+    return 1 - len(set(substantial)) / len(substantial)
 
 
 def _minimum(name: str, value: float, threshold: float, message: str) -> QualityCheck:
@@ -80,4 +101,4 @@ def _maximum(name: str, value: float, threshold: float, message: str) -> Quality
     )
 
 
-__all__ = ["assess_text_quality"]
+__all__ = ["assess_text_quality", "repeated_line_ratio"]
