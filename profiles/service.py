@@ -58,6 +58,9 @@ class IngestionResult:
         }
 
 
+LATEST_TEXT = "extracted.txt"
+
+
 class ResumeIngestionService:
     """Ingest PDF and DOCX resumes into the private candidate store."""
 
@@ -127,7 +130,7 @@ class ResumeIngestionService:
         )
         folder = self._private_folder(storage_key)
         _write_atomic(folder / f"original.{document.media_type.value}", content)
-        _write_atomic(folder / "extracted.txt", document.text.encode("utf-8"))
+        _store_text(folder, document.text)
         try:
             self.repository.add_resume_with_extraction(version, extraction)
         except BaseException:
@@ -154,6 +157,14 @@ class ResumeIngestionService:
         extraction = self._extract(
             version.resume_version_id, document.text, document.page_count, document.truncated
         )
+        folder = self._private_folder(version.storage_key)
+        latest = folder / LATEST_TEXT
+        if latest.exists():  # keep the text earlier extractions' evidence spans point into
+            previous = latest.read_text(encoding="utf-8")
+            snapshot = folder / _text_name(sha256_text(previous))
+            if not snapshot.exists():
+                _write_atomic(snapshot, previous.encode("utf-8"))
+        _store_text(folder, document.text)
         self.repository.add_extraction(extraction)
         return extraction
 
@@ -165,12 +176,22 @@ class ResumeIngestionService:
             return False, "No extraction exists for this resume version."
         return self._activate(version, extractions[0])
 
-    def extracted_text(self, resume_version_id: str) -> str:
-        """Return the private extracted text of a resume version (for review screens)."""
+    def extracted_text(self, resume_version_id: str, text_sha256: str | None = None) -> str:
+        """Return private extracted text (for review screens).
+
+        With ``text_sha256``, return exactly the text that extraction parsed, so its
+        evidence offsets line up even after a re-extraction replaced the latest text.
+        """
         version = self.repository.get_resume_version(resume_version_id)
-        return (self._private_folder(version.storage_key) / "extracted.txt").read_text(
-            encoding="utf-8"
-        )
+        folder = self._private_folder(version.storage_key)
+        if text_sha256 is None:
+            return (folder / LATEST_TEXT).read_text(encoding="utf-8")
+        for path in (folder / _text_name(text_sha256), folder / LATEST_TEXT):
+            if path.exists():
+                text = path.read_text(encoding="utf-8")
+                if sha256_text(text) == text_sha256:
+                    return text
+        raise FileNotFoundError("the text this extraction was parsed from is no longer stored")
 
     def _activate(self, version: ResumeVersion, extraction: ResumeExtraction) -> tuple[bool, str]:
         if extraction.status == ExtractionStatus.FAILED:
@@ -204,6 +225,17 @@ class ResumeIngestionService:
         if root not in folder.parents:
             raise ValueError("resume storage key escapes the private data folder")
         return folder
+
+
+def _text_name(text_sha256: str) -> str:
+    return f"extracted-{text_sha256[:16]}.txt"
+
+
+def _store_text(folder: Path, text: str) -> None:
+    """Save extracted text under its hash and as the resume version's latest text."""
+    data = text.encode("utf-8")
+    _write_atomic(folder / _text_name(sha256_text(text)), data)
+    _write_atomic(folder / LATEST_TEXT, data)
 
 
 def _write_atomic(path: Path, content: bytes) -> None:

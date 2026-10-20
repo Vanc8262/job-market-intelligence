@@ -70,7 +70,7 @@ def load_resume_review(service: ResumeIngestionService, extraction_id: str) -> d
             "can_review": extraction.can_review,
             "sections": [section.value for section in ReviewSection],
         },
-        "text": service.extracted_text(version.resume_version_id),
+        "text": service.extracted_text(version.resume_version_id, extraction.text_sha256),
     }
 
 

@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from dashboard.app import create_server
 from models.candidate import (
     ExtractionStatus,
+    ResumeMediaType,
     ReviewApproval,
     ReviewDraft,
     ReviewSection,
@@ -26,6 +27,7 @@ from profiles import (
     ResumeDocumentError,
     ResumeIngestionService,
 )
+from profiles.documents import DocumentText
 from tests.support.resumes import SAMPLE_RESUME, SCANNED_LIKE_TEXT, make_docx, make_pdf
 
 ALL_SECTIONS = [section.value for section in ReviewSection]
@@ -155,6 +157,28 @@ def test_reextract_adds_a_new_pending_extraction(
     assert len(extractions) == 2
     assert fresh.review_status == ReviewStatus.PENDING
     assert fresh.text_sha256 == extractions[1].text_sha256
+
+
+def test_reextract_keeps_the_text_each_extraction_was_parsed_from(
+    service: ResumeIngestionService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = service.ingest(_write(tmp_path, "jordan.pdf", make_pdf(SAMPLE_RESUME)))
+    version_id = first.resume_version.resume_version_id
+    assert first.extraction is not None
+    original = service.extracted_text(version_id)
+    folder = service.private_root / first.resume_version.storage_key
+    # Data stored before per-extraction text files existed has only extracted.txt.
+    (folder / f"extracted-{first.extraction.text_sha256[:16]}.txt").unlink()
+    changed = DocumentText(ResumeMediaType.PDF, original + "\nAWARDS\nDean's List", 1, False)
+    monkeypatch.setattr("profiles.service.extract_document_text", lambda *_: changed)
+
+    fresh = service.reextract(version_id)
+
+    assert service.extracted_text(version_id, first.extraction.text_sha256) == original
+    assert service.extracted_text(version_id, fresh.text_sha256) == changed.text
+    assert service.extracted_text(version_id) == changed.text
+    with pytest.raises(FileNotFoundError):
+        service.extracted_text(version_id, "0" * 64)
 
 
 # Dashboard API -----------------------------------------------------------------------
