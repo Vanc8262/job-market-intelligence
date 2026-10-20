@@ -40,16 +40,38 @@ def _checks() -> list[tuple[str, list[str]]]:
     return checks
 
 
+# Generous limits: a hung tool (for example a Node.js shim waiting on a prompt) fails
+# the check instead of blocking the whole gate forever.
+TIMEOUT_SECONDS = {"ruff": 300, "mypy": 900, "pytest": 900}
+DEFAULT_TIMEOUT_SECONDS = 60
+
+
 def main() -> int:
     """Run each check from the project root and return nonzero if any fail."""
     failed: list[str] = []
-    for name, command in _checks():
-        print(f"[run ] {name}: {' '.join(command[1:])}", flush=True)
-        result = subprocess.run(command, cwd=PROJECT_ROOT, check=False)  # noqa: S603
-        status = "pass" if result.returncode == 0 else "FAIL"
-        print(f"[{status}] {name}", flush=True)
-        if result.returncode != 0:
-            failed.append(name)
+    try:
+        for name, command in _checks():
+            print(f"[run ] {name}: {' '.join(command[1:])}", flush=True)
+            timeout = TIMEOUT_SECONDS.get(name, DEFAULT_TIMEOUT_SECONDS)
+            try:
+                result = subprocess.run(  # noqa: S603
+                    command, cwd=PROJECT_ROOT, check=False, timeout=timeout
+                )
+                passed = result.returncode == 0
+            except subprocess.TimeoutExpired:
+                print(f"[FAIL] {name}: no result after {timeout} seconds", flush=True)
+                failed.append(name)
+                continue
+            except OSError as exc:
+                print(f"[FAIL] {name}: could not start ({exc})", flush=True)
+                failed.append(name)
+                continue
+            print(f"[{'pass' if passed else 'FAIL'}] {name}", flush=True)
+            if not passed:
+                failed.append(name)
+    except KeyboardInterrupt:
+        print("\nVerification interrupted.", flush=True)
+        return 130
     if failed:
         print(f"Verification failed: {', '.join(failed)}")
         return 1
