@@ -158,7 +158,7 @@ function reviewRowMarkup(section, row, index, editable) {
     return `<label class="tracking-field ${wide ? "rr-wide" : ""} ${invalid}"><span>${escapeHtml(label)}</span><input type="text" value="${escapeHtml(shown)}" placeholder="${placeholder}" maxlength="${kind === "list" ? 600 : 200}" ${attributes}></label>`;
   };
   const evidence = Array.isArray(row.evidence) ? row.evidence : row.evidence ? [row.evidence] : [];
-  const sources = evidence.map((item, position) => `<button class="rr-evidence" type="button" data-mark-start="${item.start}" data-mark-end="${item.end}" title="Show in source text">${escapeHtml(truncateText(item.text, 60))}${evidence.length > 1 ? ` <small>${position + 1}/${evidence.length}</small>` : ""}</button>`).join("");
+  const sources = evidence.map((item, position) => `<button class="rr-evidence" type="button" data-mark-start="${item.start}" data-mark-end="${item.end}" title="Show in source text">${escapeHtml(evidenceLabel(item))}${evidence.length > 1 ? ` <small>${position + 1}/${evidence.length}</small>` : ""}</button>`).join("");
   const remove = editable ? `<button class="text-button rr-remove" type="button" data-remove-row="${section}" data-index="${index}" aria-label="Remove">Remove</button>` : "";
   let fields = "";
   if (section === "skills") {
@@ -296,6 +296,23 @@ function parseYearMonth(raw) {
   const month = match[2] ? Number(match[2]) : null;
   if (year < 1950 || year > 2100 || (month !== null && (month < 1 || month > 12))) return undefined;
   return { year, month };
+}
+
+// A short span ("AWS") looks the same at every mention, so show the words around it.
+function evidenceLabel(item) {
+  const text = String(item.text || "");
+  const source = state.review.detail?.text;
+  if (text.length >= 24 || typeof source !== "string" || source.slice(item.start, item.end) !== text) return truncateText(text, 60);
+  const lineStart = source.lastIndexOf("\n", item.start - 1) + 1;
+  const found = source.indexOf("\n", item.end);
+  const lineEnd = found === -1 ? source.length : found;
+  const from = Math.max(lineStart, item.start - 24);
+  const to = Math.min(lineEnd, item.end + 24);
+  let before = source.slice(from, item.start);
+  let after = source.slice(item.end, to);
+  if (from > lineStart) before = `…${before.replace(/^\S*\s+/, "")}`;
+  if (to < lineEnd) after = `${after.replace(/\s+\S*$/, "")}…`;
+  return truncateText(`${before}${text}${after}`.trim(), 60);
 }
 
 function truncateText(value, length) { const text = String(value || "").replace(/\s+/g, " "); return text.length > length ? `${text.slice(0, length - 1)}…` : text; }
