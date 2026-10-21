@@ -251,6 +251,36 @@ Inspect `data/gold/data_quality/latest.json` before relying on refreshed Gold ou
 Open [http://127.0.0.1:8765](http://127.0.0.1:8765). If that port is busy, add
 `--port 8766`. Run it as a module (`-m dashboard.app`), not as `dashboard\app.py`.
 
+## Scheduled Collection (GitHub Actions)
+
+`.github/workflows/collect.yml` runs the full pipeline every day at 10:17 UTC and commits
+Bronze, Silver, Gold, and checkpoints to the private `Vanc8262/jmip-data` repository
+(through a deploy key stored as the `JMIP_DATA_DEPLOY_KEY` secret). It can also be run
+by hand from the Actions tab. Nothing personal is used in the workflow: Gold relevance
+there uses the template profile.
+
+On your computer, clone the data repository next to the project and point JMIP at it:
+
+```powershell
+git clone https://github.com/Vanc8262/jmip-data.git ..\jmip-data
+Add-Content .env "JMIP_PIPELINE_DATA_DIR=../jmip-data"
+.\.venv\Scripts\python.exe scripts\sync_data.py   # pull, then re-rank with your resume
+```
+
+`sync_data.py` resets the clone to the collector's latest commit (Gold files rebuilt
+locally are derived and safe to discard), then rebuilds Gold with your approved resume and
+`config/resume_profile.local.yaml`. Application tracking and resumes stay in `data/`.
+
+**Choosing a cadence.** Each scheduled run is logged to `gold/cadence/observations.jsonl`.
+`scripts/cadence_report.py` replays the daily history as weekly and biweekly schedules and
+reports, per schedule, the share of postings it would have missed entirely, how many days
+later it would have discovered postings, how long removed postings would still look open,
+and the Actions minutes it would use. After 28 days of daily runs it recommends the
+slowest schedule that misses at most 5% of postings. The latest report is in the data
+repository's `CADENCE.md` and in each run's summary. To change the schedule, edit the
+`cron` line in the workflow (weekly: `17 10 * * 1`; every other week is not expressible
+in cron, so use weekly plus a week-number check, or the 1st and 15th: `17 10 1,15 * *`).
+
 ## Pipeline Commands
 
 Collect Bronze only:

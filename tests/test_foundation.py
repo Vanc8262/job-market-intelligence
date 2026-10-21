@@ -4,6 +4,8 @@ from io import StringIO
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from extractors import BaseExtractor
 from models.job_posting import (
     CompanyInfo,
@@ -298,3 +300,18 @@ def test_logger_binds_standard_context_fields() -> None:
     assert "storage|greenhouse|-|silver_save|Saved" in output
     assert "storage|-|-|-|Saved 2 records" in output
     logger.remove()
+
+
+def test_pipeline_data_dir_moves_only_pipeline_layers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("JMIP_PIPELINE_DATA_DIR", str(tmp_path / "jmip-data"))
+    data = Config()._apply_settings_overrides(
+        {"paths": {"bronze_dir": "data/bronze", "private_dir": "data/private"}}
+    )
+
+    paths = data["paths"]
+    assert paths["bronze_dir"] == str(tmp_path / "jmip-data" / "bronze")
+    assert paths["gold_dir"] == str(tmp_path / "jmip-data" / "gold")
+    assert paths["checkpoint_dir"] == str(tmp_path / "jmip-data" / "checkpoints")
+    assert paths["private_dir"] == "data/private"

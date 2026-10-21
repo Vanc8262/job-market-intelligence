@@ -11,6 +11,9 @@ import pytest
 # Tests always use the committed config/resume_profile.yaml, never a personal
 # resume_profile.local.yaml, so results do not depend on whose computer runs them.
 os.environ["JMIP_IGNORE_LOCAL_CONFIG"] = "1"
+# An empty value also stops a local .env from pointing tests at the real data repository
+# (python-dotenv never overrides a variable that is already set).
+os.environ["JMIP_PIPELINE_DATA_DIR"] = ""
 
 PRIVATE_DIR = Path(__file__).resolve().parents[1] / "data" / "private"
 

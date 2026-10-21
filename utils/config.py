@@ -20,6 +20,12 @@ from pydantic import (
 
 TConfigModel = TypeVar("TConfigModel", bound=BaseModel)
 LOCAL_RESUME_PROFILE = "resume_profile.local.yaml"
+PIPELINE_DATA_FOLDERS = {
+    "bronze_dir": "bronze",
+    "silver_dir": "silver",
+    "gold_dir": "gold",
+    "checkpoint_dir": "checkpoints",
+}
 
 
 class ConfigError(RuntimeError):
@@ -858,6 +864,14 @@ class Config:
             for key in path[:-1]:
                 cursor = cursor.setdefault(key, {})
             cursor[path[-1]] = self._coerce_env_value(value)
+        pipeline_dir = os.getenv("JMIP_PIPELINE_DATA_DIR", "").strip()
+        if pipeline_dir:
+            # Bronze, Silver, Gold, and checkpoints live in a separate data repository
+            # (see .github/workflows/collect.yml); private and cache folders stay local.
+            root = Path(pipeline_dir).expanduser()
+            paths = data.setdefault("paths", {})
+            for key, folder in PIPELINE_DATA_FOLDERS.items():
+                paths[key] = str(root / folder)
         return data
 
     @staticmethod
