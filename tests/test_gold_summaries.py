@@ -10,6 +10,7 @@ from analytics import SilverToGoldRunner
 from models.job_posting import (
     CompanyInfo,
     DescriptionInfo,
+    EmploymentType,
     JobPosting,
     LocationInfo,
     PayPeriod,
@@ -82,13 +83,22 @@ def posting(
 def build_runner(
     tmp_path: Path,
 ) -> tuple[SilverToGoldRunner, SilverStorage, GoldStorage]:
-    """Build a Gold runner with isolated local layers."""
+    """Build a Gold runner with isolated local layers.
+
+    Role tiers, avoided titles, and employment preferences are switched off so these
+    tests pin the core scoring mechanics; preference behavior is tested separately.
+    """
     silver = SilverStorage(tmp_path / "silver")
     gold = GoldStorage(tmp_path / "gold")
+    config = Config()
+    profile = config.resume_profile.model_copy(
+        update={"title_tiers": [], "avoid_title_keywords": [], "preferred_employment_types": []}
+    )
     runner = SilverToGoldRunner(
-        Config(),
+        config,
         silver_storage=silver,
         gold_storage=gold,
+        resume_profile=profile,
     )
     return runner, silver, gold
 
@@ -144,7 +154,7 @@ def test_gold_runner_builds_all_summaries_and_resume_ranking(tmp_path: Path) -> 
             normalized_title="Veterinarian",
             family="Veterinary",
             employer="Example Health",
-            location="Boca Raton, FL",
+            location="Orlando, FL",
             region="Florida",
             workplace=WorkplaceType.ONSITE,
             skills=["patient care"],
@@ -202,8 +212,7 @@ def test_gold_runner_builds_all_summaries_and_resume_ranking(tmp_path: Path) -> 
 
     locations = gold.load("locations/summary")
     workplace = {
-        row["workplace_type"]: row["posting_count"]
-        for row in locations["workplace_types"]
+        row["workplace_type"]: row["posting_count"] for row in locations["workplace_types"]
     }
     assert workplace == {"onsite": 1, "remote": 1}
 
@@ -340,8 +349,9 @@ def test_relevance_signals_use_evidence_title_boundaries_and_eligibility_caps(
     explicit.skills = SkillInfo(explicit=inferred.skills.inferred)
     inferred_row = runner._relevance_row(inferred)
     explicit_row = runner._relevance_row(explicit)
-    assert explicit_row["score_components"]["skills"]["signal"] > (
-        inferred_row["score_components"]["skills"]["signal"]
+    assert (
+        explicit_row["score_components"]["skills"]["signal"]
+        > (inferred_row["score_components"]["skills"]["signal"])
     )
     assert explicit_row["skill_match_details"][0]["evidence"] == "explicit"
 
@@ -362,3 +372,76 @@ def test_relevance_signals_use_evidence_title_boundaries_and_eligibility_caps(
     senior.position.seniority = "senior"
     senior_row = runner._relevance_row(senior)
     assert senior_row["score_components"]["experience"]["signal"] == 0.25
+
+
+def test_job_search_preferences_shape_relevance(tmp_path: Path) -> None:
+    config = Config()
+    profile = config.resume_profile.model_copy(
+        update={
+            "scoring": config.resume_profile.scoring.model_copy(
+                update={"non_preferred_employment_score_cap": 79}
+            )
+        }
+    )
+    runner = SilverToGoldRunner(
+        config,
+        silver_storage=SilverStorage(tmp_path / "silver"),
+        gold_storage=GoldStorage(tmp_path / "gold"),
+        resume_profile=profile,
+    )
+    skills = ["Python", "SQL", "AWS", "machine learning", "Java"]
+
+    def row(title: str, location: str, workplace: WorkplaceType) -> dict[str, object]:
+        return runner._relevance_row(
+            posting(
+                title.casefold().replace(" ", "-"),
+                title=title,
+                normalized_title=title,
+                family="Other",
+                employer="Example",
+                location=location,
+                region="",
+                workplace=workplace,
+                skills=skills,
+            )
+        )
+
+    scientist = row("Data Scientist", "Winter Park, FL, US, 32789", WorkplaceType.ONSITE)
+    assert scientist["title_tier"] == "primary"
+    assert scientist["home_base"] == "Orlando, FL"
+    assert scientist["home_base_miles"] == 6
+    assert scientist["score_cap_reason"] is None
+
+    colorado = row("Software Engineer", "Aurora, CO", WorkplaceType.HYBRID)
+    assert colorado["title_tier"] == "secondary" and colorado["home_base"] == "Denver, CO"
+    assert colorado["score_components"]["title"]["signal"] == 0.85
+
+    # A place name in another state is not a home base: no location credit on-site.
+    elsewhere = row("Data Scientist", "Aurora, Ontario, Canada", WorkplaceType.ONSITE)
+    assert elsewhere["home_base"] is None and elsewhere["home_region_match"] is False
+    assert elsewhere["score_components"]["location"]["signal"] == 0.0
+
+    analyst = row("Data Analyst", "Remote", WorkplaceType.REMOTE)
+    assert analyst["title_tier"] == "lower"
+
+    avoided = row("Data Entry Specialist", "Remote", WorkplaceType.REMOTE)
+    assert avoided["avoided_title_keywords"] == ["data entry"]
+    assert avoided["score_components"]["title"]["signal"] == 0.0
+    assert float(str(avoided["score"])) <= profile.scoring.avoided_title_score_cap
+
+    full_time = runner._relevance_row(
+        posting(
+            "full-time",
+            title="Data Scientist",
+            normalized_title="Data Scientist",
+            family="data_science",
+            employer="Example",
+            location="Remote",
+            region="",
+            workplace=WorkplaceType.REMOTE,
+            skills=skills,
+        ).model_copy(update={"employment_type": EmploymentType.FULL_TIME})
+    )
+    assert full_time["employment_preferred"] is False
+    assert full_time["score_cap_reason"] == "non_preferred_employment_type"
+    assert full_time["score"] == 79

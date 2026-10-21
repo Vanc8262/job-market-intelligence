@@ -148,3 +148,35 @@ def test_experience_without_dates_is_reported(parser: ResumeParser) -> None:
 
     assert result.facts.experience == []
     assert any("no date ranges" in warning for warning in result.warnings)
+
+
+def test_gpa_and_project_links_are_separate_fields(parser: ResumeParser) -> None:
+    text = normalize_text(
+        """Alex Morgan
+
+EDUCATION
+State University, Tampa, FL
+Bachelor of Data Science and Analytics with Business Concentration. GPA: 3.7.
+May 2027
+Gulf Coast College
+Associate in Arts. GPA: 3.9.
+August 2019
+
+PROJECTS
+Campus Digital Twin https://youtu.be/example-123
+Team Lead
+• Streamed sensor data into a 3D model with AWS and Python.
+"""
+    )
+
+    facts = parser.parse(text).facts
+
+    university, college = facts.education
+    assert university.degree == "Bachelor of Data Science and Analytics with Business Concentration"
+    assert university.field_of_study == "Data Science and Analytics with Business Concentration"
+    assert university.gpa == "3.7"
+    assert college.degree == "Associate in Arts" and college.gpa == "3.9"
+    project = facts.projects[0]
+    assert project.name == "Campus Digital Twin"
+    assert project.url == "https://youtu.be/example-123"
+    _assert_spans_match(text, facts)

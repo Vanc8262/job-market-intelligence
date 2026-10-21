@@ -9,15 +9,16 @@ const REVIEW_LABELS = { skills: "Skills", experience: "Experience", education: "
 const REVIEW_BLANK_ROWS = {
   skills: () => ({ name: "", canonical: null, category: null, source: "reviewer", evidence: [] }),
   experience: () => ({ title: "", employer: null, location: null, start: null, end: null, current: false, highlights: [], evidence: null }),
-  education: () => ({ institution: "", degree: null, field_of_study: null, graduation: null, expected: false, evidence: null }),
-  projects: () => ({ name: "", description: null, technologies: [], evidence: null }),
+  education: () => ({ institution: "", degree: null, field_of_study: null, gpa: null, graduation: null, expected: false, evidence: null }),
+  projects: () => ({ name: "", description: null, url: null, technologies: [], evidence: null }),
 };
 const REVIEW_REQUIRED = { skills: "name", experience: "title", education: "institution", projects: "name" };
 
-state.review = { list: null, selectedId: null, detail: null, draft: null, approved: new Set(), comment: "", dirty: false, busy: false, invalid: new Set(), mark: null, scrollToMark: false, feedback: null, loading: false, error: null };
+state.review = { list: null, selectedId: null, detail: null, draft: null, approved: new Set(), comment: "", dirty: false, busy: false, invalid: new Set(), mark: null, scrollToMark: false, feedback: null, loading: false, error: null, showSuperseded: false, editingText: null };
 
 function bindResumeReview() {
   elements.resumeReviewSelect.addEventListener("change", () => selectResumeReview(elements.resumeReviewSelect.value));
+  elements.resumeReviewShowSuperseded.addEventListener("change", () => { state.review.showSuperseded = elements.resumeReviewShowSuperseded.checked; renderResumeReview(); });
   elements.resumeReviewContent.addEventListener("input", handleReviewInput);
   elements.resumeReviewContent.addEventListener("change", handleReviewInput);
   elements.resumeReviewContent.addEventListener("click", handleReviewClick);
@@ -34,7 +35,7 @@ async function loadResumeReviews(preferredId = null) {
     if (!response.ok) throw new Error(payload.error || "Resume reviews could not be loaded");
     review.list = payload;
     const items = payload.items || [];
-    const chosen = items.find((item) => item.extraction_id === preferredId) || items.find((item) => item.can_review) || items[0];
+    const chosen = items.find((item) => item.extraction_id === preferredId) || items.find((item) => item.can_review) || items.find((item) => !item.superseded) || items[0];
     review.loading = false;
     if (chosen) await loadReviewDetail(chosen.extraction_id);
     else renderResumeReview();
@@ -46,7 +47,7 @@ async function loadResumeReviews(preferredId = null) {
 }
 
 async function selectResumeReview(extractionId) {
-  if (state.review.dirty && !window.confirm("Discard unsaved review changes?")) {
+  if ((state.review.dirty || state.review.editingText) && !window.confirm("Discard unsaved review changes?")) {
     elements.resumeReviewSelect.value = state.review.selectedId || "";
     return;
   }
@@ -68,6 +69,7 @@ async function loadReviewDetail(extractionId) {
     review.invalid = new Set();
     review.mark = null;
     review.feedback = null;
+    review.editingText = null;
   } catch (error) {
     review.error = error.message;
   }
@@ -78,10 +80,13 @@ async function loadReviewDetail(extractionId) {
 function renderResumeReview() {
   const review = state.review;
   const items = review.list?.items || [];
-  elements.resumeReviewSelect.replaceChildren(...items.map((item) => {
+  const shown = items.filter((item) => review.showSuperseded || !item.superseded || item.extraction_id === review.selectedId);
+  elements.resumeReviewShowSuperseded.checked = review.showSuperseded;
+  elements.resumeReviewShowSuperseded.parentElement.hidden = !review.list?.superseded_count;
+  elements.resumeReviewSelect.replaceChildren(...shown.map((item) => {
     const option = document.createElement("option");
     option.value = item.extraction_id;
-    option.textContent = `${item.resume_version.label}${item.resume_version.is_active ? " (active)" : ""} · ${formatLabel(item.review_status)} · ${formatTimestamp(item.created_at)}`;
+    option.textContent = `${item.resume_version.label}${item.resume_version.is_active ? " (active)" : ""} · ${item.superseded ? "Superseded" : formatLabel(item.review_status)} · ${formatTimestamp(item.created_at)}`;
     return option;
   }));
   elements.resumeReviewSelect.value = review.selectedId || "";
@@ -97,16 +102,19 @@ function renderResumeReview() {
   if (!detail) { elements.resumeReviewContent.innerHTML = ""; return; }
   const extraction = detail.extraction;
   const editable = extraction.can_review;
-  elements.resumeReviewSummary.textContent = `${number(review.list.pending_count)} pending · ${number(review.list.approved_count)} approved · parser ${extraction.parser_name} ${extraction.parser_version}`;
+  elements.resumeReviewSummary.textContent = `${number(review.list.pending_count)} pending · ${number(review.list.approved_count)} approved${review.list.superseded_count ? ` · ${number(review.list.superseded_count)} superseded` : ""} · parser ${extraction.parser_name} ${extraction.parser_version}`;
   const allApproved = REVIEW_SECTIONS.every((section) => review.approved.has(section));
-  const statusLine = extraction.status === "failed"
+  const statusLine = extraction.superseded
+    ? `<div class="ops-status-line stale wide"><div><strong>Superseded ${escapeHtml(formatTimestamp(extraction.superseded_at))}</strong><span>Hidden from the review queue and never used for scoring. Untick Superseded to restore it.</span></div></div>`
+    : extraction.status === "failed"
     ? `<div class="ops-status-line failed wide"><div><strong>Text extraction failed quality checks</strong><span>This file may be scanned or image-only. Re-export it as a text PDF or DOCX and ingest it again.</span></div></div>`
     : extraction.review_status === "approved"
-      ? `<div class="ops-status-line wide"><div><strong>Approved ${escapeHtml(formatTimestamp(extraction.approved_at))}</strong><span>These facts are read-only. Re-extract the resume to review a newer parse.</span></div></div>`
+      ? `<div class="ops-status-line wide"><div><strong>Approved ${escapeHtml(formatTimestamp(extraction.approved_at))}</strong><span>These facts are read-only. Use Revise facts to correct them, or Edit source text to fix the resume text and parse it as a new version.</span></div></div>`
       : `<div class="ops-status-line ${extraction.status === "needs_attention" ? "stale" : ""} wide"><div><strong>${extraction.status === "needs_attention" ? "Review carefully: some quality checks did not pass" : "Check each section against the source text, then approve it"}</strong><span>Editing a section clears its approval. The review is final once all four sections are approved.</span></div></div>`;
   const warnings = (extraction.warnings || []).map((warning) => `<li>${escapeHtml(warning)}</li>`).join("");
   const checks = (extraction.quality_checks || []).map((check) => `<li class="${check.passed ? "" : "failed"}"><span>${escapeHtml(check.message)}</span><b>${check.passed ? "Pass" : "Fail"}</b></li>`).join("");
   elements.resumeReviewContent.innerHTML = `${statusLine}
+    ${reviewToolbarMarkup(detail)}
     <div class="rr-layout">
       <div class="rr-sections">${REVIEW_SECTIONS.map((section) => reviewSectionMarkup(section, editable)).join("")}
         <section class="rr-card">
@@ -120,7 +128,7 @@ function renderResumeReview() {
       </div>
       <aside class="rr-source" aria-label="Extracted resume text">
         <div class="section-heading"><h3>Source text</h3><span class="job-meta">${number(extraction.character_count)} characters${extraction.page_count ? ` · ${extraction.page_count} page${extraction.page_count === 1 ? "" : "s"}` : ""}</span></div>
-        <pre class="rr-text" id="rrSourceText">${sourceTextMarkup(detail.text, review.mark)}</pre>
+        ${review.editingText ? sourceEditorMarkup(review.editingText) : `<pre class="rr-text" id="rrSourceText">${sourceTextMarkup(detail.text, review.mark)}</pre>`}
         <details class="rr-details"><summary>Quality checks · ${formatPercent(extraction.quality_score)}</summary><ul class="rr-checks">${checks}</ul></details>
         ${warnings ? `<details class="rr-details" open><summary>Parser warnings (${(extraction.warnings || []).length})</summary><ul class="rr-warnings">${warnings}</ul></details>` : ""}
       </aside>
@@ -167,9 +175,9 @@ function reviewRowMarkup(section, row, index, editable) {
   } else if (section === "experience") {
     fields = `${field("title", "Title", row.title)}${field("employer", "Employer", row.employer)}${field("location", "Location", row.location)}${field("start", "Start", row.start, "date")}${field("end", "End", row.end, "date")}${field("current", "Current role", row.current, "bool")}${field("highlights", "Highlights (one per line)", row.highlights, "lines")}`;
   } else if (section === "education") {
-    fields = `${field("institution", "Institution", row.institution, "text", true)}${field("degree", "Degree", row.degree)}${field("field_of_study", "Field of study", row.field_of_study)}${field("graduation", "Graduation", row.graduation, "date")}${field("expected", "Expected", row.expected, "bool")}`;
+    fields = `${field("institution", "Institution", row.institution, "text", true)}${field("degree", "Degree", row.degree)}${field("field_of_study", "Field of study", row.field_of_study)}${field("gpa", "GPA", row.gpa)}${field("graduation", "Graduation", row.graduation, "date")}${field("expected", "Expected", row.expected, "bool")}`;
   } else {
-    fields = `${field("name", "Project", row.name)}${field("technologies", "Technologies (comma separated)", row.technologies, "list")}${field("description", "Description", row.description, "longtext")}`;
+    fields = `${field("name", "Project", row.name)}${field("url", "Link", row.url)}${field("technologies", "Technologies (comma separated)", row.technologies, "list")}${field("description", "Description", row.description, "longtext")}`;
   }
   return `<div class="rr-row rr-${section}">${fields}<div class="rr-row-foot">${sources || `<span class="job-meta">Added by reviewer</span>`}${remove}</div></div>`;
 }
@@ -178,6 +186,9 @@ function handleReviewInput(event) {
   const target = event.target;
   const review = state.review;
   if (target.matches("[data-review-comment]")) { review.comment = target.value; markReviewDirty(); return; }
+  if (target.matches("[data-review-superseded]")) { if (event.type === "change") setReviewSuperseded(target.checked); return; }
+  if (target.matches("[data-edit-text]")) { review.editingText.text = target.value; return; }
+  if (target.matches("[data-edit-label]")) { review.editingText.label = target.value; return; }
   if (target.matches("[data-approve-section]")) {
     if (event.type !== "change") return;
     const section = target.dataset.approveSection;
@@ -215,8 +226,116 @@ function handleReviewClick(event) {
   if (add) { const section = add.dataset.addRow; review.draft[section].push(REVIEW_BLANK_ROWS[section]()); review.approved.delete(section); markReviewDirty(); renderResumeReview(); return; }
   const remove = event.target.closest("[data-remove-row]");
   if (remove) { const section = remove.dataset.removeRow; review.draft[section].splice(Number(remove.dataset.index), 1); review.invalid = new Set([...review.invalid].filter((key) => !key.startsWith(`${section}.`))); review.approved.delete(section); markReviewDirty(); renderResumeReview(); return; }
+  const tool = event.target.closest("[data-review-tool]");
+  if (tool) { runReviewTool(tool.dataset.reviewTool); return; }
   const action = event.target.closest("[data-review-action]");
   if (action) submitResumeReview(action.dataset.reviewAction === "approve");
+}
+
+// Version tools: supersede, revise approved facts, edit the source text into a new
+// version, and choose which approved version is active for scoring.
+function reviewToolbarMarkup(detail) {
+  const review = state.review;
+  const extraction = detail.extraction;
+  const version = detail.resume_version;
+  const busy = review.busy ? "disabled" : "";
+  const lineage = [
+    extraction.revised_from_extraction_id ? `Revision of ${escapeHtml(extraction.revised_from_extraction_id)}` : "",
+    version.derived_from_resume_version_id ? `Edited from ${escapeHtml(versionLabel(version.derived_from_resume_version_id))}` : "",
+    version.media_type === "txt" ? "Edited text version" : "",
+  ].filter(Boolean).join(" · ");
+  const canRevise = !extraction.can_review && extraction.status !== "failed";
+  const canActivate = extraction.review_status === "approved" && !extraction.superseded && !version.is_active;
+  return `<div class="rr-toolbar">
+      <label class="rr-check" title="Hide this extraction from the queue and from scoring"><input type="checkbox" data-review-superseded ${extraction.superseded ? "checked" : ""} ${busy}><span>Superseded</span></label>
+      ${canRevise ? `<button class="secondary-button" type="button" data-review-tool="revise" ${busy}>Revise facts</button>` : ""}
+      ${review.editingText ? "" : `<button class="secondary-button" type="button" data-review-tool="edit-text" ${busy}>Edit source text</button>`}
+      ${canActivate ? `<button class="save-button" type="button" data-review-tool="activate" ${busy}>Make active resume</button>` : version.is_active ? `<span class="skill-chip">Active resume</span>` : ""}
+      ${lineage ? `<span class="job-meta">${lineage}</span>` : ""}
+    </div>`;
+}
+
+function sourceEditorMarkup(editing) {
+  const busy = state.review.busy ? "disabled" : "";
+  return `<div class="rr-editor">
+      <label class="tracking-field"><span>New version label</span><input type="text" data-edit-label maxlength="200" value="${escapeHtml(editing.label)}"></label>
+      <label class="tracking-field"><span>Resume text (the original file is never changed)</span><textarea class="rr-text rr-text-edit" data-edit-text spellcheck="true">${escapeHtml(editing.text)}</textarea></label>
+      <div class="rr-actions">
+        <button class="save-button" type="button" data-review-tool="save-text" ${busy}>Save as new version</button>
+        <button class="secondary-button" type="button" data-review-tool="cancel-text" ${busy}>Cancel</button>
+      </div>
+    </div>`;
+}
+
+function versionLabel(resumeVersionId) {
+  const match = (state.review.list?.items || []).find((item) => item.resume_version.resume_version_id === resumeVersionId);
+  return match ? match.resume_version.label : resumeVersionId;
+}
+
+async function postReviewJson(url, method, body) {
+  const response = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Request failed");
+  return result;
+}
+
+async function runReviewTool(tool) {
+  const review = state.review;
+  const detail = review.detail;
+  if (!detail) return;
+  if (tool === "edit-text") {
+    review.editingText = { text: detail.text, label: `${detail.resume_version.label} (edited)` };
+    renderResumeReview();
+    return;
+  }
+  if (tool === "cancel-text") { review.editingText = null; renderResumeReview(); return; }
+  if ((tool === "revise" || tool === "activate") && review.dirty && !window.confirm("Discard unsaved review changes?")) return;
+  review.busy = true;
+  review.feedback = { kind: "", text: "Working" };
+  renderResumeReview();
+  try {
+    let nextId = review.selectedId;
+    let message = "";
+    if (tool === "revise") {
+      const result = await postReviewJson(`/api/resume-reviews/${encodeURIComponent(review.selectedId)}/revise`, "POST", {});
+      nextId = result.extraction_id;
+      message = "Revision created: correct the facts, then approve it";
+    } else if (tool === "activate") {
+      await postReviewJson("/api/candidate-profile/active-resume", "PUT", { resume_version_id: detail.resume_version.resume_version_id });
+      message = "Now the active resume";
+    } else if (tool === "save-text") {
+      const result = await postReviewJson(`/api/resume-versions/${encodeURIComponent(detail.resume_version.resume_version_id)}/edited-text`, "POST", review.editingText);
+      nextId = result.extraction?.extraction_id || nextId;
+      message = result.message;
+      review.editingText = null;
+    }
+    review.busy = false;
+    await refreshCandidateProfile();
+    await loadResumeReviews(nextId);
+    state.review.feedback = { kind: "success", text: message };
+  } catch (error) {
+    review.busy = false;
+    review.feedback = { kind: "error", text: error.message };
+  }
+  renderResumeReview();
+}
+
+async function setReviewSuperseded(superseded) {
+  const review = state.review;
+  if (review.dirty && !window.confirm("Discard unsaved review changes?")) { renderResumeReview(); return; }
+  review.busy = true;
+  renderResumeReview();
+  try {
+    await postReviewJson(`/api/resume-reviews/${encodeURIComponent(review.selectedId)}/superseded`, "PUT", { superseded });
+    review.busy = false;
+    await refreshCandidateProfile();
+    await loadResumeReviews(review.selectedId);
+    state.review.feedback = { kind: "success", text: superseded ? "Marked superseded" : "Restored" };
+  } catch (error) {
+    review.busy = false;
+    review.feedback = { kind: "error", text: error.message };
+  }
+  renderResumeReview();
 }
 
 function markReviewDirty() { state.review.dirty = true; state.review.feedback = null; }

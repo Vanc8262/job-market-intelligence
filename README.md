@@ -56,9 +56,19 @@ state and is excluded from version control.
 | 3. Transformation | Bronze-to-Silver normalization, deduplication, and validation | Complete |
 | 4. Intelligence | Lifecycle, Gold summaries, relevance scoring, and quality gateway | Complete |
 | 5. Reporting | Dashboard: opportunities, shortlist, tracking, market views, pipeline status, weight simulator | Complete |
-| 6. Candidate workflow | Resume ingestion and extraction (6.1), review (6.2), application comparison (6.3) | 6.1–6.2 complete; 6.3 planned with Phase 8 |
-| 7. Model evaluation | Title-normalization and application-fit benchmarks | Not started in this codebase |
+| 6. Candidate workflow | Resume ingestion and extraction (6.1), review with revisions and edited versions (6.2), application comparison (6.3) | 6.1–6.2 complete; 6.3 next |
+| 7. Bayesian evaluation | Labeled benchmark sets, accuracy with credible intervals, calibration checks, and model comparison | Planned (redesigned) |
 | 8. Bayesian analytics | Bayesian quality gate, salary, relevance, survival, and trend models (stages B0–B5) | Planned |
+| 9. Deep learning | Title and skill embeddings (for example JobBERT or ModernBERT) as inputs to the Bayesian models | Future |
+
+Application comparison (6.3) scores each posting two ways, **requirement coverage with
+evidence** and **taxonomy-weighted ATS keyword overlap**; Phase 8 stage B3 later turns
+those signals into a calibrated fit probability with an uncertainty range.
+
+Phase 7 evaluates every model the Bayesian way: accuracy and agreement are reported as
+posterior distributions (Beta-Binomial) with credible intervals, predicted probabilities
+are checked for calibration (Brier score, reliability curves), and competing Phase 8
+models are compared with PSIS-LOO in ArviZ.
 
 ### Phase 8: Bayesian Analytics
 
@@ -95,14 +105,29 @@ The full research and design notes live in the *JMIP Bayesian ML Integration Pla
 Requirements: Windows PowerShell (or any shell), Python 3.12 or newer, and internet access
 for live collection. Node.js is optional and only used to syntax-check the dashboard script.
 
+These steps assume the project lives in `%USERPROFILE%\Projects\job-market-intelligence`
+and is edited in Visual Studio Code.
+
 ```powershell
-cd C:\path\to\job-market-intelligence
-python -m venv .venv
+git clone https://github.com/Vanc8262/job-market-intelligence.git "$env:USERPROFILE\Projects\job-market-intelligence"
+cd "$env:USERPROFILE\Projects\job-market-intelligence"
+py -m venv .venv                      # or: python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-Copy-Item .env.example .env   # optional overrides
+Copy-Item .env.example .env           # optional overrides
+.\.venv\Scripts\python.exe scripts\verify_project.py
 .\.venv\Scripts\python.exe scripts\run_pipeline.py
 ```
+
+**VS Code.** Open the folder (or a multi-project `.code-workspace` that includes it) and
+choose `.venv\Scripts\python.exe` with *Python: Select Interpreter*. Recommended
+extensions: Python, Pylance, Python Debugger, Ruff, and Jupyter. Pytest discovery works
+from the project root; new terminals activate `.venv` automatically.
+
+If several projects share the `Projects` folder, a `setup-venvs.ps1` helper in that
+folder can rebuild this one environment with
+`powershell -ExecutionPolicy Bypass -File .\setup-venvs.ps1 -Only JMIP` (add `-Recreate`
+to start from a clean `.venv`).
 
 `run_pipeline.py` validates configuration and logging only; it does not collect jobs.
 Use `requirements.txt` instead of `requirements-dev.txt` for a runtime-only install.
@@ -117,7 +142,7 @@ any working directory.
 | `config/extractors.yaml` | Company targets, identifiers, enablement, and order |
 | `config/sources.yaml` | Source endpoints, access policies, rate limits, and enablement |
 | `config/candidate_queries.yaml` | Named searches and default per-target limit |
-| `config/resume_profile.yaml` | Candidate goals, relevance signals, weights, and bands |
+| `config/resume_profile.yaml` | Job-search preferences (roles, tiers, home bases, employment types), weights, bands, fallback skills |
 | `config/titles.yaml` | Title families, aliases, and seniority normalization |
 | `config/skills.yaml` | Skill taxonomy and aliases |
 | `config/companies.yaml` | Employer aliases and legal suffix handling |
@@ -127,6 +152,31 @@ any working directory.
 | `config/data_quality.yaml` | Blocking and advisory quality thresholds |
 | `config/settings.yaml` | Paths, retries, and processing limits |
 | `config/logging.yaml` | Console and rotating file sinks |
+
+### Job-search preferences
+
+`config/resume_profile.yaml` is a template with example values. Copy it to
+`config/resume_profile.local.yaml`, which Git ignores, and put your own name, home bases,
+and preferences there; JMIP reads the local file whenever it exists. The approved,
+active resume supplies what a resume says (skills and years of experience).
+
+```powershell
+Copy-Item config\resume_profile.yaml config\resume_profile.local.yaml
+```
+
+- **Role tiers.** `title_tiers` scale the title signal: Data Science / ML / AI roles
+  1.0, software roles 0.85, data engineering, analytics, and research roles 0.7.
+- **Avoided roles.** Titles with `avoid_title_keywords` (data entry, administrative,
+  help desk, IT support) get no title credit and are capped at `avoided_title_score_cap`.
+- **Home bases.** On-site and hybrid roles earn location credit only within `max_miles`
+  of a `home_bases` entry.
+  The drawer names the base and approximate distance. Remote roles always qualify.
+- **Employment types.** `preferred_employment_types` lists part-time, internship,
+  contract, and temporary work. Other known types are flagged; set
+  `scoring.non_preferred_employment_score_cap` to keep them out of the Strong band.
+- **Resume source.** `resume_source: approved_resume` (default) uses the approved active
+  resume and falls back to `skills` in this file; `config` always uses the file. The
+  Gold relevance summary records which one was used under `profile_source`.
 
 `.env` may override `JMIP_ENVIRONMENT`, `JMIP_LOGGING_LEVEL`, `JMIP_STORAGE_DEFAULT`,
 `JMIP_SCRAPING_MAX_RETRIES`, and `JMIP_SCRAPING_CHECKPOINT_INTERVAL`.
@@ -262,6 +312,7 @@ in `data/private/`, which Git ignores; command output never includes resume text
 .\.venv\Scripts\python.exe scripts\manage_resumes.py list
 .\.venv\Scripts\python.exe scripts\manage_resumes.py activate <resume-version-id>
 .\.venv\Scripts\python.exe scripts\manage_resumes.py reextract   # after parser changes
+.\.venv\Scripts\python.exe scripts\manage_resumes.py supersede <extraction-id>   # --restore undoes
 ```
 
 How it works:
@@ -280,11 +331,21 @@ How it works:
    each section. Editing a section clears its approval. Save drafts as you go; the review
    is final (read-only) once all four sections are approved. A stale browser tab cannot
    overwrite a newer save.
-5. **Tracking.** The opportunity drawer records which resume version you used for an
+5. **Fixing mistakes.** The review toolbar offers:
+   - **Superseded:** hide an extraction from the review queue and from scoring (untick
+     to restore). A new parse supersedes older pending reviews, and approving a review
+     supersedes earlier approvals of the same resume version.
+   - **Revise facts:** copy an approved extraction into a new pending review to correct
+     parser or reviewer mistakes; the original approval counts until the revision is
+     approved.
+   - **Edit source text:** correct the resume text itself and save it as a new resume
+     version derived from the original (the uploaded file is never changed). The new
+     version is parsed and reviewed like any other.
+   - **Make active resume:** choose which approved version drives scoring.
+6. **Scoring.** Gold relevance scoring uses the active resume's approved facts for skills
+   and experience, plus the preferences in `config/resume_profile.yaml`.
+7. **Tracking.** The opportunity drawer records which resume version you used for an
    application.
-
-Application comparison (6.3) will be designed alongside the Phase 8 Bayesian models, so
-resume-to-job fit is reported with uncertainty rather than as a fixed-rule score.
 
 ## Engineering Commands
 

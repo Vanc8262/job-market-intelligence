@@ -9,9 +9,17 @@ from typing import Annotated, Any, ClassVar, Literal, Self, TypeVar, cast
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 TConfigModel = TypeVar("TConfigModel", bound=BaseModel)
+LOCAL_RESUME_PROFILE = "resume_profile.local.yaml"
 
 
 class ConfigError(RuntimeError):
@@ -212,9 +220,7 @@ class SkillsConfig(BaseModel):
     def validate_aliases(self) -> SkillsConfig:
         """Require unambiguous aliases for configured canonical skills."""
         canonical_by_key = {
-            skill.casefold(): skill
-            for skills in self.categories.values()
-            for skill in skills
+            skill.casefold(): skill for skills in self.categories.values() for skill in skills
         }
         seen: dict[str, str] = {}
         for canonical, aliases in self.aliases.items():
@@ -290,6 +296,8 @@ class ResumeRelevanceScoring(BaseModel):
     unknown_location_signal: float = Field(default=0.2, ge=0, le=1)
     relocation_location_signal: float = Field(default=0.4, ge=0, le=1)
     non_home_onsite_score_cap: float = Field(default=79, ge=0, le=100)
+    avoided_title_score_cap: float = Field(default=39, ge=0, le=100)
+    non_preferred_employment_score_cap: float | None = Field(default=None, ge=0, le=100)
     strong_match_threshold: float = Field(default=80, ge=0, le=100)
     moderate_match_threshold: float = Field(default=60, ge=0, le=100)
 
@@ -306,18 +314,62 @@ class ResumeRelevanceScoring(BaseModel):
         return self
 
 
+class HomeBase(BaseModel):
+    """A place the candidate can commute from, with nearby places and rough distances."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1)
+    max_miles: float = Field(default=40, gt=0)
+    region_terms: list[str] = Field(
+        default_factory=list,
+        description="State names or codes; when set, one must appear too (avoids 'Wellington, NZ')",
+    )
+    places: dict[str, float] = Field(
+        ..., min_length=1, description="Place name as it appears in postings -> approx. miles"
+    )
+
+    @field_validator("places")
+    @classmethod
+    def validate_places(cls, value: dict[str, float]) -> dict[str, float]:
+        """Reject blank names and negative distances."""
+        if any(not name.strip() or miles < 0 for name, miles in value.items()):
+            raise ValueError("home base places need a name and a non-negative distance")
+        return value
+
+
+class TitleTier(BaseModel):
+    """A priority tier of role keywords; its signal scales the title score."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1)
+    signal: float = Field(..., ge=0, le=1)
+    keywords: list[str] = Field(..., min_length=1)
+
+
 class ResumeProfileConfig(BaseModel):
-    """Auditable, job-relevant profile used to rank canonical postings."""
+    """Auditable, job-relevant profile used to rank canonical postings.
+
+    Resume content (skills, experience) comes from the approved active resume when
+    ``resume_source`` is ``approved_resume`` and one exists; the lists here are the
+    fallback. Titles, locations, employment, and weights are preferences and stay here.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     profile_name: str = Field(..., min_length=1)
+    resume_source: Literal["approved_resume", "config"] = "approved_resume"
     target_titles: list[str] = Field(..., min_length=1)
     target_families: list[str] = Field(default_factory=list)
     target_seniority: list[str] = Field(default_factory=list)
+    title_tiers: list[TitleTier] = Field(default_factory=list)
+    avoid_title_keywords: list[str] = Field(default_factory=list)
+    preferred_employment_types: list[str] = Field(default_factory=list)
     skills: list[str] = Field(..., min_length=1)
     desired_skill_matches: int = Field(default=4, ge=1)
     home_regions: list[str] = Field(default_factory=list)
+    home_bases: list[HomeBase] = Field(default_factory=list)
     remote_accessible: bool = True
     weights: ResumeRelevanceWeights = Field(default_factory=ResumeRelevanceWeights)
     scoring: ResumeRelevanceScoring = Field(default_factory=ResumeRelevanceScoring)
@@ -557,12 +609,7 @@ class PhenomTarget(ExtractorTargetBase):
 
 
 ExtractorTarget = Annotated[
-    GreenhouseTarget
-    | LeverTarget
-    | AshbyTarget
-    | WorkdayTarget
-    | NextEraTarget
-    | PhenomTarget,
+    GreenhouseTarget | LeverTarget | AshbyTarget | WorkdayTarget | NextEraTarget | PhenomTarget,
     Field(discriminator="source"),
 ]
 
@@ -656,12 +703,24 @@ class Config:
     def resume_profile(self) -> ResumeProfileConfig:
         """Return the job-relevant profile used for resume relevance scoring."""
         if self._resume_profile is None:
+            filename = self.resume_profile_filename
             self._resume_profile = self._validate(
-                ResumeProfileConfig,
-                self._read_yaml("resume_profile.yaml"),
-                "resume_profile.yaml",
+                ResumeProfileConfig, self._read_yaml(filename), filename
             )
         return self._resume_profile
+
+    @property
+    def resume_profile_filename(self) -> str:
+        """Return ``resume_profile.local.yaml`` when present, else the committed template.
+
+        The local file holds personal job-search preferences and is never committed.
+        Setting ``JMIP_IGNORE_LOCAL_CONFIG=1`` (the test suite does) forces the template.
+        """
+        ignore = os.getenv("JMIP_IGNORE_LOCAL_CONFIG", "").strip().casefold()
+        local = self._config_dir / LOCAL_RESUME_PROFILE
+        if ignore not in {"1", "true", "yes"} and local.is_file():
+            return LOCAL_RESUME_PROFILE
+        return "resume_profile.yaml"
 
     @property
     def candidate_collection(self) -> CandidateCollectionConfig:

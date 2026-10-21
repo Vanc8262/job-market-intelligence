@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from analytics import SilverToGoldRunner
+from profiles.profile_source import resolve_resume_profile
 from utils.config import Config
 from utils.logger import configure_logging
 
@@ -34,7 +35,10 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     config = Config()
     configure_logging(config)
-    result = SilverToGoldRunner(config).run(include_inactive=args.include_inactive)
+    profile, source = resolve_resume_profile(config)
+    result = SilverToGoldRunner(config, resume_profile=profile, profile_source=source).run(
+        include_inactive=args.include_inactive
+    )
     print(json.dumps(result.summary(), indent=2, sort_keys=True))
     return 1 if result.failed else 0
 

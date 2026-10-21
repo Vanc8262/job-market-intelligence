@@ -60,9 +60,7 @@ def collection_summary(
                 "target": "example-lever",
                 "source": "lever",
                 "succeeded": True,
-                "queries": [
-                    {"query_name": "data-engineering", "succeeded": True}
-                ],
+                "queries": [{"query_name": "data-engineering", "succeeded": True}],
                 "discovered_references": ["external-1"] if discovered else [],
                 "observations": (
                     [
@@ -111,18 +109,14 @@ def test_lifecycle_tracks_change_missing_removal_and_reactivation(tmp_path: Path
     assert silver.load("lever/job-1").metadata.last_seen_at == t2
 
     missing = runner.run(
-        collection_summary=collection_summary(
-            "run-3", t3, discovered=False, observed=False
-        )
+        collection_summary=collection_summary("run-3", t3, discovered=False, observed=False)
     )
     assert missing.event_counts["missing"] == 1
     assert missing.current_counts["missing"] == 1
     assert silver.load("lever/job-1").metadata.status == PostingStatus.ACTIVE
 
     removed = runner.run(
-        collection_summary=collection_summary(
-            "run-4", t4, discovered=False, observed=False
-        )
+        collection_summary=collection_summary("run-4", t4, discovered=False, observed=False)
     )
     assert removed.event_counts["removed"] == 1
     assert removed.current_counts["removed"] == 1

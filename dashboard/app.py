@@ -23,6 +23,7 @@ from models.candidate import ReviewApproval, ReviewDraft
 from profiles import (
     ProfileRecordNotFoundError,
     ProfileRepositoryConflictError,
+    ResumeDocumentError,
     ResumeIngestionService,
 )
 from utils.config import Config
@@ -52,6 +53,8 @@ OPERATIONS_PATHS = {
 MAX_REQUEST_BYTES = 64 * 1024
 MAX_REVIEW_REQUEST_BYTES = 512 * 1024
 RESUME_REVIEW_PREFIX = "/api/resume-reviews/"
+RESUME_VERSION_PREFIX = "/api/resume-versions/"
+ACTIVE_RESUME_PATH = "/api/candidate-profile/active-resume"
 OPERATIONS_FRESHNESS_HOURS = 36
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
@@ -411,6 +414,13 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         if self._reject_foreign_request(mutating=True):
             return
         path = urlsplit(self.path).path
+        if path.startswith(RESUME_REVIEW_PREFIX) and path.endswith("/superseded"):
+            raw_id = path.removeprefix(RESUME_REVIEW_PREFIX).removesuffix("/superseded")
+            self._resume_action(raw_id, self._set_superseded)
+            return
+        if path == ACTIVE_RESUME_PATH:
+            self._resume_action("active", self._activate_resume)
+            return
         if path.startswith(RESUME_REVIEW_PREFIX):
             self._write_review(
                 path.removeprefix(RESUME_REVIEW_PREFIX), ReviewApproval, approve=True
@@ -501,10 +511,96 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": _validation_message(exc)}, status=HTTPStatus.BAD_REQUEST)
 
     def do_POST(self) -> None:  # noqa: N802
-        """Reject writes other than the explicit PUT and PATCH endpoints."""
+        """Create a revision of a review, or a new resume version from edited text."""
         if self._reject_foreign_request(mutating=True):
             return
+        path = urlsplit(self.path).path
+        if path.startswith(RESUME_REVIEW_PREFIX) and path.endswith("/revise"):
+            raw_id = path.removeprefix(RESUME_REVIEW_PREFIX).removesuffix("/revise")
+            self._resume_action(raw_id, self._revise_review)
+            return
+        if path.startswith(RESUME_VERSION_PREFIX) and path.endswith("/edited-text"):
+            raw_id = path.removeprefix(RESUME_VERSION_PREFIX).removesuffix("/edited-text")
+            self._resume_action(raw_id, self._edited_version)
+            return
         self._send_json({"error": "Endpoint not found"}, status=HTTPStatus.NOT_FOUND)
+
+    def _resume_action(
+        self,
+        raw_id: str,
+        action: Callable[[ResumeIngestionService, str, dict[str, Any]], dict[str, Any]],
+    ) -> None:
+        """Run one resume workflow action on a JSON body, mapping errors to HTTP codes."""
+        service = self.resume_service
+        if service is None:
+            self._send_json(
+                {"error": "Resume workflow is unavailable"}, status=HTTPStatus.SERVICE_UNAVAILABLE
+            )
+            return
+        identifier = _path_identifier(raw_id)
+        if identifier is None:
+            self._send_json({"error": "A valid ID is required"}, status=HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0 or content_length > MAX_REVIEW_REQUEST_BYTES:
+                raise ValueError("Request body must be between 1 byte and 512 KB")
+            payload = json.loads(self.rfile.read(content_length))
+            if not isinstance(payload, dict):
+                raise ValueError("Request body must be a JSON object")
+            self._send_json(action(service, identifier, payload))
+        except (ProfileRecordNotFoundError, LookupError, FileNotFoundError) as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
+        except ProfileRepositoryConflictError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
+        except (ResumeDocumentError, json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+
+    @staticmethod
+    def _set_superseded(
+        service: ResumeIngestionService, extraction_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        superseded = payload.get("superseded")
+        if not isinstance(superseded, bool):
+            raise ValueError("superseded must be true or false")
+        saved = service.repository.set_superseded(
+            extraction_id, superseded, profile_id=service.profile().profile_id
+        )
+        return {
+            "extraction_id": saved.extraction_id,
+            "superseded": saved.superseded,
+            "revision": saved.revision,
+        }
+
+    @staticmethod
+    def _revise_review(
+        service: ResumeIngestionService, extraction_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        revision = service.revise(extraction_id)
+        return {"extraction_id": revision.extraction_id, "revised_from": extraction_id}
+
+    @staticmethod
+    def _edited_version(
+        service: ResumeIngestionService, resume_version_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        text = payload.get("text")
+        label = payload.get("label")
+        if not isinstance(text, str):
+            raise ValueError("text must be a string")
+        if label is not None and not isinstance(label, str):
+            raise ValueError("label must be a string")
+        result = service.create_edited_version(resume_version_id, text, label=label or None)
+        return result.summary()
+
+    @staticmethod
+    def _activate_resume(
+        service: ResumeIngestionService, _: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        resume_version_id = payload.get("resume_version_id")
+        if not isinstance(resume_version_id, str) or _path_identifier(resume_version_id) is None:
+            raise ValueError("resume_version_id is required")
+        version = service.activate_approved(resume_version_id)
+        return {"active_resume_version_id": version.resume_version_id}
 
     def _send_json(
         self,

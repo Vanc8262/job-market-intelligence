@@ -95,9 +95,7 @@ def test_candidate_collection_round_robins_queries_and_deduplicates_fetches(
     assert result.raw_records_saved == 2
     assert result.extraction_failure_rate == 0.0
     assert list((tmp_path / "bronze" / "lever" / "acme" / "data-1").glob("*.json"))
-    assert list(
-        (tmp_path / "bronze" / "lever" / "acme" / "software-1").glob("*.json")
-    )
+    assert list((tmp_path / "bronze" / "lever" / "acme" / "software-1").glob("*.json"))
     assert not (tmp_path / "bronze" / "lever" / "acme" / "data-2").exists()
     latest = gold.load("collection/latest")
     assert latest["query_names"] == ["data-engineering", "software-engineering"]
@@ -109,10 +107,16 @@ def test_candidate_collection_round_robins_queries_and_deduplicates_fetches(
         "software-2",
     ]
     assert latest["targets"][0]["observations"] == [
-        {"reference": "data-1", "job_id": result.outcomes[0].result.postings[0].metadata.job_id,
-         "external_id": "data-1"},
-        {"reference": "software-1", "job_id": result.outcomes[0].result.postings[1].metadata.job_id,
-         "external_id": "software-1"},
+        {
+            "reference": "data-1",
+            "job_id": result.outcomes[0].result.postings[0].metadata.job_id,
+            "external_id": "data-1",
+        },
+        {
+            "reference": "software-1",
+            "job_id": result.outcomes[0].result.postings[1].metadata.job_id,
+            "external_id": "software-1",
+        },
     ]
 
 
@@ -215,9 +219,7 @@ def test_quality_gateway_fails_when_collection_evidence_is_missing(tmp_path: Pat
     result = gateway.run(generated_at=datetime(2026, 8, 26, tzinfo=UTC))
 
     assert result.passed is False
-    assert [metric.name for metric in result.failed_metrics] == [
-        "extraction_failure_rate"
-    ]
+    assert [metric.name for metric in result.failed_metrics] == ["extraction_failure_rate"]
     extraction = result.failed_metrics[0]
     assert extraction.available is False
     assert extraction.value is None

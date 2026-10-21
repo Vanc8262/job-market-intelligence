@@ -60,9 +60,7 @@ def test_runner_extracts_and_preserves_raw_payload_in_bronze(tmp_path: Path) -> 
         [{"name": "acme-lever", "source": "lever", "site": "acme"}],
     )
     client = httpx.Client(
-        transport=httpx.MockTransport(
-            lambda _request: httpx.Response(200, json=[lever_payload()])
-        )
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=[lever_payload()]))
     )
     runner = ExtractionRunner(registry)
 
@@ -83,9 +81,7 @@ def test_runner_is_idempotent_for_unchanged_raw_payloads(tmp_path: Path) -> None
         [{"name": "acme-lever", "source": "lever", "site": "acme"}],
     )
     client = httpx.Client(
-        transport=httpx.MockTransport(
-            lambda _request: httpx.Response(200, json=[lever_payload()])
-        )
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=[lever_payload()]))
     )
     runner = ExtractionRunner(registry)
 

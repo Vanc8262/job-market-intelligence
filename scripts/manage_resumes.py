@@ -5,6 +5,7 @@ Subcommands:
   list                                      Show stored resume versions and review status.
   activate RESUME_VERSION_ID                Make a stored resume the active one.
   reextract [RESUME_VERSION_ID]             Parse stored resumes again with the current parser.
+  supersede EXTRACTION_ID [--restore]       Hide an extraction from review and scoring (or undo).
 
 Output is JSON and never includes resume text.
 """
@@ -40,6 +41,9 @@ def build_parser() -> argparse.ArgumentParser:
     activate.add_argument("resume_version_id")
     reextract = commands.add_parser("reextract", help="Parse stored resumes again")
     reextract.add_argument("resume_version_id", nargs="?")
+    supersede = commands.add_parser("supersede", help="Mark an extraction superseded")
+    supersede.add_argument("extraction_id")
+    supersede.add_argument("--restore", action="store_true", help="Undo a supersede")
     return parser
 
 
@@ -55,6 +59,11 @@ def main(argv: list[str] | None = None) -> int:
             payload: object = result.summary()
         elif args.command == "list":
             payload = _listing(service)
+        elif args.command == "supersede":
+            saved = service.repository.set_superseded(
+                args.extraction_id, not args.restore, profile_id=service.profile().profile_id
+            )
+            payload = {"extraction_id": saved.extraction_id, "superseded": saved.superseded}
         elif args.command == "activate":
             activated, message = service.activate(args.resume_version_id)
             payload = {"activated": activated, "message": message}

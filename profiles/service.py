@@ -6,6 +6,7 @@ import hashlib
 import os
 import tempfile
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -15,11 +16,21 @@ from models.candidate import (
     ResumeExtraction,
     ResumeMediaType,
     ResumeVersion,
+    ReviewStatus,
 )
-from profiles.documents import ResumeDocumentError, extract_document_text
+from profiles.documents import (
+    DocumentText,
+    ResumeDocumentError,
+    extract_document_text,
+    normalize_text,
+)
 from profiles.parser import PARSER_NAME, PARSER_VERSION, ResumeParser, SkillVocabulary
 from profiles.quality import assess_text_quality
-from profiles.repository import CandidateProfileRepository
+from profiles.repository import (
+    CandidateProfileRepository,
+    ProfileRecordNotFoundError,
+    ProfileRepositoryConflictError,
+)
 from utils.config import Config
 from utils.hashing import sha256_text
 
@@ -153,7 +164,7 @@ class ResumeIngestionService:
         ).read_bytes()
         if hashlib.sha256(content).hexdigest() != version.sha256:
             raise ResumeDocumentError("stored resume file no longer matches its recorded hash")
-        document = extract_document_text(content, self.limits)
+        document = self._document(version, content)
         extraction = self._extract(
             version.resume_version_id, document.text, document.page_count, document.truncated
         )
@@ -166,7 +177,119 @@ class ResumeIngestionService:
                 _write_atomic(snapshot, previous.encode("utf-8"))
         _store_text(folder, document.text)
         self.repository.add_extraction(extraction)
+        self.repository.supersede_others(
+            version.resume_version_id, extraction.extraction_id, approved=False
+        )
         return extraction
+
+    def revise(self, extraction_id: str) -> ResumeExtraction:
+        """Copy an extraction's facts into a new pending review for manual correction.
+
+        Use it to fix an approved (or superseded) review: the copy starts unapproved, the
+        source stays as it was, and approving the copy supersedes the older approval.
+        """
+        source = self.repository.get_extraction(extraction_id)
+        version = self.repository.get_resume_version(source.resume_version_id)
+        if version.profile_id != self.profile().profile_id:
+            raise ProfileRecordNotFoundError(f"extraction not found: {extraction_id}")
+        if source.status == ExtractionStatus.FAILED:
+            raise ResumeDocumentError(
+                "a failed extraction cannot be revised; edit its text instead"
+            )
+        revision = ResumeExtraction.model_validate(
+            {
+                **source.model_dump(),
+                "extraction_id": f"ex-{uuid4().hex[:16]}",
+                "review_status": ReviewStatus.PENDING,
+                "approved_sections": [],
+                "review_comment": "",
+                "revision": 1,
+                "created_at": _now(),
+                "review_updated_at": None,
+                "approved_at": None,
+                "superseded": False,
+                "superseded_at": None,
+                "revised_from_extraction_id": source.extraction_id,
+            }
+        )
+        self.repository.add_extraction(revision)
+        self.repository.supersede_others(
+            version.resume_version_id, revision.extraction_id, approved=False
+        )
+        return revision
+
+    def create_edited_version(
+        self, source_resume_version_id: str, text: str, *, label: str | None = None
+    ) -> IngestionResult:
+        """Store corrected resume text as a new version derived from another, and parse it.
+
+        The original upload is never changed. Identical text already stored is reported
+        as a duplicate instead of creating another version.
+        """
+        profile = self.profile()
+        source = self.repository.get_resume_version(source_resume_version_id)
+        if source.profile_id != profile.profile_id:
+            raise ProfileRecordNotFoundError(
+                f"resume version not found: {source_resume_version_id}"
+            )
+        normalized = normalize_text(text)
+        if not normalized:
+            raise ResumeDocumentError("edited resume text is empty")
+        if len(normalized) > self.limits.max_extracted_characters:
+            raise ResumeDocumentError(
+                f"edited text has {len(normalized):,} characters; "
+                f"the limit is {self.limits.max_extracted_characters:,}"
+            )
+        content = normalized.encode("utf-8")
+        digest = hashlib.sha256(content).hexdigest()
+        existing = self.repository.find_resume_by_sha256(profile.profile_id, digest)
+        if existing is not None:
+            extractions = self.repository.list_extractions(existing.resume_version_id)
+            return IngestionResult(
+                resume_version=existing,
+                extraction=extractions[0] if extractions else None,
+                duplicate=True,
+                activated=False,
+                message="This exact text is already stored; nothing new was created.",
+            )
+        version_id = f"rv-{uuid4().hex[:16]}"
+        storage_key = f"resumes/{profile.profile_id}/{version_id}"
+        stem = Path(source.original_filename).stem[:200] or "resume"
+        version = ResumeVersion(
+            resume_version_id=version_id,
+            profile_id=profile.profile_id,
+            label=(label or f"{source.label} (edited)").strip()[:200] or "Edited resume",
+            original_filename=f"{stem}-edited.txt",
+            media_type=ResumeMediaType.TXT,
+            size_bytes=len(content),
+            sha256=digest,
+            storage_key=storage_key,
+            derived_from_resume_version_id=source.resume_version_id,
+        )
+        extraction = self._extract(version_id, normalized, None, False)
+        folder = self._private_folder(storage_key)
+        _write_atomic(folder / "original.txt", content)
+        _store_text(folder, normalized)
+        try:
+            self.repository.add_resume_with_extraction(version, extraction)
+        except BaseException:
+            for path in folder.iterdir():
+                path.unlink(missing_ok=True)
+            folder.rmdir()
+            raise
+        return IngestionResult(
+            version,
+            extraction,
+            duplicate=False,
+            activated=False,
+            message="Saved as a new version. Review and approve it, then make it active.",
+        )
+
+    def _document(self, version: ResumeVersion, content: bytes) -> DocumentText:
+        if version.media_type == ResumeMediaType.TXT:
+            text = normalize_text(content.decode("utf-8"))
+            return DocumentText(ResumeMediaType.TXT, text, None, False)
+        return extract_document_text(content, self.limits)
 
     def activate(self, resume_version_id: str) -> tuple[bool, str]:
         """Make a stored resume version active if its newest extraction passed quality."""
@@ -192,6 +315,18 @@ class ResumeIngestionService:
                 if sha256_text(text) == text_sha256:
                     return text
         raise FileNotFoundError("the text this extraction was parsed from is no longer stored")
+
+    def activate_approved(self, resume_version_id: str) -> ResumeVersion:
+        """Make a version active for scoring; it must have an approved extraction."""
+        version = self.repository.get_resume_version(resume_version_id)
+        if version.profile_id != self.profile().profile_id:
+            raise ProfileRecordNotFoundError(f"resume version not found: {resume_version_id}")
+        if self.repository.latest_approved_extraction(resume_version_id) is None:
+            raise ProfileRepositoryConflictError(
+                "approve this resume version's review before making it active"
+            )
+        self.repository.set_active_resume(version.profile_id, resume_version_id)
+        return version
 
     def _activate(self, version: ResumeVersion, extraction: ResumeExtraction) -> tuple[bool, str]:
         if extraction.status == ExtractionStatus.FAILED:
@@ -225,6 +360,10 @@ class ResumeIngestionService:
         if root not in folder.parents:
             raise ValueError("resume storage key escapes the private data folder")
         return folder
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
 
 
 def _text_name(text_sha256: str) -> str:

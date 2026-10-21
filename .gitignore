@@ -62,3 +62,6 @@ scripts/logs/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Personal job-search preferences (home bases, name); see config/resume_profile.yaml
+config/*.local.yaml

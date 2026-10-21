@@ -214,15 +214,51 @@ class CandidateProfileRepository:
         return [ResumeExtraction.model_validate_json(row[0]) for row in rows]
 
     def latest_approved_extraction(self, resume_version_id: str) -> ResumeExtraction | None:
-        """Return the newest approved extraction of a resume version, if any."""
+        """Return the newest approved, not superseded extraction of a resume version."""
         return next(
             (
                 extraction
                 for extraction in self.list_extractions(resume_version_id)
-                if extraction.review_status == ReviewStatus.APPROVED
+                if extraction.review_status == ReviewStatus.APPROVED and not extraction.superseded
             ),
             None,
         )
+
+    def set_superseded(
+        self, extraction_id: str, superseded: bool, *, profile_id: str
+    ) -> ResumeExtraction:
+        """Mark an extraction superseded (hidden from review and comparisons) or restore it."""
+        with self._lock, self._connect() as connection:
+            extraction = self._owned_extraction(extraction_id, profile_id)
+            if extraction.superseded == superseded:
+                return extraction
+            return self._replace(
+                connection,
+                extraction,
+                superseded=superseded,
+                superseded_at=_now() if superseded else None,
+            )
+
+    def supersede_others(
+        self, resume_version_id: str, keep_extraction_id: str, *, approved: bool
+    ) -> list[str]:
+        """Supersede a version's other pending (or, with ``approved``, approved) extractions.
+
+        Returns the IDs that changed. A new parse or revision replaces older pending
+        reviews; approving one extraction replaces the version's earlier approvals.
+        """
+        status = ReviewStatus.APPROVED if approved else ReviewStatus.PENDING
+        changed: list[str] = []
+        with self._lock, self._connect() as connection:
+            for extraction in self.list_extractions(resume_version_id):
+                if (
+                    extraction.extraction_id != keep_extraction_id
+                    and extraction.review_status == status
+                    and not extraction.superseded
+                ):
+                    self._replace(connection, extraction, superseded=True, superseded_at=_now())
+                    changed.append(extraction.extraction_id)
+        return changed
 
     # Review -------------------------------------------------------------------------
 
@@ -235,20 +271,23 @@ class CandidateProfileRepository:
     def approve_review(
         self, extraction_id: str, approval: ReviewApproval, *, profile_id: str
     ) -> ResumeExtraction:
-        """Finalize a review once every section is approved; it then becomes read-only."""
-        return self._write_review(extraction_id, approval, profile_id=profile_id, approve=True)
+        """Finalize a review once every section is approved; it then becomes read-only.
+
+        Earlier approvals of the same resume version are superseded, so each version has
+        one approved set of facts.
+        """
+        approved = self._write_review(extraction_id, approval, profile_id=profile_id, approve=True)
+        self.supersede_others(approved.resume_version_id, approved.extraction_id, approved=True)
+        return approved
 
     def _write_review(
         self, extraction_id: str, draft: ReviewDraft, *, profile_id: str, approve: bool
     ) -> ResumeExtraction:
         with self._lock, self._connect() as connection:
-            extraction = self.get_extraction(extraction_id)
-            version = self.get_resume_version(extraction.resume_version_id)
-            if version.profile_id != profile_id:
-                raise ProfileRecordNotFoundError(f"extraction not found: {extraction_id}")
+            extraction = self._owned_extraction(extraction_id, profile_id)
             if not extraction.can_review:
                 raise ProfileRepositoryConflictError(
-                    "this extraction is already approved or failed quality checks"
+                    "this extraction is approved, superseded, or failed quality checks"
                 )
             if draft.revision != extraction.revision:
                 raise ProfileRepositoryConflictError(
@@ -280,6 +319,37 @@ class CandidateProfileRepository:
             return updated
 
     # Internals ----------------------------------------------------------------------
+
+    def _owned_extraction(self, extraction_id: str, profile_id: str) -> ResumeExtraction:
+        extraction = self.get_extraction(extraction_id)
+        version = self.get_resume_version(extraction.resume_version_id)
+        if version.profile_id != profile_id:
+            raise ProfileRecordNotFoundError(f"extraction not found: {extraction_id}")
+        return extraction
+
+    @staticmethod
+    def _replace(
+        connection: sqlite3.Connection, extraction: ResumeExtraction, **changes: object
+    ) -> ResumeExtraction:
+        """Write changed fields with a revision bump, failing on a concurrent change."""
+        updated = ResumeExtraction.model_validate(
+            {**extraction.model_dump(), **changes, "revision": extraction.revision + 1}
+        )
+        cursor = connection.execute(
+            "UPDATE extractions SET document = ?, revision = ? "
+            "WHERE extraction_id = ? AND revision = ?",
+            (
+                updated.model_dump_json(),
+                updated.revision,
+                extraction.extraction_id,
+                extraction.revision,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise ProfileRepositoryConflictError(
+                "extraction changed while saving; reload and retry"
+            )
+        return updated
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:

@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+
+# Tests always use the committed config/resume_profile.yaml, never a personal
+# resume_profile.local.yaml, so results do not depend on whose computer runs them.
+os.environ["JMIP_IGNORE_LOCAL_CONFIG"] = "1"
 
 PRIVATE_DIR = Path(__file__).resolve().parents[1] / "data" / "private"
 

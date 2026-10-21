@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light">
   <title>JMIP Dashboard</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="/styles.css?v=resume-v2">
+  <link rel="stylesheet" href="/styles.css?v=resume-v3">
 </head>
 <body>
   <header class="app-header">
@@ -128,6 +128,7 @@
         <div class="simulator-header">
           <div><h1>Resume review</h1><p id="resumeReviewSummary">Loading resume reviews</p></div>
           <label class="tracking-field rr-picker"><span>Resume extraction</span><select id="resumeReviewSelect" aria-label="Resume extraction"></select></label>
+          <label class="rr-check rr-show-superseded" hidden><input type="checkbox" id="resumeReviewShowSuperseded"><span>Show superseded</span></label>
         </div>
         <div id="resumeReviewContent"></div>
       </section>
@@ -139,7 +140,7 @@
     <div class="drawer-header"><span class="drawer-eyebrow" id="drawerRank">Opportunity</span><button class="icon-button" id="closeDrawer" type="button" aria-label="Close details" title="Close details">&times;</button></div>
     <div class="drawer-content" id="drawerContent"></div>
   </aside>
-  <script src="/app.js?v=resume-v2" defer></script>
-  <script src="/resume-review.js?v=resume-v2" defer></script>
+  <script src="/app.js?v=resume-v3" defer></script>
+  <script src="/resume-review.js?v=resume-v3" defer></script>
 </body>
 </html>

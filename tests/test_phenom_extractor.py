@@ -64,9 +64,7 @@ def detail_job(job_id: str = "R123") -> dict[str, object]:
         "longitude": "-71.0589",
         "employmentType": "Full time",
         "postedDate": "2026-08-20T00:00:00.000+0000",
-        "description": (
-            "<p>This hybrid role builds pipelines with Python, SQL, and AWS.</p>"
-        ),
+        "description": ("<p>This hybrid role builds pipelines with Python, SQL, and AWS.</p>"),
         "ml_skills": ["python", "sql", "aws"],
         "ml_job_overview": {
             "responsibilities": ["Build reliable data pipelines."],
@@ -109,13 +107,9 @@ def test_phenom_paginates_embedded_search_payload_and_applies_filters() -> None:
         ids = ["R1", "R2"] if offset == 0 else ["R3"]
         return httpx.Response(200, text=phenom_page(search_ddo(ids, 3)))
 
-    extractor = make_extractor(
-        httpx.Client(transport=httpx.MockTransport(handler))
-    )
+    extractor = make_extractor(httpx.Client(transport=httpx.MockTransport(handler)))
 
-    references = extractor.search_jobs(
-        "data engineer", "Boston", facets={"category": "Technology"}
-    )
+    references = extractor.search_jobs("data engineer", "Boston", facets={"category": "Technology"})
 
     assert references == ["R1", "R2", "R3"]
     assert offsets == [0, 2]
@@ -222,9 +216,7 @@ def test_phenom_rejects_malformed_ddo_and_cross_tenant_detail() -> None:
             transport=httpx.MockTransport(
                 lambda _request: httpx.Response(
                     200,
-                    text=phenom_page(
-                        {"jobDetail": {"data": {"job": other_job}}}
-                    ),
+                    text=phenom_page({"jobDetail": {"data": {"job": other_job}}}),
                 )
             )
         )

@@ -20,10 +20,11 @@ def _now() -> datetime:
 
 
 class ResumeMediaType(StrEnum):
-    """Accepted resume document formats, detected from file content."""
+    """Stored resume formats: uploads are detected from content; TXT is reviewer-edited."""
 
     PDF = "pdf"
     DOCX = "docx"
+    TXT = "txt"
 
 
 class ExtractionStatus(StrEnum):
@@ -84,6 +85,11 @@ class ResumeVersion(BaseModel):
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     storage_key: str = Field(min_length=1, max_length=500)
     uploaded_at: datetime = Field(default_factory=_now)
+    derived_from_resume_version_id: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Set on a version made by editing another version's extracted text",
+    )
 
 
 class Evidence(BaseModel):
@@ -169,6 +175,7 @@ class EducationFact(BaseModel):
     institution: str = Field(min_length=1, max_length=200)
     degree: str | None = Field(default=None, max_length=200)
     field_of_study: str | None = Field(default=None, max_length=200)
+    gpa: str | None = Field(default=None, max_length=20)
     graduation: YearMonth | None = None
     expected: bool = False
     evidence: Evidence | None = None
@@ -181,6 +188,7 @@ class ProjectFact(BaseModel):
 
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
+    url: str | None = Field(default=None, max_length=500)
     technologies: list[str] = Field(default_factory=list, max_length=40)
     evidence: Evidence | None = None
 
@@ -242,6 +250,13 @@ class ResumeExtraction(BaseModel):
     created_at: datetime = Field(default_factory=_now)
     review_updated_at: datetime | None = None
     approved_at: datetime | None = None
+    superseded: bool = False
+    superseded_at: datetime | None = None
+    revised_from_extraction_id: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Set when this extraction copies another one's facts for correction",
+    )
 
     @field_validator("approved_sections")
     @classmethod
@@ -252,7 +267,11 @@ class ResumeExtraction(BaseModel):
     @property
     def can_review(self) -> bool:
         """Return whether a reviewer may still change this extraction."""
-        return self.review_status == ReviewStatus.PENDING and self.status != ExtractionStatus.FAILED
+        return (
+            self.review_status == ReviewStatus.PENDING
+            and self.status != ExtractionStatus.FAILED
+            and not self.superseded
+        )
 
 
 class ReviewDraft(BaseModel):

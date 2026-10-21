@@ -14,11 +14,12 @@ from uuid import uuid4
 from models.job_posting import JobPosting, PostingStatus, WorkplaceType
 from models.lifecycle import LifecycleEntry, LifecycleState
 from storage import GoldStorage, SilverStorage
-from utils.config import Config
+from utils.config import Config, ResumeProfileConfig
 from utils.hashing import stable_json_hash
 from utils.logger import log_event
 
 _TOKEN_PATTERN = re.compile(r"[a-z0-9+#.]+")
+
 
 @dataclass(frozen=True)
 class GoldBuildFailure:
@@ -26,6 +27,7 @@ class GoldBuildFailure:
 
     record: str
     error: str
+
     def summary(self) -> dict[str, str]:
         """Return a JSON-serializable failure description."""
         return {"record": self.record, "error": self.error}
@@ -77,22 +79,22 @@ class SilverToGoldRunner:
         "current_opportunities": "current_opportunities/mart",
         "manifest": "manifest/latest",
     }
+
     def __init__(
         self,
         config: Config | None = None,
         *,
         silver_storage: SilverStorage | None = None,
         gold_storage: GoldStorage | None = None,
+        resume_profile: ResumeProfileConfig | None = None,
+        profile_source: dict[str, object] | None = None,
     ) -> None:
-        """Initialize storage and the configured resume relevance profile."""
+        """Initialize storage and the resume relevance profile (YAML unless one is given)."""
         self.config = config or Config()
-        self.silver_storage = silver_storage or SilverStorage(
-            self.config.settings.paths.silver_dir
-        )
-        self.gold_storage = gold_storage or GoldStorage(
-            self.config.settings.paths.gold_dir
-        )
-        self.profile = self.config.resume_profile
+        self.silver_storage = silver_storage or SilverStorage(self.config.settings.paths.silver_dir)
+        self.gold_storage = gold_storage or GoldStorage(self.config.settings.paths.gold_dir)
+        self.profile = resume_profile or self.config.resume_profile
+        self.profile_source = profile_source or {"source": "config"}
 
     def run(
         self,
@@ -106,9 +108,7 @@ class SilverToGoldRunner:
         built_at = generated_at or datetime.now(UTC)
         records, total_found, failures = self._load_silver()
         analyzed = [
-            record
-            for record in records
-            if include_inactive or self._is_market_record(record)
+            record for record in records if include_inactive or self._is_market_record(record)
         ]
         excluded_inactive = len(records) - len(analyzed)
         fingerprint = self._input_fingerprint(analyzed)
@@ -223,9 +223,9 @@ class SilverToGoldRunner:
         identities = sorted(
             (
                 {
-                "job_id": record.metadata.job_id,
-                "content_hash": record.metadata.content_hash,
-                "status": record.metadata.status.value,
+                    "job_id": record.metadata.job_id,
+                    "content_hash": record.metadata.content_hash,
+                    "status": record.metadata.status.value,
                 }
                 for record in records
             ),
@@ -436,6 +436,7 @@ class SilverToGoldRunner:
         scores = [self._number(row["score"]) for row in ordered]
         return {
             **context,
+            "profile_source": self.profile_source,
             "profile": {
                 "profile_name": self.profile.profile_name,
                 "target_titles": self.profile.target_titles,
@@ -444,6 +445,10 @@ class SilverToGoldRunner:
                 "skills": self.profile.skills,
                 "desired_skill_matches": self.profile.desired_skill_matches,
                 "home_regions": self.profile.home_regions,
+                "home_bases": [base.model_dump() for base in self.profile.home_bases],
+                "title_tiers": [tier.model_dump() for tier in self.profile.title_tiers],
+                "avoid_title_keywords": self.profile.avoid_title_keywords,
+                "preferred_employment_types": self.profile.preferred_employment_types,
                 "remote_accessible": self.profile.remote_accessible,
                 "weights": self.profile.weights.model_dump(),
                 "scoring": self.profile.scoring.model_dump(),
@@ -453,15 +458,9 @@ class SilverToGoldRunner:
                 "median": round(float(median(scores)), 2) if scores else None,
                 "average": round(fmean(scores), 2) if scores else None,
                 "maximum": round(max(scores), 2) if scores else None,
-                "strong_matches": sum(
-                    row["match_band"] == "strong" for row in ordered
-                ),
-                "moderate_matches": sum(
-                    row["match_band"] == "moderate" for row in ordered
-                ),
-                "limited_matches": sum(
-                    row["match_band"] == "limited" for row in ordered
-                ),
+                "strong_matches": sum(row["match_band"] == "strong" for row in ordered),
+                "moderate_matches": sum(row["match_band"] == "moderate" for row in ordered),
+                "limited_matches": sum(row["match_band"] == "limited" for row in ordered),
             },
             "ranked_postings": ordered,
         }
@@ -475,9 +474,7 @@ class SilverToGoldRunner:
         generated_at: datetime,
     ) -> dict[str, object]:
         """Build one analytics-ready row for each current opportunity."""
-        relevance_by_job = {
-            str(row["job_id"]): row for row in relevance_rows
-        }
+        relevance_by_job = {str(row["job_id"]): row for row in relevance_rows}
         rows = [
             self._current_opportunity_row(
                 record,
@@ -518,9 +515,7 @@ class SilverToGoldRunner:
         generated_at: datetime,
     ) -> dict[str, object]:
         """Flatten canonical, ranking, and lifecycle fields for one opportunity."""
-        all_skills = list(
-            dict.fromkeys([*record.skills.explicit, *record.skills.inferred])
-        )
+        all_skills = list(dict.fromkeys([*record.skills.explicit, *record.skills.inferred]))
         first_seen = lifecycle.first_seen_at if lifecycle else record.metadata.first_seen_at
         last_seen = lifecycle.last_seen_at if lifecycle else record.metadata.last_seen_at
         last_changed = lifecycle.last_changed_at if lifecycle else record.updated_at
@@ -559,9 +554,7 @@ class SilverToGoldRunner:
             "lifecycle_status": lifecycle.status.value if lifecycle else "untracked",
             "lifecycle_target": lifecycle.target_name if lifecycle else None,
             "observation_count": lifecycle.observation_count if lifecycle else None,
-            "consecutive_missing_runs": (
-                lifecycle.consecutive_missing_runs if lifecycle else None
-            ),
+            "consecutive_missing_runs": (lifecycle.consecutive_missing_runs if lifecycle else None),
             "resume_relevance_score": relevance["score"],
             "match_band": relevance["match_band"],
             "matched_skills": relevance["matched_skills"],
@@ -570,8 +563,14 @@ class SilverToGoldRunner:
             "title_match_type": relevance["title_match_type"],
             "family_match": relevance["family_match"],
             "home_region_match": relevance["home_region_match"],
+            "home_base": relevance["home_base"],
+            "home_base_miles": relevance["home_base_miles"],
+            "title_tier": relevance["title_tier"],
+            "avoided_title_keywords": relevance["avoided_title_keywords"],
+            "employment_preferred": relevance["employment_preferred"],
             "pre_cap_score": relevance["pre_cap_score"],
             "score_cap_reason": relevance["score_cap_reason"],
+            "score_cap": relevance["score_cap"],
             "score_components": relevance["score_components"],
             "skills": all_skills,
             "skill_categories": record.skills.categories,
@@ -618,9 +617,7 @@ class SilverToGoldRunner:
                 continue
             importance = "core" if key in core_skill_keys else "supporting"
             importance_weight = (
-                policy.core_skill_weight
-                if importance == "core"
-                else policy.supporting_skill_weight
+                policy.core_skill_weight if importance == "core" else policy.supporting_skill_weight
             )
             skill_match_details.append(
                 {
@@ -634,9 +631,7 @@ class SilverToGoldRunner:
         weighted_skill_matches = sum(
             self._number(detail["weighted_value"]) for detail in skill_match_details
         )
-        skill_signal = min(
-            1.0, weighted_skill_matches / profile.desired_skill_matches
-        )
+        skill_signal = min(1.0, weighted_skill_matches / profile.desired_skill_matches)
 
         title = record.position.normalized_title or record.position.title
         title_tokens = self._tokens(title)
@@ -672,11 +667,30 @@ class SilverToGoldRunner:
                 len(title_tokens & self._tokens(target)) / max(1, len(self._tokens(target)))
                 for target in profile.target_titles
             ]
-            title_signal = min(
-                policy.fuzzy_title_max_signal, max(overlaps, default=0.0)
-            )
+            title_signal = min(policy.fuzzy_title_max_signal, max(overlaps, default=0.0))
             title_match_type = "fuzzy" if title_signal else "none"
             matched_titles = []
+
+        title_tier = next(
+            (
+                tier
+                for tier in profile.title_tiers
+                if any(
+                    self._contains_contiguous_phrase(record.position.title, keyword)
+                    for keyword in tier.keywords
+                )
+            ),
+            None,
+        )
+        if title_tier is not None:
+            title_signal *= title_tier.signal
+        avoided_keywords = [
+            keyword
+            for keyword in profile.avoid_title_keywords
+            if self._contains_contiguous_phrase(record.position.title, keyword)
+        ]
+        if avoided_keywords:
+            title_signal = 0.0
 
         seniority = (record.position.seniority or "unknown").casefold()
         target_seniority = {value.casefold() for value in profile.target_seniority}
@@ -689,10 +703,7 @@ class SilverToGoldRunner:
         )
         minimum_years_signal: float | None = None
         if record.experience.min_years is not None:
-            difference = (
-                record.experience.min_years
-                - policy.maximum_preferred_experience_years
-            )
+            difference = record.experience.min_years - policy.maximum_preferred_experience_years
             if difference <= 0:
                 minimum_years_signal = 1.0
             elif difference <= 2:
@@ -714,13 +725,13 @@ class SilverToGoldRunner:
             )
             if value
         )
-        home_match = any(
+        home_base, home_base_miles = self._nearest_home_base(location_text)
+        home_match = home_base is not None or any(
             self._contains_contiguous_phrase(location_text, region)
             for region in profile.home_regions
         )
         if home_match or (
-            profile.remote_accessible
-            and record.location.workplace_type == WorkplaceType.REMOTE
+            profile.remote_accessible and record.location.workplace_type == WorkplaceType.REMOTE
         ):
             location_signal = 1.0
         elif record.location.workplace_type == WorkplaceType.HYBRID:
@@ -768,23 +779,36 @@ class SilverToGoldRunner:
         )
         pre_cap_score = float(
             round(
-                sum(
-                    self._number(component["points"])
-                    for component in components.values()
-                ),
+                sum(self._number(component["points"]) for component in components.values()),
                 2,
             )
         )
-        score = pre_cap_score
-        score_cap_reason: str | None = None
+        employment_type = record.employment_type.value
+        employment_preferred = (
+            not profile.preferred_employment_types
+            or employment_type == "unknown"
+            or employment_type in profile.preferred_employment_types
+        )
+        caps: list[tuple[float, str]] = []
         if (
             not policy.allow_relocation
             and not home_match
             and record.location.workplace_type == WorkplaceType.ONSITE
-            and score > policy.non_home_onsite_score_cap
         ):
-            score = policy.non_home_onsite_score_cap
-            score_cap_reason = "non_home_onsite_without_relocation"
+            caps.append((policy.non_home_onsite_score_cap, "non_home_onsite_without_relocation"))
+        if avoided_keywords:
+            caps.append((policy.avoided_title_score_cap, "avoided_role_type"))
+        if not employment_preferred and policy.non_preferred_employment_score_cap is not None:
+            caps.append(
+                (policy.non_preferred_employment_score_cap, "non_preferred_employment_type")
+            )
+        score = pre_cap_score
+        score_cap: float | None = None
+        score_cap_reason: str | None = None
+        binding = min(caps, default=None)
+        if binding is not None and score > binding[0]:
+            score_cap, score_cap_reason = binding
+            score = score_cap
         return {
             "rank": 0,
             "job_id": record.metadata.job_id,
@@ -792,6 +816,7 @@ class SilverToGoldRunner:
             "score": score,
             "pre_cap_score": pre_cap_score,
             "score_cap_reason": score_cap_reason,
+            "score_cap": score_cap,
             "match_band": self._match_band(score),
             "title": record.position.title,
             "normalized_title": title,
@@ -811,20 +836,37 @@ class SilverToGoldRunner:
             "title_match_type": title_match_type,
             "family_match": family_match,
             "home_region_match": home_match,
+            "home_base": home_base,
+            "home_base_miles": home_base_miles,
+            "title_tier": title_tier.name if title_tier else None,
+            "avoided_title_keywords": avoided_keywords,
+            "employment_preferred": employment_preferred,
             "score_components": components,
         }
+
+    def _nearest_home_base(self, location_text: str) -> tuple[str | None, float | None]:
+        """Return the closest configured home base the location names, if any."""
+        best: tuple[float, str] | None = None
+        for base in self.profile.home_bases:
+            if base.region_terms and not any(
+                self._contains_contiguous_phrase(location_text, term) for term in base.region_terms
+            ):
+                continue
+            for place, miles in base.places.items():
+                if miles <= base.max_miles and self._contains_contiguous_phrase(
+                    location_text, place
+                ):
+                    if best is None or miles < best[0]:
+                        best = (miles, base.name)
+        return (best[1], best[0]) if best else (None, None)
 
     @staticmethod
     def _salary_statistics(records: list[JobPosting]) -> dict[str, object]:
         minimums = [
-            record.salary.min_amount
-            for record in records
-            if record.salary.min_amount is not None
+            record.salary.min_amount for record in records if record.salary.min_amount is not None
         ]
         maximums = [
-            record.salary.max_amount
-            for record in records
-            if record.salary.max_amount is not None
+            record.salary.max_amount for record in records if record.salary.max_amount is not None
         ]
         midpoints = [
             SilverToGoldRunner._salary_midpoint(record)
@@ -865,9 +907,7 @@ class SilverToGoldRunner:
         return sorted(counts.items(), key=lambda item: (-item[1], item[0].casefold()))
 
     @classmethod
-    def _count_rows(
-        cls, counts: Counter[str], total: int, label: str
-    ) -> list[dict[str, object]]:
+    def _count_rows(cls, counts: Counter[str], total: int, label: str) -> list[dict[str, object]]:
         return [
             {
                 label: value,

@@ -27,7 +27,7 @@ from models.candidate import (
 from utils.config import SkillsConfig
 
 PARSER_NAME = "jmip-rules"
-PARSER_VERSION = "1.0.0"
+PARSER_VERSION = "1.1.0"
 
 SECTION_HEADINGS: dict[str, tuple[str, ...]] = {
     ReviewSection.SKILLS.value: (
@@ -123,6 +123,11 @@ _DEGREE = re.compile(
 _DEGREE_ABBREVIATION = re.compile(
     r"^(B\.S\.|B\.A\.|M\.S\.|M\.A\.|BS|BA|MS|MA|MBA|A\.A\.|A\.S\.|AA|AS|Ph\.?\s?D\.?)\s+(.+)$"
 )
+_GPA = re.compile(
+    r"[.,;|]?\s*\(?\bGPA\b\s*[:=]?\s*(?P<gpa>\d(?:\.\d{1,2})?(?:\s*/\s*\d(?:\.\d{1,2})?)?)\)?\.?",
+    re.IGNORECASE,
+)
+_URL = re.compile(r"(?:https?://|www\.)[^\s|,;]+", re.IGNORECASE)
 _TECH_LABEL = re.compile(r"^(?:technologies|tech stack|tech|tools|stack|built with)\s*:", re.I)
 _LIST_SPLIT = re.compile(r"\s*(?:,|;|\||•|·)\s*")
 _MAX_EVIDENCE = 5
@@ -364,7 +369,9 @@ class ResumeParser:
             if institution_line is None:
                 continue
             institution = _clean(_first_fragment(institution_line.text, _INSTITUTION_WORDS))
-            degree_match = _DEGREE.search(_SINGLE_DATE.sub(" ", block_text))
+            gpa_match = _GPA.search(block_text)
+            degree_text = _GPA.sub(" ", _SINGLE_DATE.sub(" ", block_text))
+            degree_match = _DEGREE.search(degree_text)
             degree, field_of_study = _split_degree(
                 _clean(re.sub(r"\bexpected\b", "", degree_match.group(0), flags=re.I))
                 if degree_match
@@ -376,6 +383,7 @@ class ResumeParser:
                     institution=institution[:200] or institution_line.text[:200],
                     degree=degree,
                     field_of_study=field_of_study,
+                    gpa=re.sub(r"\s+", "", gpa_match.group("gpa")) if gpa_match else None,
                     graduation=_parse_date(dates[-1].group("date")) if dates else None,
                     expected=bool(re.search(r"\b(?:expected|anticipated)\b", block_text, re.I)),
                     evidence=_evidence(text, "education", block[0].start, block[-1].end),
@@ -394,7 +402,9 @@ class ResumeParser:
         facts: list[ProjectFact] = []
         for block in blocks:
             header = block[0]
-            name = _clean(re.split(r"\s*\|\s*|\s+[–—-]\s+", _RANGE.sub(" ", header.text))[0])
+            url_match = _URL.search(header.text)
+            header_text = _URL.sub(" ", header.text)
+            name = _clean(re.split(r"\s*\|\s*|\s+[–—-]\s+", _RANGE.sub(" ", header_text))[0])
             name = _clean(_SINGLE_DATE.sub(" ", name).split(":")[0]) or "Untitled project"
             description_lines = [
                 _BULLET.sub("", line.text).strip()
@@ -410,6 +420,7 @@ class ResumeParser:
                 ProjectFact(
                     name=name[:200],
                     description=" ".join(description_lines)[:2000] or None,
+                    url=url_match.group(0).rstrip(".)")[:500] if url_match else None,
                     technologies=technologies[:40],
                     evidence=_evidence(text, "projects", header.start, header.end),
                 )
@@ -567,9 +578,14 @@ def _split_degree(value: str | None) -> tuple[str | None, str | None]:
     abbreviation = _DEGREE_ABBREVIATION.match(value)
     if abbreviation:
         return abbreviation.group(1), abbreviation.group(2).strip()[:200]
-    match = re.search(r"\s+(?:in|of)\s+(?!Science\b|Arts\b|Business Administration\b)(.+)$", value)
+    value = value.strip().rstrip(".").strip()
+    match = re.search(r"\s+(in|of)\s+(?!Science\b|Arts\b|Business Administration\b)(.+)$", value)
     if match:
-        return value[: match.start()].strip()[:200] or None, match.group(1).strip()[:200]
+        field = match.group(2).strip().rstrip(".")[:200]
+        if match.group(1).casefold() == "of":
+            # "Bachelor of Data Science and Analytics" names the degree in full.
+            return value[:200], field
+        return value[: match.start()].strip()[:200] or None, field
     return value[:200], None
 
 

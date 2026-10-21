@@ -876,6 +876,13 @@ tbody tr:last-child td { border-bottom: 0; }
 .rr-none { margin: 0; white-space: normal; }
 .tracking-field.invalid input { border-color: var(--red); background: #fcf7f7; }
 .rr-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+.rr-check[hidden] { display: none; }
+.rr-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 14px; padding: 8px 12px; border: 1px solid #e3e7ea; border-radius: 4px; background: #fff; }
+.rr-toolbar .rr-check { height: auto; align-self: center; }
+.rr-toolbar .job-meta { min-width: 0; overflow-wrap: anywhere; }
+.rr-editor { display: grid; gap: 10px; }
+.rr-editor .tracking-field { min-width: 0; }
+.rr-editor textarea.rr-text-edit { width: 100%; height: auto; min-height: 52vh; max-height: none; resize: vertical; box-sizing: border-box; color: inherit; }
 .rr-source { position: sticky; top: 12px; min-width: 0; padding: 16px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 5px; }
 .rr-text { max-height: 62vh; overflow: auto; margin: 0; padding: 12px; border: 1px solid #e3e7ea; border-radius: 4px; background: #fbfcfc; font: 0.74rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .rr-text mark { background: #ffe58f; color: inherit; border-radius: 2px; box-shadow: 0 0 0 2px #ffe58f; }

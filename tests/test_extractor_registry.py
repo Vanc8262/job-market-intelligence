@@ -110,10 +110,7 @@ def test_default_configuration_documents_all_target_shapes() -> None:
     ]
     targets_by_name = {target.name: target.model_dump() for target in targets}
     assert targets_by_name["palantir-lever"]["site"] == "palantir"
-    assert (
-        targets_by_name["modmed-workday"]["host"]
-        == "https://modmed.wd501.myworkdayjobs.com"
-    )
+    assert targets_by_name["modmed-workday"]["host"] == "https://modmed.wd501.myworkdayjobs.com"
     assert targets_by_name["modmed-workday"]["tenant"] == "modmed"
     assert targets_by_name["modmed-workday"]["site"] == "ModMed12"
     assert targets_by_name["nextera-energy"]["host"] == "https://jobs.nexteraenergy.com"
@@ -150,8 +147,7 @@ def test_registry_instantiates_every_configured_extractor(tmp_path: Path) -> Non
     assert extractors["acme-nextera"].site == "acme-energy"
     assert extractors["acme-phenom"].tenant == "ACMEUS"
     assert all(
-        extractor.bronze_storage is registry.bronze_storage
-        for extractor in extractors.values()
+        extractor.bronze_storage is registry.bronze_storage for extractor in extractors.values()
     )
     assert all(
         extractor.checkpoint_manager is registry.checkpoint_manager

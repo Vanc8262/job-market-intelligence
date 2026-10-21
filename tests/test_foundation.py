@@ -94,10 +94,7 @@ def test_config_loads_settings_and_sources() -> None:
         config.sources.sources["oracle_recruiting"].access_policy
         == SourceAccessPolicy.UNSUPPORTED_AUTOMATION
     )
-    assert (
-        config.sources.sources["successfactors"].access_policy
-        == SourceAccessPolicy.PARTNER_API
-    )
+    assert config.sources.sources["successfactors"].access_policy == SourceAccessPolicy.PARTNER_API
     assert "programming_languages" in config.skills.categories
     assert config.skills.aliases["Go"] == ["Golang"]
     assert "Data Scientist" in config.resume_profile.target_titles
@@ -110,7 +107,7 @@ def test_config_loads_settings_and_sources() -> None:
     assert config.resume_profile.scoring.allow_relocation is False
     assert config.resume_profile.scoring.strong_match_threshold == 80
     assert config.candidate_collection.per_target_limit == 25
-    assert len(config.candidate_collection.queries) == 6
+    assert len(config.candidate_collection.queries) == 9
     assert config.data_quality.thresholds.valid_title_coverage == 0.99
     assert "usajobs" not in config.sources.sources
 

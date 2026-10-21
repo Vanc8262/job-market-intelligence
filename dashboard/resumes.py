@@ -14,14 +14,13 @@ def load_candidate_profile(service: ResumeIngestionService) -> dict[str, Any]:
     versions = []
     for version in service.repository.list_resume_versions(profile.profile_id):
         extractions = service.repository.list_extractions(version.resume_version_id)
-        approved = next(
-            (item for item in extractions if item.review_status.value == "approved"), None
-        )
+        approved = service.repository.latest_approved_extraction(version.resume_version_id)
         versions.append(
             {
                 **_version_summary(version, profile.active_resume_version_id),
                 "latest_extraction_id": extractions[0].extraction_id if extractions else None,
                 "approved": approved is not None,
+                "approved_extraction_id": approved.extraction_id if approved else None,
             }
         )
     return {
@@ -52,7 +51,10 @@ def load_resume_reviews(service: ResumeIngestionService) -> dict[str, Any]:
         "pending_count": sum(
             item["review_status"] == "pending" and item["can_review"] for item in items
         ),
-        "approved_count": sum(item["review_status"] == "approved" for item in items),
+        "approved_count": sum(
+            item["review_status"] == "approved" and not item["superseded"] for item in items
+        ),
+        "superseded_count": sum(bool(item["superseded"]) for item in items),
     }
 
 
@@ -81,6 +83,7 @@ def _version_summary(version: ResumeVersion, active_id: str | None) -> dict[str,
         "media_type": version.media_type.value,
         "uploaded_at": version.uploaded_at.isoformat(),
         "is_active": version.resume_version_id == active_id,
+        "derived_from_resume_version_id": version.derived_from_resume_version_id,
     }
 
 
@@ -94,6 +97,8 @@ def _extraction_summary(extraction: ResumeExtraction) -> dict[str, Any]:
         "fact_counts": extraction.facts.section_counts(),
         "warning_count": len(extraction.warnings),
         "can_review": extraction.can_review,
+        "superseded": extraction.superseded,
+        "revised_from_extraction_id": extraction.revised_from_extraction_id,
         "created_at": extraction.created_at.isoformat(),
         "parser_version": extraction.parser_version,
     }

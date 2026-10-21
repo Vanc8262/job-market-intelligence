@@ -14,7 +14,7 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SOURCE_DOCX = Path(r"C:\path\to\Job Market Intelligence Research Notes.docx")
+SOURCE_DOCX = Path.home() / "Desktop" / "Job Market Intelligence Research Notes.docx"
 OUTPUT_DOCX = PROJECT_ROOT / "docs" / "Job Market Intelligence Research Notes - Updated.docx"
 
 BLUE = RGBColor(46, 116, 181)
@@ -144,7 +144,9 @@ def add_bullet(doc: Document, text: str) -> None:
     paragraph.paragraph_format.space_after = Pt(4)
 
 
-def add_table(doc: Document, headers: list[str], rows: list[list[str]], widths: list[float]) -> None:
+def add_table(
+    doc: Document, headers: list[str], rows: list[list[str]], widths: list[float]
+) -> None:
     """Add a compact fixed-width table."""
     table = doc.add_table(rows=1, cols=len(headers))
     for index, header in enumerate(headers):
@@ -248,7 +250,10 @@ def add_phase1_update(doc: Document) -> None:
                 "PostingMetadata",
                 "job_id, content_hash, duplicate_hash, ingestion_batch_id, first_seen_at, last_seen_at, posted_at, expires_at, status, is_active, tags; validates date ordering and status-active consistency.",
             ],
-            ["SourceInfo", "name, source_type, url, external_id, fetched_at; source_type uses SourceType enum."],
+            [
+                "SourceInfo",
+                "name, source_type, url, external_id, fetched_at; source_type uses SourceType enum.",
+            ],
             ["CompanyInfo", "name, normalized_name, website, industry."],
             ["PositionInfo", "title, normalized_title, family, seniority."],
             [
@@ -261,9 +266,15 @@ def add_phase1_update(doc: Document) -> None:
             ],
             ["ExperienceInfo", "level, min_years, max_years, raw_text; validates year range."],
             ["EducationInfo", "minimum_degree, preferred_degrees, certifications, raw_text."],
-            ["DescriptionInfo", "raw_text, clean_text, html, responsibilities, qualifications, benefits."],
+            [
+                "DescriptionInfo",
+                "raw_text, clean_text, html, responsibilities, qualifications, benefits.",
+            ],
             ["SkillInfo", "explicit, inferred, categories."],
-            ["RawSourceRecord", "raw_url, raw_payload, raw_text, plus allowed source-specific extras."],
+            [
+                "RawSourceRecord",
+                "raw_url, raw_payload, raw_text, plus allowed source-specific extras.",
+            ],
         ],
         [1.65, 4.85],
     )
@@ -293,8 +304,14 @@ def add_phase1_update(doc: Document) -> None:
                 "skills.yaml",
                 "Skill taxonomy for programming languages, data science, machine learning, data engineering, cloud, and AI.",
             ],
-            ["locations.yaml", "Default country, remote/hybrid keywords, regions, and major markets."],
-            ["salary.yaml", "Supported currencies, pay periods, annual-hours normalization, default period, and salary bands."],
+            [
+                "locations.yaml",
+                "Default country, remote/hybrid keywords, regions, and major markets.",
+            ],
+            [
+                "salary.yaml",
+                "Supported currencies, pay periods, annual-hours normalization, default period, and salary bands.",
+            ],
             ["titles.yaml", "Role families and seniority keywords for later title normalization."],
             [
                 "logging.yaml",
@@ -341,12 +358,26 @@ def add_phase1_update(doc: Document) -> None:
 
     add_heading(doc, "Logging and Operational Utilities", 1)
     add_bullet(doc, "configure_logging() installs console, application, and error sinks from YAML.")
-    add_bullet(doc, "LogContext defines standard component, source, job_id, ingestion_batch_id, run_id, and event fields.")
-    add_bullet(doc, "bind_context() returns a logger pre-bound for a module, source, job, batch, or run.")
-    add_bullet(doc, "log_event() records structured events at standard Loguru levels or the custom SCRAPER level.")
-    add_bullet(doc, "CheckpointManager stores JSON checkpoints for resumable extraction and processing workflows.")
+    add_bullet(
+        doc,
+        "LogContext defines standard component, source, job_id, ingestion_batch_id, run_id, and event fields.",
+    )
+    add_bullet(
+        doc, "bind_context() returns a logger pre-bound for a module, source, job, batch, or run."
+    )
+    add_bullet(
+        doc,
+        "log_event() records structured events at standard Loguru levels or the custom SCRAPER level.",
+    )
+    add_bullet(
+        doc,
+        "CheckpointManager stores JSON checkpoints for resumable extraction and processing workflows.",
+    )
     add_bullet(doc, "retry() provides reusable exponential backoff.")
-    add_bullet(doc, "Hashing utilities generate stable job_id, content_hash, duplicate_hash, and JSON hashes.")
+    add_bullet(
+        doc,
+        "Hashing utilities generate stable job_id, content_hash, duplicate_hash, and JSON hashes.",
+    )
 
     add_heading(doc, "Verification Snapshot", 1)
     add_table(

@@ -20,6 +20,7 @@ from pipeline import (
     DataQualityGateway,
     PostingLifecycleRunner,
 )
+from profiles.profile_source import resolve_resume_profile
 from utils.config import Config
 from utils.logger import configure_logging
 
@@ -72,7 +73,8 @@ def main(argv: list[str] | None = None) -> int:
     selected_targets = [outcome.target_name for outcome in collection.outcomes]
     processing = BronzeToSilverRunner().run(target_names=selected_targets)
     lifecycle = PostingLifecycleRunner().run(collection_summary=collection.summary())
-    gold = SilverToGoldRunner().run()
+    profile, source = resolve_resume_profile(config)
+    gold = SilverToGoldRunner(config, resume_profile=profile, profile_source=source).run()
     quality = DataQualityGateway().run(collection_summary=collection.summary())
     output.update(
         {

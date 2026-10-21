@@ -1,18 +1,38 @@
-# Job-relevant attributes derived from the candidate's resume.
-# Contact details are intentionally excluded from analytics configuration.
+# TEMPLATE job-search preferences used to rank postings, plus a fallback skill list.
+#
+# Copy this file to config/resume_profile.local.yaml (git-ignored) and put your own
+# name, home bases, and preferences there; JMIP reads the local file whenever it exists,
+# so personal details never reach the repository. The values below are examples.
+#
+# Resume content comes from the approved, active resume in the dashboard's Resume
+# review: its skills replace `skills` below and its years of experience set
+# `maximum_preferred_experience_years`. Everything a resume does not say (target roles,
+# home bases, employment types, weights) lives here. Contact details never belong here.
 profile_name: Example Candidate
+# approved_resume: use the approved active resume when one exists (fallback: this file).
+# config: always use the lists in this file.
+resume_source: approved_resume
+
+# Ordered by role tier: Data Science / ML / AI first, then software, then data
+# engineering, analytics, and research.
 target_titles:
   - Data Scientist
-  - Applied Scientist
-  - Research Scientist
   - Machine Learning Engineer
   - ML Engineer
   - AI Engineer
-  - Data Engineer
-  - Analytics Engineer
+  - Applied Scientist
+  - Data Science Intern
+  - Machine Learning Intern
+  - AI Intern
   - Software Engineer
+  - Software Developer
   - Backend Engineer
   - Full Stack Engineer
+  - Software Engineering Intern
+  - Data Engineer
+  - Analytics Engineer
+  - Data Analyst
+  - Research Scientist
 target_families:
   - data_science
   - machine_learning
@@ -21,43 +41,95 @@ target_families:
 target_seniority:
   - entry
   - mid
+
+# The first tier whose keyword appears in a posting title scales its title signal.
+title_tiers:
+  - name: primary
+    signal: 1.0
+    keywords: [data science, data scientist, machine learning, ml, ai, artificial intelligence, deep learning, applied scientist]
+  - name: secondary
+    signal: 0.85
+    keywords: [software engineer, software engineering, software developer, software development, computer science, backend, full stack, developer]
+  - name: lower
+    signal: 0.7
+    keywords: [data engineer, data engineering, data analyst, data analytics, analytics, business intelligence, bi, research]
+
+# Roles that are mainly data entry, admin, spreadsheet, or generic IT support: their
+# title signal drops to zero and the score is capped at `avoided_title_score_cap`.
+avoid_title_keywords:
+  - data entry
+  - administrative
+  - administrative assistant
+  - spreadsheet
+  - help desk
+  - service desk
+  - desktop support
+  - it support
+
+# Example: a student looking for part-time or project-based work alongside classes.
+# Postings with another known type are flagged; set
+# `scoring.non_preferred_employment_score_cap` (for example 79) to also keep them out of
+# the Strong band. Unknown types are never penalized.
+preferred_employment_types:
+  - part_time
+  - internship
+  - contract
+  - temporary
+
+# On-site and hybrid roles should be within about 20-40 miles of a home base; farther
+# roles must be remote. Distances are approximate straight-line miles from the base.
+home_regions: []
+home_bases:
+  - name: Orlando, FL
+    max_miles: 40
+    region_terms: [FL, Florida]
+    places:
+      Orlando: 0
+      Winter Park: 6
+      Maitland: 8
+      Altamonte Springs: 10
+      Lake Mary: 17
+      Kissimmee: 18
+      Sanford: 20
+      Clermont: 22
+  - name: Denver, CO
+    max_miles: 40
+    region_terms: [CO, Colorado]
+    places:
+      Denver: 0
+      Englewood: 7
+      Lakewood: 7
+      Aurora: 9
+      Littleton: 11
+      Westminster: 11
+      Broomfield: 17
+      Boulder: 25
+remote_accessible: true
+
+# Fallback only: used when no approved resume is active.
 skills:
   - Python
   - R
   - SQL
   - NumPy
   - pandas
+  - scikit-learn
   - Java
-  - C
-  - C++
-  - Go
   - JavaScript
-  - HTML5
-  - Tableau
-  - Git
-  - Node.js
   - React
-  - Jenkins
-  - Rancher
+  - Node.js
+  - Git
+  - Docker
   - AWS
   - PostgreSQL
-  - DB2
-  - Spring Boot
   - REST APIs
-  - Grafana
-  - MATLAB
+  - Tableau
   - machine learning
   - deep learning
-  - transfer learning
+  - statistics
   - data structures
   - algorithms
-  - full-stack development
-  - DevOps
 desired_skill_matches: 4
-home_regions:
-  - Florida
-  - FL
-remote_accessible: true
 
 # Recommended balanced profile: skills/title/experience/location = 35/30/20/15.
 # Geography-flexible alternative: 35/30/25/10.
@@ -69,7 +141,8 @@ weights:
   location: 15
 
 scoring:
-  # Core skills carry full importance; all other configured skills carry 60%.
+  # Core skills carry full importance; all other skills carry 60%. Core skills missing
+  # from the approved resume are dropped automatically.
   core_skills:
     - Python
     - SQL
@@ -85,7 +158,7 @@ scoring:
   explicit_skill_evidence: 1.0
   inferred_skill_evidence: 0.7
 
-  # Exact normalized titles and families score 1.0 in code.
+  # Exact normalized titles and families score 1.0 in code, before the tier signal.
   phrase_title_signal: 0.9
   fuzzy_title_max_signal: 0.6
 
@@ -98,6 +171,7 @@ scoring:
     manager: 0.05
     director: 0.05
     executive: 0.05
+  # Replaced by the approved resume's years of experience plus one.
   maximum_preferred_experience_years: 4
   near_experience_signal: 0.5
   excessive_experience_signal: 0.1
@@ -107,6 +181,8 @@ scoring:
   unknown_location_signal: 0.2
   relocation_location_signal: 0.4
   non_home_onsite_score_cap: 79
+  avoided_title_score_cap: 39
+  non_preferred_employment_score_cap: null
 
   strong_match_threshold: 80
   moderate_match_threshold: 60
