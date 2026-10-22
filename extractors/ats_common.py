@@ -90,10 +90,7 @@ class PublicATSExtractor(BaseExtractor):
         external_id = self._raw_external_id(raw_job)
         if external_id is None:
             raise ATSResponseError(f"{self.source_name} payload has no external identifier")
-        return (
-            f"{self.source_name}/{self.storage_scope}/{external_id}/"
-            f"{stable_json_hash(raw_job)}"
-        )
+        return f"{self.source_name}/{self.storage_scope}/{external_id}/{stable_json_hash(raw_job)}"
 
     def save_raw(self, raw_job: dict[str, Any]) -> Path | None:
         """Persist a new raw version while keeping identical snapshots idempotent."""

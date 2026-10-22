@@ -79,14 +79,9 @@ class WorkdayExtractor(PublicATSExtractor):
 
     @property
     def _cxs_url(self) -> str:
-        return (
-            f"{self.host}/wday/cxs/{quote(self.tenant, safe='')}/"
-            f"{quote(self.site, safe='')}"
-        )
+        return f"{self.host}/wday/cxs/{quote(self.tenant, safe='')}/{quote(self.site, safe='')}"
 
-    def search_jobs(
-        self, query: str, location: str | None = None, **filters: object
-    ) -> list[str]:
+    def search_jobs(self, query: str, location: str | None = None, **filters: object) -> list[str]:
         """Search and paginate a Workday career site.
 
         The optional ``facets`` filter accepts the site's native applied-facet

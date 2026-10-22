@@ -23,6 +23,7 @@ class SearchRequest:
     location: str | None = None
     filters: dict[str, object] = field(default_factory=dict)
 
+
 @dataclass(frozen=True)
 class ExtractionResult:
     """Summary produced by a shared extraction run."""
@@ -44,6 +45,7 @@ class ExtractionResult:
     def failed(self) -> int:
         """Return the number of references that failed during extraction."""
         return len(self.failed_references)
+
 
 class BaseExtractor(ABC):
     """Contract and shared workflow for every source-specific extractor.

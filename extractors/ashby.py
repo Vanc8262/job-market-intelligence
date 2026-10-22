@@ -72,17 +72,13 @@ class AshbyExtractor(PublicATSExtractor):
     def _board_url(self) -> str:
         return f"{self.api_base_url}/{quote(self.job_board_name, safe='')}"
 
-    def search_jobs(
-        self, query: str, location: str | None = None, **filters: object
-    ) -> list[str]:
+    def search_jobs(self, query: str, location: str | None = None, **filters: object) -> list[str]:
         """Return Ashby jobs matching canonical search criteria."""
         supported = {"department", "team", "employment_type", "workplace_type"}
         unknown = set(filters) - supported
         if unknown:
             raise ValueError(f"Unsupported Ashby search filters: {', '.join(sorted(unknown))}")
-        payload = self._request_json(
-            "GET", self._board_url, params={"includeCompensation": "true"}
-        )
+        payload = self._request_json("GET", self._board_url, params={"includeCompensation": "true"})
         if not isinstance(payload, dict) or not isinstance(payload.get("jobs"), list):
             raise ATSResponseError("Ashby response is missing a jobs list")
         self._job_cache.clear()

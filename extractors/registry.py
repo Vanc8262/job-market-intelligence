@@ -52,9 +52,7 @@ class ExtractorRegistry:
         self.config = config or Config()
         self.targets = targets or self.config.extractor_targets
         self.source_config = source_config or self.config.sources
-        self.bronze_storage = bronze_storage or BronzeStorage(
-            self.config.settings.paths.bronze_dir
-        )
+        self.bronze_storage = bronze_storage or BronzeStorage(self.config.settings.paths.bronze_dir)
         self.checkpoint_manager = checkpoint_manager or CheckpointManager(
             self.config.settings.paths.checkpoint_dir
         )
@@ -180,9 +178,7 @@ class ExtractorRegistry:
             )
         return definition.access_policy
 
-    def create_enabled(
-        self, *, client: httpx.Client | None = None
-    ) -> dict[str, BaseExtractor]:
+    def create_enabled(self, *, client: httpx.Client | None = None) -> dict[str, BaseExtractor]:
         """Construct every enabled target, keyed by configured target name."""
         return {name: self.create(name, client=client) for name in self.enabled_names}
 

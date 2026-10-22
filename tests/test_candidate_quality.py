@@ -267,6 +267,8 @@ def test_bayesian_gate_reports_and_can_decide(tmp_path: Path) -> None:
     assert location["observed"] == 0.9
     assert location["verdict"] == "uncertain"  # 18 of 20 could still be a 95% source
     assert checks["valid_title_coverage"]["boundary_threshold"] is True
+    assert checks["salary_coverage"]["verdict"] == "estimate"
+    assert "minimum_records" not in checks  # a count, not a rate
     assert report["model"]["stage"] == "B1"
 
     gateway.bayesian = gateway.bayesian.model_copy(update={"mode": "enforce"})

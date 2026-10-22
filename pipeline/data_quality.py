@@ -261,8 +261,8 @@ class DataQualityGateway:
         for metric in metrics:
             if metric.numerator is None or not metric.denominator:
                 continue
-            if metric.comparison not in {"minimum", "maximum"}:
-                continue
+            if metric.comparison not in {"minimum", "maximum", "informational"}:
+                continue  # minimum_records is a count, not a rate
             groups: dict[str, tuple[int, int]] = {}
             predicate = predicates.get(metric.name)
             if predicate is not None:

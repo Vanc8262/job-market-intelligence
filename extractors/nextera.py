@@ -78,9 +78,7 @@ class NextEraExtractor(PublicATSExtractor):
         """Return the public search endpoint."""
         return f"{self.host}/search/"
 
-    def search_jobs(
-        self, query: str, location: str | None = None, **filters: object
-    ) -> list[str]:
+    def search_jobs(self, query: str, location: str | None = None, **filters: object) -> list[str]:
         """Search and paginate public NextEra job links."""
         unknown = set(filters) - {"distance", "searchby"}
         if unknown:
@@ -125,9 +123,7 @@ class NextEraExtractor(PublicATSExtractor):
         raw_html = self._request_text("GET", url)
         soup = BeautifulSoup(raw_html, "lxml")
         title = self._selected_text(soup, "h1")
-        location = self._without_label(
-            self._selected_text(soup, ".jobLocation"), "Location(s):"
-        )
+        location = self._without_label(self._selected_text(soup, ".jobLocation"), "Location(s):")
         company = self._without_label(self._selected_text(soup, ".jobCompany"), "Company:")
         posted_on = self._without_label(self._selected_text(soup, ".jobDate"), "Date:")
         description_node = soup.select_one(".jobdescription")

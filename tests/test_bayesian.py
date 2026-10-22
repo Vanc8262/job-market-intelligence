@@ -150,12 +150,15 @@ def test_sample_size_changes_the_verdict() -> None:
         RateCheck("clear_pass", 4975, 5000, 0.98, "minimum"),
         RateCheck("failure_rate", 2, 200, 0.05, "maximum"),
         RateCheck("all_or_nothing", 9, 10, 1.0, "minimum"),
+        RateCheck("salary_disclosed", 25, 269, 0.0, "informational"),
     )
 
     assert results["small_miss"]["verdict"] == "uncertain"  # 94% of 50 could be 95%
     assert results["large_miss"]["verdict"] == "fail"
     assert results["clear_pass"]["verdict"] == "pass"
     assert results["failure_rate"]["verdict"] == "pass"
+    salary = results["salary_disclosed"]
+    assert salary["verdict"] == "estimate" and salary["probability_meets"] is None
     boundary = results["all_or_nothing"]
     assert boundary["verdict"] == "fail" and boundary["probability_meets"] is None
 

@@ -95,9 +95,7 @@ class PhenomExtractor(PublicATSExtractor):
         """Return the tenant's public search results page."""
         return f"{self.host}{self.path_prefix}/search-results"
 
-    def search_jobs(
-        self, query: str, location: str | None = None, **filters: object
-    ) -> list[str]:
+    def search_jobs(self, query: str, location: str | None = None, **filters: object) -> list[str]:
         """Search and paginate Phenom's embedded refine-search payload."""
         unknown = set(filters) - {"facets"}
         if unknown:
@@ -162,8 +160,7 @@ class PhenomExtractor(PublicATSExtractor):
         title = self._optional_text(summary.get("title")) or "job"
         slug = _SLUG_PATTERN.sub("-", title.casefold()).strip("-") or "job"
         url = (
-            f"{self.host}{self.path_prefix}/job/"
-            f"{quote(reference, safe='')}/{quote(slug, safe='-')}"
+            f"{self.host}{self.path_prefix}/job/{quote(reference, safe='')}/{quote(slug, safe='-')}"
         )
         raw_html = self._request_text("GET", url)
         ddo = self._parse_ddo(raw_html)
@@ -197,9 +194,7 @@ class PhenomExtractor(PublicATSExtractor):
         description_html = self._optional_text(raw_job.get("description"))
         description_text = self._html_to_text(description_html)
         url = self._optional_text(raw_job.get("url"))
-        country = self._optional_text(
-            raw_job.get("standardisedCountry") or raw_job.get("country")
-        )
+        country = self._optional_text(raw_job.get("standardisedCountry") or raw_job.get("country"))
         overview = raw_job.get("ml_job_overview")
         overview_data = overview if isinstance(overview, dict) else {}
         skills = self._string_list(raw_job.get("ml_skills"))

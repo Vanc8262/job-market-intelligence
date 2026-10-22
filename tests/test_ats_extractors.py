@@ -114,6 +114,35 @@ def test_lever_extracts_filters_and_saves_bronze(tmp_path: Path) -> None:
     assert posting.salary.max_amount == 190000
 
 
+def test_lever_reads_requirement_lists_and_closing_text() -> None:
+    extractor = LeverExtractor("acme", company_name="Acme, Inc.", sleep=lambda _seconds: None)
+    raw = {
+        **lever_job(),
+        "lists": [
+            {"text": "What You'll Do", "content": "<li>Ship data pipelines</li>"},
+            {
+                "text": "What We Require",
+                "content": "<li>3+ years of <b>Python</b> and SQL</li><li>Spark</li>",
+            },
+            {"text": "Technologies We Use", "content": "<li>Kubernetes</li>"},
+        ],
+        "additionalPlain": "Benefits include remote work.",
+    }
+
+    posting = extractor.parse_job(raw)
+
+    text = posting.description.clean_text or ""
+    assert text.startswith("Build reliable data products.")
+    assert "What We Require\n- 3+ years of Python and SQL\n- Spark" in text
+    assert text.endswith("Benefits include remote work.")
+    assert posting.description.responsibilities == ["Ship data pipelines"]
+    assert posting.description.qualifications == [
+        "3+ years of Python and SQL",
+        "Spark",
+        "Kubernetes",
+    ]
+
+
 def test_ashby_extracts_compensation_and_skips_unlisted() -> None:
     hidden = {**ashby_job(), "id": "hidden", "isListed": False}
 

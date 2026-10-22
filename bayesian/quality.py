@@ -34,7 +34,7 @@ class RateCheck:
     successes: int
     trials: int
     threshold: float
-    comparison: str  # "minimum" (coverage) or "maximum" (failure rate)
+    comparison: str  # "minimum" (coverage), "maximum" (failure rate), or "informational"
     by_group: Mapping[str, tuple[int, int]] = field(default_factory=dict)
 
 
@@ -54,6 +54,8 @@ def _rule_meets(check: RateCheck, successes: int, trials: int) -> bool:
 
 
 def _boundary(check: RateCheck) -> bool:
+    if check.comparison == "informational":
+        return False
     if check.comparison == "maximum":
         return check.threshold <= 0.0
     return check.threshold >= 1.0
@@ -84,7 +86,11 @@ def evaluate_check(
         "probability_meets": round(probability, 4),
         "verdict": _verdict(probability, settings) if check.trials else "uncertain",
     }
-    if _boundary(check):
+    if check.comparison == "informational":
+        # No threshold to meet: report the estimate and its uncertainty only.
+        result["probability_meets"] = None
+        result["verdict"] = "estimate"
+    elif _boundary(check):
         # A rate can never be shown to be exactly 100% (or 0%): the posterior gives the
         # threshold itself zero probability, so an all-or-nothing rule stays a rule.
         result["probability_meets"] = None
@@ -103,7 +109,9 @@ def evaluate_check(
             if trials < settings.minimum_employer_postings:
                 continue
             group_probability: float | None = None
-            if _boundary(check):
+            if check.comparison == "informational":
+                verdict = "estimate"
+            elif _boundary(check):
                 verdict = "pass" if _rule_meets(check, successes, trials) else "fail"
             else:
                 group_probability = _probability_meets(

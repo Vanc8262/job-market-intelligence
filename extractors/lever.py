@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import copy
+import re
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
 from urllib.parse import quote
 
 import httpx
+from bs4 import BeautifulSoup
 
 from extractors.ats_common import ATSResponseError, PublicATSExtractor
 from models.job_posting import (
@@ -27,6 +29,15 @@ from models.job_posting import (
 from storage.base import BaseStorage
 from utils.checkpoint import CheckpointManager
 from utils.config import Config
+
+_RESPONSIBILITY_HEADINGS = re.compile(
+    r"responsib|what you('|’)ll do|what you will do|the role|day to day|you will", re.I
+)
+_QUALIFICATION_HEADINGS = re.compile(
+    r"qualif|requir|what you('|’)ll need|what you need|you have|about you|skills|"
+    r"experience|who you are|looking for|nice to have|bonus|what we value|technolog",
+    re.I,
+)
 
 
 class LeverExtractor(PublicATSExtractor):
@@ -69,9 +80,7 @@ class LeverExtractor(PublicATSExtractor):
     def _site_url(self) -> str:
         return f"{self.api_base_url}/{quote(self.site, safe='')}"
 
-    def search_jobs(
-        self, query: str, location: str | None = None, **filters: object
-    ) -> list[str]:
+    def search_jobs(self, query: str, location: str | None = None, **filters: object) -> list[str]:
         """Return postings matching text and category filters."""
         supported = {"department", "team", "commitment", "workplace_type"}
         unknown = set(filters) - supported
@@ -114,7 +123,24 @@ class LeverExtractor(PublicATSExtractor):
         category_map = categories if isinstance(categories, dict) else {}
         location = self._optional_text(category_map.get("location"))
         description_html = self._optional_text(raw_job.get("description"))
-        description_text = self._optional_text(raw_job.get("descriptionPlain"))
+        sections = self._list_sections(raw_job.get("lists"))
+        # descriptionPlain is only the opening; the requirements live in `lists` and the
+        # closing text in `additionalPlain`, so the full posting joins all three.
+        description_text = (
+            "\n\n".join(
+                part
+                for part in (
+                    self._optional_text(raw_job.get("descriptionPlain")),
+                    *(
+                        "\n".join([heading, *(f"- {item}" for item in items)])
+                        for heading, items in sections
+                    ),
+                    self._optional_text(raw_job.get("additionalPlain")),
+                )
+                if part
+            )
+            or None
+        )
         salary = self._salary(raw_job)
         url = self._optional_text(raw_job.get("hostedUrl"))
         department = self._optional_text(category_map.get("department"))
@@ -149,12 +175,43 @@ class LeverExtractor(PublicATSExtractor):
                 raw_text=description_text,
                 clean_text=description_text or self._html_to_text(description_html),
                 html=description_html,
+                responsibilities=self._section_items(sections, _RESPONSIBILITY_HEADINGS),
+                qualifications=self._section_items(sections, _QUALIFICATION_HEADINGS),
             ),
             raw=RawSourceRecord.model_validate(
                 {"raw_url": url, "raw_payload": raw_job, "raw_text": description_text}
             ),
         )
         return posting.with_derived_metadata()
+
+    @classmethod
+    def _list_sections(cls, value: object) -> list[tuple[str, list[str]]]:
+        """Return Lever ``lists`` as (heading, bullet texts) pairs."""
+        if not isinstance(value, list):
+            return []
+        sections: list[tuple[str, list[str]]] = []
+        for entry in value:
+            if not isinstance(entry, dict):
+                continue
+            heading = cls._optional_text(entry.get("text")) or ""
+            content = cls._optional_text(entry.get("content")) or ""
+            soup = BeautifulSoup(content, "lxml")
+            items = [
+                " ".join(item.get_text(" ", strip=True).split()) for item in soup.find_all("li")
+            ]
+            if not items and content:
+                text = cls._html_to_text(content)
+                items = [line.strip() for line in (text or "").splitlines() if line.strip()]
+            items = [item for item in items if item]
+            if heading or items:
+                sections.append((heading.strip(), items))
+        return sections
+
+    @staticmethod
+    def _section_items(
+        sections: list[tuple[str, list[str]]], pattern: re.Pattern[str]
+    ) -> list[str]:
+        return [item for heading, items in sections if pattern.search(heading) for item in items]
 
     def _matches(
         self,
