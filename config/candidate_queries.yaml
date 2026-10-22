@@ -1,5 +1,5 @@
 profile_name: resume-aligned-technology-roles
-per_target_limit: 25
+per_target_limit: 50
 # Empty means every enabled extractor target. Override with --target for staged runs.
 target_names: []
 queries:

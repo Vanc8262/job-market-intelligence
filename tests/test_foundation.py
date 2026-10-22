@@ -108,7 +108,7 @@ def test_config_loads_settings_and_sources() -> None:
     }
     assert config.resume_profile.scoring.allow_relocation is False
     assert config.resume_profile.scoring.strong_match_threshold == 80
-    assert config.candidate_collection.per_target_limit == 25
+    assert config.candidate_collection.per_target_limit == 50
     assert len(config.candidate_collection.queries) == 9
     assert config.data_quality.thresholds.valid_title_coverage == 0.99
     assert "usajobs" not in config.sources.sources
