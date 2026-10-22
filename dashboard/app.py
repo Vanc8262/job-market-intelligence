@@ -693,22 +693,35 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Serve the JMIP opportunities dashboard")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--mart", type=Path, default=DEFAULT_MART_PATH)
+    parser.add_argument(
+        "--mart", type=Path, help="Opportunities mart (default: in the configured Gold folder)"
+    )
     parser.add_argument("--tracking", type=Path, default=DEFAULT_TRACKING_PATH)
-    parser.add_argument("--gold-root", type=Path, default=DEFAULT_GOLD_ROOT)
+    parser.add_argument(
+        "--gold-root",
+        type=Path,
+        help="Gold folder (default: settings, or JMIP_PIPELINE_DATA_DIR/gold when set)",
+    )
     return parser
+
+
+def configured_gold_root() -> Path:
+    """Return the Gold folder from settings, honoring JMIP_PIPELINE_DATA_DIR."""
+    return Path(Config().settings.paths.gold_dir)
 
 
 def main(argv: list[str] | None = None) -> int:
     """Run the dashboard until interrupted."""
     args = build_parser().parse_args(argv)
+    gold_root = args.gold_root or configured_gold_root()
+    mart_path = args.mart or gold_root / "current_opportunities" / "mart.json"
     try:
         server = create_server(
             args.host,
             args.port,
-            mart_path=args.mart,
+            mart_path=mart_path,
             tracking_path=args.tracking,
-            gold_root=args.gold_root,
+            gold_root=gold_root,
         )
     except OSError as exc:
         print(
@@ -717,6 +730,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     print(f"JMIP dashboard available at http://{args.host}:{server.server_port}")
+    print(f"Reading Gold data from {gold_root}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

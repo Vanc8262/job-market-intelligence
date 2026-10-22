@@ -342,7 +342,12 @@ function rankingList(items, labelKey, valueKey, limit = 10, formatter = number) 
   const selected = (items || []).slice(0, limit); const maximum = Math.max(...selected.map((item) => Number(item[valueKey] || 0)), 1);
   return `<div class="ranking-list">${selected.map((item) => `<div class="ranking-row"><span class="ranking-label" title="${escapeHtml(formatLabel(item[labelKey]))}">${escapeHtml(formatLabel(item[labelKey]))}</span><span class="ranking-track"><span class="ranking-fill" style="--bar-value:${Math.max(2, Number(item[valueKey] || 0) / maximum * 100)}%"></span></span><span class="ranking-value">${escapeHtml(formatter(item[valueKey]))}</span></div>`).join("")}</div>`;
 }
-function marketTable(headers, rows) { return `<div class="intel-table-shell"><table class="intel-table"><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>`; }
+// Headers take the alignment of their column: numeric cells (and their headers) align right.
+function marketTable(headers, rows) {
+  const firstRow = (rows.match(/<tr[^>]*>([\s\S]*?)<\/tr>/) || [])[1] || "";
+  const numeric = (firstRow.match(/<td[^>]*>/g) || []).map((cell) => /number-cell/.test(cell));
+  return `<div class="intel-table-shell"><table class="intel-table"><thead><tr>${headers.map((header, index) => `<th${numeric[index] ? ' class="number-cell"' : ""}>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
 function qualityList(metrics) { return `<div class="quality-list">${(metrics || []).map((item) => `<div class="quality-row"><span>${escapeHtml(formatLabel(item.name))}</span><span class="${item.passed ? "quality-pass" : "quality-fail"}">${item.passed ? "Passed" : "Failed"} / ${escapeHtml(formatMetricValue(item.value))}</span></div>`).join("")}</div>`; }
 function formatMetricValue(value) { return Number(value) <= 1 ? formatPercent(value) : number(value); }
 
