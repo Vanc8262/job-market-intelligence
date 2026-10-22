@@ -11,6 +11,7 @@ from pathlib import Path
 from statistics import fmean, median
 from uuid import uuid4
 
+from bayesian.skills import skill_share_report
 from models.job_posting import JobPosting, PostingStatus, WorkplaceType
 from models.lifecycle import LifecycleEntry, LifecycleState
 from storage import GoldStorage, SilverStorage
@@ -286,7 +287,22 @@ class SilverToGoldRunner:
             },
             "skills": items,
             "categories": categories,
+            "bayesian": self._bayesian_skill_shares(records),
         }
+
+    def _bayesian_skill_shares(self, records: list[JobPosting]) -> dict[str, object] | None:
+        """Phase 8 B1: skill shares by role family with empirical-Bayes shrinkage."""
+        bayesian = self.config.bayesian
+        if not bayesian.skill_shares.enabled or not records:
+            return None
+        return skill_share_report(
+            (
+                (record.position.family, set(record.skills.explicit) | set(record.skills.inferred))
+                for record in records
+            ),
+            bayesian.skill_shares,
+            credible_level=bayesian.credible_level,
+        )
 
     def _titles_summary(
         self,

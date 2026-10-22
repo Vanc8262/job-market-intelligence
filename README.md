@@ -58,7 +58,7 @@ state and is excluded from version control.
 | 5. Reporting | Dashboard: opportunities, shortlist, tracking, market views, pipeline status, weight simulator | Complete |
 | 6. Candidate workflow | Resume ingestion and extraction (6.1), review with revisions and edited versions (6.2), application comparison (6.3) | 6.1–6.2 complete; 6.3 next |
 | 7. Bayesian evaluation | Labeled benchmark sets, accuracy with credible intervals, calibration checks, and model comparison | Planned (redesigned) |
-| 8. Bayesian analytics | Bayesian quality gate, salary, relevance, survival, and trend models (stages B0–B5) | Planned |
+| 8. Bayesian analytics | Bayesian quality gate, salary, relevance, survival, and trend models (stages B0–B5) | B0–B1 complete; B2–B5 as data accumulates |
 | 9. Deep learning | Title and skill embeddings (for example JobBERT or ModernBERT) as inputs to the Bayesian models | Future |
 
 Application comparison (6.3) scores each posting two ways, **requirement coverage with
@@ -85,8 +85,33 @@ changing a weight or threshold remains a human edit to YAML.
 | B4 Posting survival | Weibull survival with employer/source pooling | Fixed `missing_runs_before_removed` | ~100 observed removals |
 | B5 Market trends | Negative-binomial trends and changepoint detection | Per-run snapshots | 8–12 weeks of daily runs |
 
-Planned stack: PyMC 6 with nutpie, ArviZ 1.0, and Bambi as an optional `bayes` extra.
-The full research and design notes live in the *JMIP Bayesian ML Integration Plan* doc.
+Stack: NumPy and SciPy for the conjugate B1 models (always installed); PyMC 6 with
+nutpie, ArviZ 1.0, and Bambi for sampled models from B2 on, as the optional `bayes`
+extra (`pip install -e ".[bayes]"`). The full research and design notes live in the
+*JMIP Bayesian ML Integration Plan* doc.
+
+**B0 foundation (`bayesian/`, `config/bayesian.yaml`).**
+- `diagnostics.py`: rank-normalized split R-hat (bulk and folded), bulk ESS, and tail
+  ESS following Vehtari et al. (2021), implemented with NumPy/SciPy and checked against
+  ArviZ in the tests. `check_inference_data()` gates any PyMC/ArviZ fit on R-hat ≤ 1.01,
+  bulk and tail ESS ≥ 400, and zero divergences.
+- `beta.py`: conjugate Beta-Binomial posteriors (mean, credible interval, probability of
+  meeting a threshold) and empirical-Bayes priors fitted by maximum marginal likelihood.
+- `records.py`: every Bayesian output carries a model card (name, stage, version,
+  settings hash, advisory flag).
+
+**B1 quality and skills.**
+- *Quality gate* (`bayesian/quality.py`): each coverage or failure rate in
+  `data_quality.yaml` gets a posterior and a verdict from the probability that the true
+  rate meets its threshold: pass (≥ 90%), fail (≤ 10%), or uncertain. Each coverage rate
+  is broken down by employer with an empirical-Bayes prior, naming the employers most
+  likely below threshold. Shown under *Pipeline operations → Data quality*. With
+  `mode: advisory` (default) the rules still decide; `mode: enforce` lets the Bayesian
+  verdicts decide coverage checks. All-or-nothing thresholds (100% or 0%) stay rules.
+- *Skill shares* (`bayesian/skills.py`): every top skill's share comes with a credible
+  interval, and its share within each role family is shrunk toward the skill's typical
+  share across families, so a family with six postings is not reported as "100% ask for
+  Python". Shown under *Market intelligence → Skills*.
 
 ## Design Principles
 
@@ -381,7 +406,7 @@ How it works:
 
 ```powershell
 .\.venv\Scripts\python.exe -m ruff check .
-.\.venv\Scripts\python.exe -m mypy analytics dashboard enrichment extractors models pipeline processors profiles storage utils
+.\.venv\Scripts\python.exe -m mypy analytics bayesian dashboard enrichment extractors models pipeline processors profiles storage utils
 .\.venv\Scripts\python.exe -m pytest
 node --check dashboard/static/app.js
 node --check dashboard/static/resume-review.js

@@ -75,17 +75,13 @@ class ExtractionBatchResult:
     def postings_extracted(self) -> int:
         """Return total canonical postings extracted."""
         return sum(
-            outcome.result.succeeded
-            for outcome in self.outcomes
-            if outcome.result is not None
+            outcome.result.succeeded for outcome in self.outcomes if outcome.result is not None
         )
 
     @property
     def posting_failures(self) -> int:
         """Return total per-reference failures from completed targets."""
-        return sum(
-            outcome.result.failed for outcome in self.outcomes if outcome.result is not None
-        )
+        return sum(outcome.result.failed for outcome in self.outcomes if outcome.result is not None)
 
     @property
     def raw_records_saved(self) -> int:

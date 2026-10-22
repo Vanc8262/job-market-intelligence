@@ -238,3 +238,39 @@ def test_quality_gateway_reports_invalid_silver_rate(tmp_path: Path) -> None:
     assert result.passed is False
     assert result.invalid_records == 1
     assert "invalid_silver_rate" in [metric.name for metric in result.failed_metrics]
+
+
+def test_bayesian_gate_reports_and_can_decide(tmp_path: Path) -> None:
+    gateway, silver, gold = build_quality_gateway(tmp_path)
+    gateway.quality = gateway.quality.model_copy(
+        update={
+            "thresholds": gateway.quality.thresholds.model_copy(
+                update={"known_location_coverage": 0.95, "maximum_extraction_failure_rate": 0.05}
+            )
+        }
+    )
+    for index in range(20):
+        posting = quality_posting(f"job-{index}")
+        if index < 2:
+            posting = posting.model_copy(
+                update={"location": posting.location.model_copy(update={"raw": "Unknown"})}
+            )
+        silver.save(f"fixture/job-{index}", posting)
+
+    advisory = gateway.run(collection_summary=collection_summary())
+
+    assert advisory.decision_basis == "rules"
+    assert "known_location_coverage" in [metric.name for metric in advisory.failed_metrics]
+    report = gold.load("data_quality/latest")["bayesian"]
+    checks = {check["name"]: check for check in report["checks"]}
+    location = checks["known_location_coverage"]
+    assert location["observed"] == 0.9
+    assert location["verdict"] == "uncertain"  # 18 of 20 could still be a 95% source
+    assert checks["valid_title_coverage"]["boundary_threshold"] is True
+    assert report["model"]["stage"] == "B1"
+
+    gateway.bayesian = gateway.bayesian.model_copy(update={"mode": "enforce"})
+    enforced = gateway.run(collection_summary=collection_summary())
+
+    assert enforced.decision_basis == "bayesian"
+    assert enforced.passed is True

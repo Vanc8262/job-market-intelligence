@@ -87,12 +87,8 @@ class PostingLifecycleRunner:
         """Initialize canonical and lifecycle storage."""
         self.config = config or Config()
         self.lifecycle = lifecycle_config or self.config.lifecycle
-        self.silver_storage = silver_storage or SilverStorage(
-            self.config.settings.paths.silver_dir
-        )
-        self.gold_storage = gold_storage or GoldStorage(
-            self.config.settings.paths.gold_dir
-        )
+        self.silver_storage = silver_storage or SilverStorage(self.config.settings.paths.silver_dir)
+        self.gold_storage = gold_storage or GoldStorage(self.config.settings.paths.gold_dir)
 
     def run(
         self,
@@ -385,9 +381,7 @@ class PostingLifecycleRunner:
         self.silver_storage.save(self._silver_key(updated), updated)
         return updated
 
-    def _complete_target_evidence(
-        self, summary: Mapping[str, object]
-    ) -> list[_TargetEvidence]:
+    def _complete_target_evidence(self, summary: Mapping[str, object]) -> list[_TargetEvidence]:
         profile_name = self._required_string(summary, "profile_name")
         targets = summary.get("targets")
         if not isinstance(targets, list):
@@ -403,8 +397,7 @@ class PostingLifecycleRunner:
                 not isinstance(queries, list)
                 or not queries
                 or not all(
-                    isinstance(query, dict) and query.get("succeeded") is True
-                    for query in queries
+                    isinstance(query, dict) and query.get("succeeded") is True for query in queries
                 )
                 or not isinstance(discovered, list)
                 or not isinstance(observations, list)
@@ -439,9 +432,7 @@ class PostingLifecycleRunner:
         failures: list[str] = []
         for path in self.silver_storage.root.rglob("*.json"):
             try:
-                posting = JobPosting.model_validate(
-                    json.loads(path.read_text(encoding="utf-8"))
-                )
+                posting = JobPosting.model_validate(json.loads(path.read_text(encoding="utf-8")))
                 records[posting.metadata.job_id] = posting
             except Exception as exc:
                 failures.append(f"{path.relative_to(self.silver_storage.root)}: {exc}")
@@ -458,9 +449,7 @@ class PostingLifecycleRunner:
             raise TypeError("Latest collection summary must be a JSON object")
         return cast(dict[str, object], payload)
 
-    def _persist(
-        self, state: LifecycleState, result: LifecycleResult
-    ) -> dict[str, Path]:
+    def _persist(self, state: LifecycleState, result: LifecycleResult) -> dict[str, Path]:
         paths = {
             "state": self.gold_storage.path_for("lifecycle/state", ".json"),
             "run": self.gold_storage.path_for(
@@ -470,12 +459,8 @@ class PostingLifecycleRunner:
             "summary": self.gold_storage.path_for("lifecycle/summary", ".json"),
         }
         report = replace(result, output_paths=paths).summary()
-        state_path = self.gold_storage.save(
-            "lifecycle/state", state.model_dump(mode="json")
-        )
-        run_path = self.gold_storage.save(
-            f"lifecycle/runs/{result.collection_run_id}", report
-        )
+        state_path = self.gold_storage.save("lifecycle/state", state.model_dump(mode="json"))
+        run_path = self.gold_storage.save(f"lifecycle/runs/{result.collection_run_id}", report)
         latest_path = self.gold_storage.save("lifecycle/latest", report)
         employer_events = Counter(event.employer for event in result.events)
         summary_path = self.gold_storage.save(

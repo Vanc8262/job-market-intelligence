@@ -324,8 +324,7 @@ class BronzeToSilverRunner:
                             ProcessingFailure(
                                 record=relative.as_posix(),
                                 error=(
-                                    "No configured extractor target matches "
-                                    f"Bronze route {route}"
+                                    f"No configured extractor target matches Bronze route {route}"
                                 ),
                             )
                         )
@@ -343,9 +342,7 @@ class BronzeToSilverRunner:
                     )
                 )
             except Exception as exc:
-                failures.append(
-                    ProcessingFailure(record=relative.as_posix(), error=str(exc))
-                )
+                failures.append(ProcessingFailure(record=relative.as_posix(), error=str(exc)))
 
         snapshots.sort(
             key=lambda item: (
@@ -444,9 +441,7 @@ class BronzeToSilverRunner:
         return payload
 
     @staticmethod
-    def _apply_observation(
-        posting: JobPosting, observed_at: datetime, run_id: str
-    ) -> JobPosting:
+    def _apply_observation(posting: JobPosting, observed_at: datetime, run_id: str) -> JobPosting:
         metadata = posting.metadata.model_copy(
             update={
                 "ingestion_batch_id": run_id,

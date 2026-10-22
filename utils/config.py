@@ -439,6 +439,56 @@ class DataQualityThresholds(BaseModel):
     maximum_extraction_failure_rate: float = Field(default=0.05, ge=0, le=1)
 
 
+class BayesianDiagnosticsConfig(BaseModel):
+    """Convergence gate every sampled (MCMC) Phase 8 model must pass."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    max_rhat: float = Field(default=1.01, ge=1.0)
+    min_ess_bulk: float = Field(default=400, ge=1)
+    min_ess_tail: float = Field(default=400, ge=1)
+    max_divergences: int = Field(default=0, ge=0)
+
+
+class BayesianQualityGateConfig(BaseModel):
+    """B1: Beta-Binomial evaluation of the data-quality coverage thresholds."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    version: str = Field(default="1.0.0", min_length=1)
+    prior_alpha: float = Field(default=0.5, gt=0)
+    prior_beta: float = Field(default=0.5, gt=0)
+    pass_probability: float = Field(default=0.9, gt=0.5, lt=1)
+    fail_probability: float = Field(default=0.1, gt=0, lt=0.5)
+    minimum_employer_postings: int = Field(default=3, ge=1)
+
+
+class BayesianSkillSharesConfig(BaseModel):
+    """B1: empirical-Bayes shrinkage of skill shares within role families."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    version: str = Field(default="1.0.0", min_length=1)
+    top_skills: int = Field(default=40, ge=1)
+    minimum_family_postings: int = Field(default=5, ge=1)
+    fallback_prior_strength: float = Field(default=10, gt=0)
+    max_prior_strength: float = Field(default=1000, gt=0)
+
+
+class BayesianConfig(BaseModel):
+    """Validated contents of bayesian.yaml (Phase 8)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["advisory", "enforce"] = "advisory"
+    credible_level: float = Field(default=0.9, gt=0.5, lt=1)
+    diagnostics: BayesianDiagnosticsConfig = Field(default_factory=BayesianDiagnosticsConfig)
+    quality_gate: BayesianQualityGateConfig = Field(default_factory=BayesianQualityGateConfig)
+    skill_shares: BayesianSkillSharesConfig = Field(default_factory=BayesianSkillSharesConfig)
+
+
 class DataQualityConfig(BaseModel):
     """Configuration for canonical and extraction quality evaluation."""
 
@@ -662,6 +712,7 @@ class Config:
         self._resume_profile: ResumeProfileConfig | None = None
         self._candidate_collection: CandidateCollectionConfig | None = None
         self._data_quality: DataQualityConfig | None = None
+        self._bayesian: BayesianConfig | None = None
         self._lifecycle: LifecycleConfig | None = None
         self._companies: GenericYamlConfig | None = None
         self._salary: GenericYamlConfig | None = None
@@ -738,6 +789,15 @@ class Config:
                 "candidate_queries.yaml",
             )
         return self._candidate_collection
+
+    @property
+    def bayesian(self) -> BayesianConfig:
+        """Return Phase 8 Bayesian model settings (defaults when the file is absent)."""
+        if self._bayesian is None:
+            path = self._config_dir / "bayesian.yaml"
+            data = self._read_yaml("bayesian.yaml") if path.exists() else {}
+            self._bayesian = self._validate(BayesianConfig, data, "bayesian.yaml")
+        return self._bayesian
 
     @property
     def data_quality(self) -> DataQualityConfig:
@@ -825,6 +885,7 @@ class Config:
         self._resume_profile = None
         self._candidate_collection = None
         self._data_quality = None
+        self._bayesian = None
         self._lifecycle = None
         self._companies = None
         self._salary = None

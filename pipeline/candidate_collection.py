@@ -126,11 +126,7 @@ class CandidateCollectionResult:
     @property
     def search_failures(self) -> int:
         """Return query-target searches that failed."""
-        return sum(
-            not query.succeeded
-            for outcome in self.outcomes
-            for query in outcome.queries
-        )
+        return sum(not query.succeeded for outcome in self.outcomes for query in outcome.queries)
 
     @property
     def references_discovered(self) -> int:
@@ -146,19 +142,13 @@ class CandidateCollectionResult:
     def postings_extracted(self) -> int:
         """Return references fetched and parsed successfully."""
         return sum(
-            outcome.result.succeeded
-            for outcome in self.outcomes
-            if outcome.result is not None
+            outcome.result.succeeded for outcome in self.outcomes if outcome.result is not None
         )
 
     @property
     def posting_failures(self) -> int:
         """Return selected references that failed fetch or parsing."""
-        return sum(
-            outcome.result.failed
-            for outcome in self.outcomes
-            if outcome.result is not None
-        )
+        return sum(outcome.result.failed for outcome in self.outcomes if outcome.result is not None)
 
     @property
     def raw_records_saved(self) -> int:
@@ -226,9 +216,7 @@ class CandidateCollectionRunner:
         self.registry = registry or ExtractorRegistry()
         self.config: Config = self.registry.config
         self.profile = self.config.candidate_collection
-        self.gold_storage = gold_storage or GoldStorage(
-            self.config.settings.paths.gold_dir
-        )
+        self.gold_storage = gold_storage or GoldStorage(self.config.settings.paths.gold_dir)
 
     def run(
         self,

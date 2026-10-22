@@ -293,8 +293,10 @@ function renderMarketOverview() {
 
 function renderSkillsView() {
   const summary = state.market.summaries.skills;
-  const rows = (summary.skills || []).slice(0, 40).map((item) => `<tr><td><strong>${escapeHtml(item.skill)}</strong></td><td>${escapeHtml((item.categories || []).map(formatLabel).join(", ") || "Uncategorized")}</td><td class="number-cell">${number(item.posting_count)}</td><td class="number-cell">${formatPercent(item.posting_share)}</td><td class="number-cell">${number(item.explicit_count)}</td><td class="number-cell">${number(item.inferred_count)}</td></tr>`).join("");
-  return `<div class="intel-grid"><section class="intel-block">${intelHeading("Skill categories", "Share of analyzed postings")}${rankingList(summary.categories, "category", "posting_count", 10)}</section><section class="intel-block">${intelHeading("Coverage", "Canonical extraction signal")}<div class="coverage-pair"><div><strong>${number(summary.coverage.postings_with_skills)}</strong><span>Postings with skills / ${formatPercent(summary.coverage.posting_share)}</span></div><div><strong>${number(summary.coverage.distinct_skills)}</strong><span>Distinct normalized skills</span></div></div></section><section class="intel-block wide">${intelHeading("Top skills", "Explicit and inferred evidence")}${marketTable(["Skill", "Category", "Postings", "Share", "Explicit", "Inferred"], rows)}</section></div>`;
+  const bayes = summary.bayesian;
+  const intervals = new Map((bayes?.skills || []).map((row) => [row.skill, row.interval]));
+  const rows = (summary.skills || []).slice(0, 40).map((item) => `<tr><td><strong>${escapeHtml(item.skill)}</strong></td><td>${escapeHtml((item.categories || []).map(formatLabel).join(", ") || "Uncategorized")}</td><td class="number-cell">${number(item.posting_count)}</td><td class="number-cell">${formatPercent(item.posting_share)}</td><td class="number-cell">${intervalText(intervals.get(item.skill))}</td><td class="number-cell">${number(item.explicit_count)}</td><td class="number-cell">${number(item.inferred_count)}</td></tr>`).join("");
+  return `<div class="intel-grid"><section class="intel-block">${intelHeading("Skill categories", "Share of analyzed postings")}${rankingList(summary.categories, "category", "posting_count", 10)}</section><section class="intel-block">${intelHeading("Coverage", "Canonical extraction signal")}<div class="coverage-pair"><div><strong>${number(summary.coverage.postings_with_skills)}</strong><span>Postings with skills / ${formatPercent(summary.coverage.posting_share)}</span></div><div><strong>${number(summary.coverage.distinct_skills)}</strong><span>Distinct normalized skills</span></div></div></section><section class="intel-block wide">${intelHeading("Top skills", "Explicit and inferred evidence")}${marketTable(["Skill", "Category", "Postings", "Share", `${Math.round((bayes?.credible_level || 0.9) * 100)}% interval`, "Explicit", "Inferred"], rows)}</section>${skillFamilyBlock(bayes)}</div>`;
 }
 
 function renderRolesView() {
@@ -324,6 +326,17 @@ function renderCompensationView() {
 }
 
 function marketKpi(label, value, detail) { const displayValue = typeof value === "number" ? number(value) : String(value ?? "0"); return `<div class="intel-kpi"><span>${escapeHtml(label)}</span><strong>${escapeHtml(displayValue)}</strong><small>${escapeHtml(detail)}</small></div>`; }
+// Phase 8 B1: shrunk skill shares by role family, with credible intervals.
+function skillFamilyBlock(bayes) {
+  if (!bayes || !(bayes.families || []).length) return "";
+  const families = bayes.families.slice(0, 5);
+  const level = Math.round((bayes.credible_level || 0.9) * 100);
+  const rows = (bayes.skills || []).slice(0, 12).map((row) => `<tr><td><strong>${escapeHtml(row.skill)}</strong></td>${families.map((family) => { const cell = row.by_family?.[family.family]; return cell ? `<td class="number-cell" title="Raw ${formatPercent(cell.raw_share)} (${number(cell.count)} of ${number(family.postings)}); ${level}% interval ${intervalText(cell)}">${formatPercent(cell.mean)}<small class="job-meta"> ${intervalText(cell)}</small></td>` : `<td class="number-cell">–</td>`; }).join("")}</tr>`).join("");
+  return `<section class="intel-block wide">${intelHeading("Skill demand by role family", `Bayesian estimate with ${level}% interval; small families borrow strength from the rest`)}${marketTable(["Skill", ...families.map((family) => `${formatLabel(family.family)} (${number(family.postings)})`)], rows)}</section>`;
+}
+
+function intervalText(interval) { return interval ? `${formatPercent(interval.low)}–${formatPercent(interval.high)}` : "–"; }
+
 function intelHeading(title, detail) { return `<div class="intel-heading"><h2>${escapeHtml(title)}</h2><span>${escapeHtml(detail)}</span></div>`; }
 function rankingList(items, labelKey, valueKey, limit = 10, formatter = number) {
   const selected = (items || []).slice(0, limit); const maximum = Math.max(...selected.map((item) => Number(item[valueKey] || 0)), 1);
@@ -551,9 +564,11 @@ function renderCollectionOperations() {
 
 function renderQualityOperations() {
   const quality = state.operations.quality;
-  const rows = (quality.metrics || []).map((metric) => `<tr><td><strong>${escapeHtml(formatLabel(metric.name))}</strong><span class="job-meta">${metric.blocking ? "Blocking" : "Advisory"}</span></td><td>${opsBadge(metric.passed ? "Passed" : "Failed", metric.passed ? "" : "failed")}</td><td class="number-cell">${escapeHtml(formatQualityValue(metric.value, metric))}</td><td class="number-cell">${escapeHtml(formatLabel(metric.comparison))} ${escapeHtml(formatQualityValue(metric.threshold, metric))}</td><td class="number-cell">${metric.available ? "Yes" : "No"}</td></tr>`).join("");
+  const bayes = quality.bayesian;
+  const bayesChecks = new Map((bayes?.checks || []).map((check) => [check.name, check]));
+  const rows = (quality.metrics || []).map((metric) => `<tr><td><strong>${escapeHtml(formatLabel(metric.name))}</strong><span class="job-meta">${metric.blocking ? "Blocking" : "Advisory"}</span></td><td>${opsBadge(metric.passed ? "Passed" : "Failed", metric.passed ? "" : "failed")}</td><td class="number-cell">${escapeHtml(formatQualityValue(metric.value, metric))}</td><td class="number-cell">${escapeHtml(formatLabel(metric.comparison))} ${escapeHtml(formatQualityValue(metric.threshold, metric))}</td><td class="number-cell">${metric.available ? "Yes" : "No"}</td><td>${bayesianCell(bayesChecks.get(metric.name))}</td></tr>`).join("");
   const failed = quality.failed_metrics || [];
-  return `<div class="intel-grid"><section class="ops-status-line ${quality.passed ? "" : "failed"} wide"><div><strong>${quality.passed ? "Quality gateway passed" : `${number(failed.length)} blocking checks failed`}</strong><span>${number(quality.valid_records)} valid records, ${number(quality.invalid_records)} invalid records, generated ${escapeHtml(formatTimestamp(quality.generated_at))}.</span></div></section><section class="intel-block wide">${intelHeading("Quality metrics", `${number((quality.metrics || []).length)} evaluated checks`)}${marketTable(["Metric", "Status", "Current", "Threshold", "Available"], rows)}</section></div>`;
+  return `<div class="intel-grid"><section class="ops-status-line ${quality.passed ? "" : "failed"} wide"><div><strong>${quality.passed ? "Quality gateway passed" : `${number(failed.length)} blocking checks failed`}</strong><span>${number(quality.valid_records)} valid records, ${number(quality.invalid_records)} invalid records, generated ${escapeHtml(formatTimestamp(quality.generated_at))}.</span></div></section><section class="intel-block wide">${intelHeading("Quality metrics", `${number((quality.metrics || []).length)} evaluated checks`)}${marketTable(["Metric", "Status", "Current", "Threshold", "Available", "Bayesian (B1)"], rows)}</section>${bayesianEmployerBlock(bayes)}</div>`;
 }
 
 function renderLifecycleOperations() {
@@ -571,6 +586,21 @@ function renderGoldOperations() {
 }
 
 function stageRow(name, status, detail, timestamp, freshness) { const age = freshness?.age_hours == null ? "age unavailable" : `${number(freshness.age_hours)}h old`; return `<div class="ops-stage"><span class="stage-indicator ${status}"></span><strong>${escapeHtml(name)}${status === "stale" ? `<small>${escapeHtml(age)}</small>` : ""}</strong><span>${escapeHtml(detail)}</span><time>${escapeHtml(formatTimestamp(timestamp))}</time></div>`; }
+// Phase 8 B1: probability that each rate truly meets its threshold.
+function bayesianCell(check) {
+  if (!check) return `<span class="job-meta">–</span>`;
+  const style = check.verdict === "fail" ? "failed" : check.verdict === "uncertain" ? "warning" : "";
+  const detail = check.probability_meets === null || check.probability_meets === undefined ? "all-or-nothing rule" : `P(meets) ${formatPercent(check.probability_meets)}`;
+  return `${opsBadge(formatLabel(check.verdict), style)}<span class="job-meta"> ${escapeHtml(detail)} · ${intervalText(check.posterior)}</span>`;
+}
+
+function bayesianEmployerBlock(bayes) {
+  if (!bayes) return "";
+  const rows = (bayes.checks || []).flatMap((check) => (check.by_employer?.rows || []).filter((row) => row.verdict !== "pass").slice(0, 5).map((row) => `<tr><td><strong>${escapeHtml(formatLabel(check.name))}</strong></td><td>${escapeHtml(row.employer)}</td><td class="number-cell">${number(row.successes)} / ${number(row.trials)}</td><td class="number-cell">${formatPercent(row.posterior.mean)} <small class="job-meta">${intervalText(row.posterior)}</small></td><td>${opsBadge(formatLabel(row.verdict), row.verdict === "fail" ? "failed" : "warning")}</td></tr>`)).join("");
+  const mode = bayes.mode === "enforce" ? "Bayesian verdicts decide coverage checks" : "Advisory: rule thresholds still decide pass or fail";
+  return `<section class="intel-block wide">${intelHeading("Employers below threshold (Bayesian)", mode)}${rows ? marketTable(["Check", "Employer", "Postings", "Estimated rate", "Verdict"], rows) : `<div class="intel-empty">No employer is likely or possibly below a threshold</div>`}</section>`;
+}
+
 function opsBadge(label, style = "") { return `<span class="ops-badge ${style}">${escapeHtml(label)}</span>`; }
 function opsMeta(items) { return `<div class="ops-meta">${items.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value ?? "Not available")}</strong></div>`).join("")}</div>`; }
 function formatDuration(start, end) { const seconds = Math.max(0, (new Date(end) - new Date(start)) / 1000); if (!Number.isFinite(seconds)) return "Unknown"; if (seconds < 60) return `${Math.round(seconds)} sec`; const minutes = Math.floor(seconds / 60); const remainder = Math.round(seconds % 60); return `${minutes}m ${remainder}s`; }

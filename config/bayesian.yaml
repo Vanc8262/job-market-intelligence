@@ -1,0 +1,39 @@
+# Phase 8 Bayesian models. Every model is versioned here and stays advisory: it reports
+# beside the rule it extends, and changing a weight or threshold remains a human edit.
+#
+# mode: advisory  - Bayesian verdicts are reported but never change pass/fail.
+#       enforce   - the data-quality gate uses the Bayesian verdicts for coverage checks
+#                   (a check fails only when it is probably below its threshold).
+mode: advisory
+# Width of every reported credible interval.
+credible_level: 0.9
+
+# B0: convergence gate for sampled (MCMC) models, from B2 onward.
+diagnostics:
+  max_rhat: 1.01
+  min_ess_bulk: 400
+  min_ess_tail: 400
+  max_divergences: 0
+
+# B1: Beta-Binomial evaluation of the data_quality.yaml coverage thresholds.
+quality_gate:
+  enabled: true
+  version: 1.0.0
+  # Jeffreys prior, Beta(0.5, 0.5): weakly informative for a rate.
+  prior_alpha: 0.5
+  prior_beta: 0.5
+  # Pass when P(rate meets threshold) >= 0.9, fail when <= 0.1, otherwise uncertain.
+  pass_probability: 0.9
+  fail_probability: 0.1
+  # Employers with fewer postings than this are still pooled but not listed.
+  minimum_employer_postings: 3
+
+# B1: empirical-Bayes shrinkage of skill shares within role families.
+skill_shares:
+  enabled: true
+  version: 1.0.0
+  top_skills: 40
+  minimum_family_postings: 5
+  # Prior pseudo-counts when too few families exist to fit one.
+  fallback_prior_strength: 10
+  max_prior_strength: 1000

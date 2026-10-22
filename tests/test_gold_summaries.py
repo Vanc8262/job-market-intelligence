@@ -198,6 +198,9 @@ def test_gold_runner_builds_all_summaries_and_resume_ranking(tmp_path: Path) -> 
 
     skills = gold.load("skills/summary")
     assert skills["coverage"]["postings_with_skills"] == 2
+    shrinkage = skills["bayesian"]
+    assert shrinkage["model"]["name"] == "skill_shares" and shrinkage["postings"] == 2
+    assert all(row["interval"]["low"] <= row["share"] for row in shrinkage["skills"])
     assert skills["skills"][0]["posting_count"] == 1
     assert {row["skill"] for row in skills["skills"]} == {
         "AWS",

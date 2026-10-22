@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections import Counter
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
+from bayesian.quality import RateCheck, evaluate_quality
 from models.job_posting import JobPosting, PostingStatus
 from storage import GoldStorage, SilverStorage
 from utils.config import Config
@@ -60,6 +63,8 @@ class DataQualityResult:
     metrics: list[QualityMetric]
     invalid_record_errors: list[dict[str, str]] = field(default_factory=list)
     output_paths: dict[str, Path] = field(default_factory=dict)
+    bayesian: dict[str, object] | None = None
+    decision_basis: str = "rules"
 
     @property
     def failed_metrics(self) -> list[QualityMetric]:
@@ -79,6 +84,8 @@ class DataQualityResult:
             "metrics": [metric.summary() for metric in self.metrics],
             "failed_metrics": [metric.name for metric in self.failed_metrics],
             "invalid_record_errors": self.invalid_record_errors,
+            "decision_basis": self.decision_basis,
+            "bayesian": self.bayesian,
         }
 
 
@@ -95,12 +102,9 @@ class DataQualityGateway:
         """Initialize shared quality configuration and storage layers."""
         self.config = config or Config()
         self.quality = self.config.data_quality
-        self.silver_storage = silver_storage or SilverStorage(
-            self.config.settings.paths.silver_dir
-        )
-        self.gold_storage = gold_storage or GoldStorage(
-            self.config.settings.paths.gold_dir
-        )
+        self.bayesian = self.config.bayesian
+        self.silver_storage = silver_storage or SilverStorage(self.config.settings.paths.silver_dir)
+        self.gold_storage = gold_storage or GoldStorage(self.config.settings.paths.gold_dir)
 
     def run(
         self,
@@ -188,7 +192,19 @@ class DataQualityGateway:
                 blocking=False,
             )
         )
-        passed = all(metric.passed for metric in metrics if metric.blocking)
+        bayesian = self._bayesian_assessment(metrics, market_records)
+        verdicts: dict[str, str] = {}
+        if bayesian is not None:
+            for check in cast(list[dict[str, object]], bayesian["checks"]):
+                verdicts[str(check["name"])] = str(check["verdict"])
+        enforce = bayesian is not None and self.bayesian.mode == "enforce"
+        passed = all(
+            (verdicts[metric.name] != "fail")
+            if enforce and metric.name in verdicts
+            else metric.passed
+            for metric in metrics
+            if metric.blocking
+        )
         collection_run_id = self._optional_string(
             operational.get("run_id") if operational is not None else None
         )
@@ -202,6 +218,8 @@ class DataQualityGateway:
             collection_run_id=collection_run_id,
             metrics=metrics,
             invalid_record_errors=errors,
+            bayesian=bayesian,
+            decision_basis="bayesian" if enforce else "rules",
         )
         summary = result.summary()
         run_path = self.gold_storage.save(f"data_quality/runs/{active_run_id}", summary)
@@ -224,6 +242,54 @@ class DataQualityGateway:
         )
         return result
 
+    def _bayesian_assessment(
+        self, metrics: list[QualityMetric], records: list[JobPosting]
+    ) -> dict[str, object] | None:
+        """Phase 8 B1: posterior probability that each rate meets its threshold."""
+        settings = self.bayesian.quality_gate
+        if not settings.enabled:
+            return None
+        predicates: dict[str, Callable[[JobPosting], bool]] = {
+            "valid_title_coverage": self._valid_title,
+            "known_location_coverage": self._known_location,
+            "description_coverage": self._has_description,
+            "source_url_coverage": lambda record: record.source.url is not None,
+            "external_id_coverage": lambda record: bool(record.source.external_id),
+            "skill_coverage": lambda record: bool(record.skills.explicit or record.skills.inferred),
+        }
+        checks: list[RateCheck] = []
+        for metric in metrics:
+            if metric.numerator is None or not metric.denominator:
+                continue
+            if metric.comparison not in {"minimum", "maximum"}:
+                continue
+            groups: dict[str, tuple[int, int]] = {}
+            predicate = predicates.get(metric.name)
+            if predicate is not None:
+                totals: Counter[str] = Counter()
+                hits: Counter[str] = Counter()
+                for record in records:
+                    employer = record.company.normalized_name or record.company.name
+                    totals[employer] += 1
+                    hits[employer] += int(predicate(record))
+                groups = {name: (hits[name], totals[name]) for name in totals}
+            checks.append(
+                RateCheck(
+                    name=metric.name,
+                    successes=int(metric.numerator),
+                    trials=int(metric.denominator),
+                    threshold=metric.threshold,
+                    comparison=metric.comparison,
+                    by_group=groups,
+                )
+            )
+        return evaluate_quality(
+            checks,
+            settings,
+            credible_level=self.bayesian.credible_level,
+            mode=self.bayesian.mode,
+        )
+
     def _load_silver(
         self,
     ) -> tuple[list[JobPosting], int, list[dict[str, str]]]:
@@ -245,9 +311,7 @@ class DataQualityGateway:
         payload = self.gold_storage.load("collection/latest")
         return payload if isinstance(payload, dict) else None
 
-    def _extraction_metric(
-        self, operational: Mapping[str, object] | None
-    ) -> QualityMetric:
+    def _extraction_metric(self, operational: Mapping[str, object] | None) -> QualityMetric:
         threshold = self.quality.thresholds.maximum_extraction_failure_rate
         if operational is None:
             required = self.quality.require_collection_summary
