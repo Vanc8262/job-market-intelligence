@@ -63,10 +63,17 @@ def test_skill_normalization_canonicalizes_deduplicates_and_categorizes() -> Non
     normalized = JobPostingNormalizer().normalize(posting_for_normalization())
 
     assert normalized.skills.explicit == ["Python", "Custom Tool"]
-    assert normalized.skills.inferred == ["SQL", "JavaScript", "PyTorch", "AWS"]
+    # "ML" in the title is the exact-case alias of machine learning.
+    assert normalized.skills.inferred == [
+        "SQL",
+        "JavaScript",
+        "machine learning",
+        "PyTorch",
+        "AWS",
+    ]
     assert normalized.skills.categories == {
         "programming_languages": ["Python", "SQL", "JavaScript"],
-        "machine_learning": ["PyTorch"],
+        "machine_learning": ["machine learning", "PyTorch"],
         "cloud": ["AWS"],
     }
     assert "Java" not in normalized.skills.inferred
@@ -153,3 +160,42 @@ def test_normalization_is_idempotent_and_preserves_raw_record() -> None:
 
     assert second == first
     assert second.raw == posting.raw
+
+
+def _skills_for(text: str, title: str = "Software Engineer") -> list[str]:
+    posting = posting_for_normalization().model_copy(
+        update={
+            "position": PositionInfo(title=title),
+            "description": DescriptionInfo(clean_text=text),
+            "skills": SkillInfo(),
+        }
+    )
+    return JobPostingNormalizer().normalize(posting).skills.inferred
+
+
+def test_go_needs_programming_context() -> None:
+    real = [
+        "Strong programming skills in Python, Go, Scala, Java, or similar languages.",
+        "Deep experience using Go in production environments.",
+        "Contribute to runtime ecosystems such as Go and tackle novel problems.",
+        "Nice-to-haves include Golang, Terraform, and EKS.",
+        "Systems-level programming experience in Rust, C, or C++, ideally Go.",
+    ]
+    everyday = [
+        "Partner with our go-to-market organization on pricing.",
+        "Guide customers from discovery through go-live and optimisation.",
+        "A desire to go above and beyond for every customer.",
+        "Speed and quality go hand in hand.",
+        "The BT Go-To-Market (GTM) Platform team owns forecasting.",
+        "You can expect to: Go onsite and meet with customer analysts.",
+    ]
+    for text in real:
+        assert "Go" in _skills_for(text), text
+    for text in everyday:
+        assert "Go" not in _skills_for(text), text
+
+
+def test_short_aliases_match_exact_case_only() -> None:
+    assert "machine learning" in _skills_for("You will own ML systems end to end.")
+    assert "LLMs" in _skills_for("Build LLM evaluation harnesses.")
+    assert "machine learning" not in _skills_for("Tickets are 1 ml of paperwork.")

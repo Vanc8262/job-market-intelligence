@@ -15,7 +15,7 @@ from models.job_posting import (
     SkillInfo,
     WorkplaceType,
 )
-from utils.config import Config
+from utils.config import AmbiguousSkillRule, Config
 
 _SPACE_PATTERN = re.compile(r"\s+")
 _SALARY_AMOUNT_PATTERN = re.compile(
@@ -35,9 +35,7 @@ class JobPostingNormalizer:
         """Return a deeply copied posting with normalized canonical fields."""
         normalized = posting.model_copy(deep=True)
         normalized.position = self._normalize_position(normalized.position)
-        normalized.company.normalized_name = self._normalize_company_name(
-            normalized.company.name
-        )
+        normalized.company.normalized_name = self._normalize_company_name(normalized.company.name)
         normalized.location = self._normalize_location(normalized.location)
         normalized.salary = self._normalize_salary(normalized.salary)
         normalized.skills = self._normalize_skills(normalized)
@@ -212,9 +210,9 @@ class JobPostingNormalizer:
             self._append_unique(explicit, canonical)
 
         inferred: list[str] = []
-        for configured_skills in categories.values():
+        for category, configured_skills in categories.items():
             for skill in configured_skills:
-                if self._contains_phrase(haystack, skill) and not self._contains_value(
+                if self._mentions_skill(haystack, skill, category) and not self._contains_value(
                     explicit, skill
                 ):
                     self._append_unique(inferred, skill)
@@ -311,10 +309,65 @@ class JobPostingNormalizer:
                 cls._append_unique(countries, country)
         return countries
 
+    def _mentions_skill(self, text: str, skill: str, category: str) -> bool:
+        """Return whether ``text`` mentions ``skill`` or one of its aliases.
+
+        Short aliases (``ML``, ``JS``) must match their exact case; skills with an
+        ambiguity rule (``Go``) also need technical context around the mention.
+        """
+        skills_config = self.config.skills
+        rule = skills_config.ambiguous.get(skill)
+        if rule is None:
+            if self._contains_phrase(text, skill):
+                return True
+        elif self._ambiguous_mention(text, skill, rule, skills_config.categories[category]):
+            return True
+        for alias in skills_config.aliases.get(skill, []):
+            exact_case = " " not in alias and len(alias) <= 4
+            if self._contains_phrase(text, alias, case_sensitive=exact_case):
+                return True
+        return False
+
+    @classmethod
+    def _ambiguous_mention(
+        cls, text: str, skill: str, rule: AmbiguousSkillRule, related: list[str]
+    ) -> bool:
+        flags = 0 if rule.case_sensitive else re.IGNORECASE
+        pattern = re.compile(rf"(?<![A-Za-z0-9]){re.escape(skill)}(?![A-Za-z0-9])", flags)
+        context = [term for term in [*related, *rule.context_terms] if term != skill]
+        for match in pattern.finditer(text):
+            after = text[match.end() : match.end() + 12]
+            if any(
+                after.casefold().startswith(item.casefold()) for item in rule.reject_followed_by
+            ):
+                continue
+            before = text[: match.start()].rstrip()
+            if any(
+                re.search(rf"(?<![A-Za-z0-9]){re.escape(lead)}$", before, re.IGNORECASE)
+                for lead in rule.lead_in
+            ):
+                return True
+            following = text[match.end() :].lstrip()
+            if any(
+                re.match(rf"{re.escape(term)}(?![A-Za-z0-9])", following, re.IGNORECASE)
+                for term in rule.trailing
+            ):
+                return True
+            window = text[
+                max(0, match.start() - rule.context_window) : match.end() + rule.context_window
+            ]
+            if any(
+                cls._contains_phrase(window, term, case_sensitive=len(term) <= 2)
+                for term in context
+            ):
+                return True
+        return False
+
     @staticmethod
-    def _contains_phrase(value: str, phrase: str) -> bool:
+    def _contains_phrase(value: str, phrase: str, *, case_sensitive: bool = False) -> bool:
         pattern = rf"(?<![A-Za-z0-9]){re.escape(phrase)}(?![A-Za-z0-9])"
-        return re.search(pattern, value, flags=re.IGNORECASE) is not None
+        flags = 0 if case_sensitive else re.IGNORECASE
+        return re.search(pattern, value, flags=flags) is not None
 
     @staticmethod
     def _comparison_key(value: str) -> str:

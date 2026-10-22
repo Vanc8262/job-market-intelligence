@@ -214,6 +214,23 @@ class SourcesConfig(BaseModel):
         return self
 
 
+class AmbiguousSkillRule(BaseModel):
+    """Evidence a short or common-word skill name (such as Go) must have in the text."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    case_sensitive: bool = True
+    # A mention followed by one of these is not the skill ("Go-to-market", "go-live").
+    reject_followed_by: list[str] = Field(default_factory=list)
+    # A mention counts when one of these appears within ``context_window`` characters
+    # (other skills in the same category are always included) ...
+    context_terms: list[str] = Field(default_factory=list)
+    context_window: int = Field(default=60, ge=0)
+    # ... or when it directly follows a lead-in ("in Go") or precedes a trailing term.
+    lead_in: list[str] = Field(default_factory=list)
+    trailing: list[str] = Field(default_factory=list)
+
+
 class SkillsConfig(BaseModel):
     """Validated contents of skills.yaml."""
 
@@ -221,6 +238,16 @@ class SkillsConfig(BaseModel):
 
     categories: dict[str, list[str]] = Field(default_factory=dict)
     aliases: dict[str, list[str]] = Field(default_factory=dict)
+    ambiguous: dict[str, AmbiguousSkillRule] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_ambiguous(self) -> SkillsConfig:
+        """Require ambiguity rules to name configured skills."""
+        configured = {skill for skills in self.categories.values() for skill in skills}
+        unknown = sorted(set(self.ambiguous) - configured)
+        if unknown:
+            raise ValueError(f"ambiguous-skill rules for unconfigured skills: {unknown}")
+        return self
 
     @model_validator(mode="after")
     def validate_aliases(self) -> SkillsConfig:

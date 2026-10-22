@@ -80,3 +80,18 @@ aliases:
   RAG:
     - retrieval augmented generation
     - retrieval-augmented generation
+
+# Skill names that are also everyday words need evidence they mean the technology.
+# Without a rule, "Go" matched "go-to-market", "go-live", and "go above and beyond".
+ambiguous:
+  Go:
+    case_sensitive: true
+    reject_followed_by: ["-", " to ", " live", " above", " beyond"]
+    context_window: 60
+    context_terms:
+      [Rust, "C++", "C#", C, Ruby, Kotlin, Swift, Bash, Lua, PHP, ".NET", Node.js, JVM,
+       Elixir, Erlang, Perl, Golang]
+    lead_in: [in, with, using, "such as", including, like, "e.g.", "e.g.,", "i.e.", of]
+    trailing:
+      [programming, language, languages, developer, developers, engineer, engineers,
+       services, microservices, code, codebase, backend, modules, runtime, ecosystem]
