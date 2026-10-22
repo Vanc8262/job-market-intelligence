@@ -563,6 +563,15 @@ class CanonicalTitleConfig(BaseModel):
     related_title_ids: list[str] = Field(default_factory=list)
 
 
+class FamilyRuleConfig(BaseModel):
+    """Keywords that place an unmatched title in a family (first matching rule wins)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    family: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    keywords: list[str] = Field(min_length=1)
+
+
 class TitleTaxonomyConfig(BaseModel):
     """Versioned and internally consistent canonical job-title vocabulary."""
 
@@ -573,6 +582,8 @@ class TitleTaxonomyConfig(BaseModel):
     families: dict[str, TitleFamilyConfig]
     canonical_titles: list[CanonicalTitleConfig] = Field(min_length=2)
     seniority_keywords: dict[str, list[str]]
+    family_rules: list[FamilyRuleConfig] = Field(default_factory=list)
+    fallback_family: str | None = None
 
     @model_validator(mode="after")
     def validate_taxonomy(self) -> Self:
@@ -612,6 +623,14 @@ class TitleTaxonomyConfig(BaseModel):
                     )
                 surface_owner[key] = item.id
 
+        for rule in self.family_rules:
+            if rule.family not in known_families:
+                raise ValueError(f"family rule references unknown family {rule.family!r}")
+            used_families.add(rule.family)
+        if self.fallback_family is not None:
+            if self.fallback_family not in known_families:
+                raise ValueError(f"unknown fallback family {self.fallback_family!r}")
+            used_families.add(self.fallback_family)
         unused = known_families - used_families
         if unused:
             raise ValueError(f"title families have no canonical titles: {sorted(unused)}")

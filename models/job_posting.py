@@ -126,6 +126,9 @@ class PositionInfo(BaseModel):
     normalized_title: str | None = None
     family: str | None = None
     seniority: str | None = None
+    department: str | None = Field(
+        default=None, description="Source department or team, kept as published"
+    )
 
 
 class LocationInfo(BaseModel):

@@ -49,10 +49,25 @@ class JobPostingNormalizer:
             for surface in [canonical.title, *canonical.aliases]:
                 if self._contains_phrase(title, surface):
                     matches.append((len(surface), canonical.family, canonical.title))
+        taxonomy = self.config.titles
+        if result.family and result.family not in taxonomy.families:
+            # Extractors pass the source department as a provisional family; keep it as
+            # the department and classify the title into a governed family instead.
+            result.department = result.department or result.family
+            result.family = None
         if matches:
             _, result.family, result.normalized_title = max(matches, key=lambda item: item[0])
         else:
             result.normalized_title = title
+            if result.family is None:
+                result.family = next(
+                    (
+                        rule.family
+                        for rule in taxonomy.family_rules
+                        if any(self._contains_phrase(title, keyword) for keyword in rule.keywords)
+                    ),
+                    taxonomy.fallback_family,
+                )
 
         seniority_keywords = self.config.titles.seniority_keywords
         seniority_matches: list[tuple[int, int, str]] = []
@@ -333,8 +348,14 @@ class JobPostingNormalizer:
         cls, text: str, skill: str, rule: AmbiguousSkillRule, related: list[str]
     ) -> bool:
         flags = 0 if rule.case_sensitive else re.IGNORECASE
-        pattern = re.compile(rf"(?<![A-Za-z0-9]){re.escape(skill)}(?![A-Za-z0-9])", flags)
-        context = [term for term in [*related, *rule.context_terms] if term != skill]
+        # "C" must not match inside "C++", "C#", or "D.C."; likewise for other letters.
+        pattern = re.compile(rf"(?<![A-Za-z0-9+#.]){re.escape(skill)}(?![A-Za-z0-9+#])", flags)
+        # Single-letter neighbours ("R", "C") are too ambiguous to vouch for each other.
+        context = [
+            term
+            for term in [*related, *rule.context_terms]
+            if term != skill and (len(term) > 1 or term in rule.context_terms)
+        ]
         for match in pattern.finditer(text):
             after = text[match.end() : match.end() + 12]
             if any(

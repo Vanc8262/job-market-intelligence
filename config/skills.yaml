@@ -7,6 +7,14 @@ categories:
     - JavaScript
     - TypeScript
     - Go
+    - R
+    - C
+    - C++
+    - C#
+    - Rust
+    - Ruby
+    - Kotlin
+    - Swift
   data_science:
     - pandas
     - NumPy
@@ -41,6 +49,12 @@ categories:
 
 # Aliases are matched as exact source spans and normalized to the canonical key.
 # Keep this list conservative: aliases must be explicit technical terminology.
+  analytics_tools:
+    - Excel
+    - Tableau
+    - Power BI
+    - Looker
+
 aliases:
   Python:
     - Python 3
@@ -81,17 +95,76 @@ aliases:
     - retrieval augmented generation
     - retrieval-augmented generation
 
-# Skill names that are also everyday words need evidence they mean the technology.
-# Without a rule, "Go" matched "go-to-market", "go-live", and "go above and beyond".
+# Skill names that are also everyday words (or letters) need evidence they mean the
+# technology. A mention counts when it is near another skill of the same category or a
+# context term, follows a lead-in ("in Go", "such as R"), or precedes a trailing term
+# ("R programming"). Without these rules "Go" matched go-to-market and go-live, "C"
+# matched C-level and Washington D.C., and "R" matched R&D.
 ambiguous:
   Go:
     case_sensitive: true
-    reject_followed_by: ["-", " to ", " live", " above", " beyond"]
+    reject_followed_by: ["-", "‑", " to ", " live", " above", " beyond", " ahead"]
     context_window: 60
-    context_terms:
-      [Rust, "C++", "C#", C, Ruby, Kotlin, Swift, Bash, Lua, PHP, ".NET", Node.js, JVM,
-       Elixir, Erlang, Perl, Golang]
+    context_terms: [Bash, Lua, PHP, ".NET", Node.js, JVM, Elixir, Erlang, Perl, Golang]
     lead_in: [in, with, using, "such as", including, like, "e.g.", "e.g.,", "i.e.", of]
     trailing:
       [programming, language, languages, developer, developers, engineer, engineers,
        services, microservices, code, codebase, backend, modules, runtime, ecosystem]
+  R:
+    case_sensitive: true
+    reject_followed_by: ["&", "-", "‑", "'", "’"]
+    context_window: 50
+    context_terms:
+      [SAS, Stata, SPSS, MATLAB, Julia, statistics, statistical, tidyverse, ggplot2, dplyr,
+       Shiny, RStudio, CRAN, pandas, NumPy, econometrics]
+    lead_in: [in, with, using, "such as", including, like, "e.g.", "e.g.,", "i.e.", of]
+    trailing: [programming, language, Studio, packages, package, scripts, Shiny, Markdown]
+  C:
+    case_sensitive: true
+    reject_followed_by: ["-", "‑", "'", "’", "&", " suite", " level", " corp"]
+    context_window: 50
+    context_terms: [Bash, Assembly, embedded, firmware, kernel, CUDA, Fortran, systems-level]
+    lead_in: [in, with, using, "such as", including, like, "e.g.", "e.g.,", "i.e.", of]
+    trailing: [programming, language, languages, developer, code, codebase]
+  Rust:
+    case_sensitive: true
+    reject_followed_by: ["-proof", " prevention", " removal", " inhibitor"]
+    context_window: 60
+    context_terms: [Bash, Assembly, WebAssembly, Wasm, systems-level, LLVM]
+    lead_in: [in, with, using, "such as", including, like, "e.g.", "e.g.,", "i.e.", of]
+    trailing: [programming, language, developer, developers, engineer, code, codebase, services]
+  Ruby:
+    case_sensitive: true
+    context_window: 60
+    context_terms: [Rails, Sinatra, RSpec, Gems, Bash, PHP, Node.js]
+    lead_in: [in, with, using, "such as", including, like, "e.g.", "e.g.,", "i.e.", of]
+    trailing: [on Rails, programming, language, developer, developers, engineer, code]
+  Swift:
+    case_sensitive: true
+    reject_followed_by: [" action", " response", " decision", "ly"]
+    context_window: 60
+    context_terms: [iOS, Objective-C, SwiftUI, Xcode, Android, macOS, UIKit]
+    lead_in: [in, with, using, "such as", including, like, "e.g.", "e.g.,", "i.e.", of]
+    trailing: [programming, language, developer, developers, engineer, code, codebase]
+  Excel:
+    case_sensitive: true
+    reject_followed_by: [" at ", " in ", " under "]
+    context_window: 60
+    context_terms:
+      [Microsoft, MS, spreadsheet, spreadsheets, PowerPoint, Word, Google Sheets, VBA,
+       pivot, "pivot tables", VLOOKUP, Outlook, Office]
+    lead_in: [in, with, using, "such as", including, like, "e.g.", "e.g.,", advanced, Microsoft, MS, of]
+    trailing:
+      [spreadsheets, models, modeling, skills, capabilities, proficiency, dashboards, macros,
+       VBA, formulas]
+  experimentation:
+    case_sensitive: false
+    context_window: 80
+    context_terms:
+      [A/B, "A/B testing", "A/B tests", causal, "causal inference", hypothesis, hypotheses,
+       statistical, "statistical significance", "control group", "test design",
+       "experiment design", "experimental design", Bayesian, "power analysis", uplift,
+       measurement, metrics, evaluation, "feature flags", ML, "machine learning", models,
+       modeling, data scientists, analytics, "data analysis", "feature engineering"]
+    lead_in: []
+    trailing: [platform, platforms, framework, frameworks, design, infrastructure, tooling]

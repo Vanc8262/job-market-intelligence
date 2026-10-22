@@ -199,3 +199,57 @@ def test_short_aliases_match_exact_case_only() -> None:
     assert "machine learning" in _skills_for("You will own ML systems end to end.")
     assert "LLMs" in _skills_for("Build LLM evaluation harnesses.")
     assert "machine learning" not in _skills_for("Tickets are 1 ml of paperwork.")
+
+
+def test_single_letter_and_word_skills_need_context() -> None:
+    assert "R" in _skills_for("Python or R experience for analysis and automation.")
+    assert "R" in _skills_for("Statistical packages (e.g. Python, R, Matlab, SQL).")
+    assert "R" not in _skills_for("Our Tel-Aviv R&D center builds conversational AI.")
+    assert "C" in _skills_for("Programming experience in Go, Python, Rust, C, or C++.")
+    assert "C++" in _skills_for("Programming experience in Go, Python, Rust, C, or C++.")
+    for everyday in (
+        "Present to C-suite executives.",
+        "Engage with C‑level stakeholders.",
+        "Based in Washington, D.C.",
+        "Protection & Control (P&C) engineering.",
+    ):
+        assert "C" not in _skills_for(everyday), everyday
+    assert "Excel" in _skills_for("Proficiency in MS Excel for reporting.")
+    assert "Excel" not in _skills_for("Excel at planning and overseeing execution.")
+    assert "Rust" in _skills_for("Strong proficiency in Python, Rust, C++, or Java.")
+    assert "Rust" not in _skills_for("Inspect turbine blades for rust prevention.")
+    assert "experimentation" in _skills_for("Rigorous experimentation and A/B testing.")
+    assert "experimentation" not in _skills_for("Fostering a culture of experimentation.")
+
+
+def _family_for(title: str, department: str | None = None) -> tuple[str | None, str | None]:
+    posting = posting_for_normalization().model_copy(
+        update={"position": PositionInfo(title=title, family=department)}
+    )
+    position = JobPostingNormalizer().normalize(posting).position
+    return position.family, position.department
+
+
+def test_unmatched_titles_get_governed_families_not_departments() -> None:
+    assert _family_for("Manager I, Engineering - Anomaly Detection", "Leadership") == (
+        "software_engineering",
+        "Leadership",
+    )
+    assert _family_for("Associate Solar & Battery Field Engineer", "Engineering") == (
+        "other",
+        "Engineering",
+    )
+    assert _family_for("Product Manager - Data Platform", "Data and Analytics")[0] == (
+        "product_management"
+    )
+    assert _family_for("AI Research Engineer - DAIR", "Dev Eng")[0] == "machine_learning"
+    assert _family_for("Head of Data Platform Engineering")[0] == "data_engineering"
+    assert _family_for("Senior GTM Analytics Manager", "Sales Ops")[0] == "data_science"
+    assert _family_for("Associate Veterinarian", "Veterinary") == ("other", "Veterinary")
+    assert _family_for("Category Specialist")[0] == "other"
+    # A canonical title still wins, and an already-governed family is left alone.
+    assert _family_for("Data Scientist", "Engineering") == ("data_science", "Engineering")
+    assert _family_for("Software Engineering Intern", "software_engineering") == (
+        "software_engineering",
+        None,
+    )

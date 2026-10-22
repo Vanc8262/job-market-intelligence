@@ -14,6 +14,12 @@ families:
   software_engineering:
     label: Software Engineering
     description: Roles whose primary output is production software, services, platforms, or software reliability.
+  product_management:
+    label: Product and Program Management
+    description: Roles that own product, program, or project outcomes rather than build them.
+  other:
+    label: Other Roles
+    description: Everything else, including non-software engineering, operations, sales, and support.
 
 # Canonical titles identify occupations, not seniority. Keep employer, team, domain,
 # technology, employment type, and level modifiers in the observed source title.
@@ -165,6 +171,43 @@ canonical_titles:
     track: individual_contributor
     aliases: [Software Development Engineer in Test, SDET, Test Automation Engineer]
     related_title_ids: [software-engineer]
+
+# Titles that match no canonical title are classified by keyword: the first rule with a
+# keyword in the title wins, and anything left falls back to `other`. Source department
+# names (for example Lever's "Dev" or Greenhouse's "Leadership") are never used as
+# families, so every posting lands in one of the governed families above.
+fallback_family: other
+family_rules:
+  # Physical-world and customer-facing engineering is not software engineering.
+  - family: other
+    keywords:
+      [field engineer, field service, power generation, turbine, combustion, nuclear, solar,
+       wind technician, battery, substation, transmission, electrical engineer,
+       mechanical engineer, civil engineer, controls engineer, control systems,
+       controls systems, safety engineer, maintenance, construction, pipeline engineering,
+       technician, machinist, sales engineer, solutions engineer, solutions architect,
+       solutions consultant, customer engineer, veterinarian, pharmacy]
+  - family: product_management
+    keywords:
+      [product manager, product management, product owner, program manager,
+       project manager, technical program, PM]
+  - family: machine_learning
+    keywords:
+      [machine learning, ML, AI engineer, AI research, AI/ML, artificial intelligence,
+       deep learning, LLM, MLOps, computer vision, NLP, agentic, generative AI]
+  - family: data_engineering
+    keywords:
+      [data engineer, data engineering, data platform, data infrastructure, ETL,
+       data pipeline, analytics engineer]
+  - family: software_engineering
+    keywords:
+      [software, engineer, engineering, developer, programmer, SRE, site reliability,
+       devops, dev ops, backend, back end, frontend, front end, full stack, fullstack,
+       architect, tech lead, CTO]
+  - family: data_science
+    keywords:
+      [data science, data scientist, analytics, analyst, applied science, decision science,
+       insights, quantitative, statistician, business intelligence, research scientist]
 
 seniority_keywords:
   entry: [junior, jr, associate, new grad, new graduate, intern]
