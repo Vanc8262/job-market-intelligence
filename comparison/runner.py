@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from comparison.compare import ResumeView, compare_posting, document_frequencies
+from comparison.vocabulary import RequirementVocabulary
 from models.job_posting import JobPosting, PostingStatus
 from processors import JobPostingNormalizer
 from profiles.profile_source import approved_resume_extraction
@@ -88,6 +89,7 @@ class ApplicationComparisonRunner:
         postings = self._current_postings()
         frequencies, corpus_size = document_frequencies(postings)
         settings = self.config.comparison
+        vocabulary = RequirementVocabulary(settings)
         jobs: dict[str, object] = {}
         for posting in postings:
             if job_ids is not None and posting.metadata.job_id not in job_ids:
@@ -99,6 +101,7 @@ class ApplicationComparisonRunner:
                 skills_in_text=self.normalizer.skills_in_text,
                 frequencies=frequencies,
                 corpus_size=corpus_size,
+                vocabulary=vocabulary,
             )
             jobs[posting.metadata.job_id] = comparison
             result.bands[str(comparison["band"])] += 1

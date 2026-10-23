@@ -515,6 +515,17 @@ class ComparisonWeights(BaseModel):
     domain: float = Field(default=0.10, ge=0)
 
 
+class ComparisonConcept(BaseModel):
+    """A broad ability postings name in plain words ("cloud infrastructure")."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1)
+    posting: list[str] = Field(min_length=1)
+    resume: list[str] = Field(default_factory=list)
+    fields: list[str] = Field(default_factory=list)
+
+
 class ComparisonConfig(BaseModel):
     """Validated contents of comparison.yaml (Phase 6.3 application comparison)."""
 
@@ -543,6 +554,17 @@ class ComparisonConfig(BaseModel):
     )
     domains: dict[str, list[str]] = Field(default_factory=dict)
     domain_minimum_hits: int = Field(default=2, ge=1)
+    concepts: dict[str, ComparisonConcept] = Field(default_factory=dict)
+    fields_of_study: dict[str, list[str]] = Field(default_factory=dict)
+    traits: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _concept_fields_exist(self) -> ComparisonConfig:
+        for name, concept in self.concepts.items():
+            unknown = set(concept.fields) - set(self.fields_of_study)
+            if unknown:
+                raise ValueError(f"concept {name!r} names unknown field groups: {sorted(unknown)}")
+        return self
 
 
 class BayesianConfig(BaseModel):

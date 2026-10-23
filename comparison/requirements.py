@@ -6,8 +6,10 @@ is tagged required or preferred, and classified by what it asks for:
 
 * ``skill`` - names taxonomy skills ("Python or Go", "AWS, Kubernetes"),
 * ``years`` - a minimum number of years of experience,
-* ``degree`` - a minimum degree,
-* ``text`` - anything else ("Experience building backend systems").
+* ``degree`` - a minimum degree, or a field of study ("fields such as Computer Science"),
+* ``concept`` - broad abilities in plain words ("APIs, data pipelines, cloud infrastructure"),
+* ``trait`` - disposition a resume cannot show ("You approach problems with curiosity"),
+* ``text`` - anything else, judged by shared words.
 
 Benefits, legal notices, and company blurbs are never treated as requirements.
 """
@@ -18,6 +20,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from comparison.vocabulary import RequirementVocabulary
 from models.job_posting import JobPosting
 
 REQUIRED_HEADINGS = re.compile(
@@ -53,7 +56,11 @@ PREFERRED_ITEM = re.compile(
 # interview instructions).
 NOT_REQUIREMENTS = re.compile(
     r"^(please\b|at [\w&.' -]+, we\b|we (know|encourage|welcome|are committed)\b|"
-    r"(don't|do not) meet every\b|if you don'?t meet\b)|\bapply anyway\b",
+    r"(don't|do not) meet every\b|if you don'?t meet\b|we('|’)re\b|we are\b|today,|"
+    r"communication from\b|if you require\b)|\bapply anyway\b|walks of life|"
+    r"not everyone (will )?meets?\b|"
+    r"accommodation|prohibits?\b|equal (employment )?opportunit|discriminat|"
+    r"vacation|paid (time|days) off|401\(k\)|@[\w-]+\.\w",
     re.IGNORECASE,
 )
 REQUIREMENT_CUES = re.compile(
@@ -87,7 +94,15 @@ BARE_DEGREE = re.compile(
     r" degree\b",
     re.IGNORECASE,
 )
+# A line asking for a field of study without saying "degree".
+FIELD_CUE = re.compile(
+    r"\b(fields? (such as|like|of study)|disciplines? (such as|like)|background\b|"
+    r"major(ing)? in|studying|coursework in|related field)",
+    re.IGNORECASE,
+)
 ANY_OF = re.compile(r"\bor\b|/|\bone of\b|\bsuch as\b|\be\.g\.|\bsimilar\b|\bequivalent\b", re.I)
+# Perk lines often start with an emoji ("🏝 Generous vacation policy").
+_DECORATED = re.compile(r"[^\w\s\"'(“‘]")
 _BULLET = re.compile(r"^\s*(?:[-•·*▪◦–]|\d+[.)])\s*")
 _MAX_HEADING_WORDS = 9
 
@@ -98,8 +113,10 @@ class Requirement:
 
     text: str
     required: bool
-    kind: str  # "skill" | "years" | "degree" | "text"
+    kind: str  # "skill" | "years" | "degree" | "concept" | "trait" | "text"
     skills: list[str] = field(default_factory=list)
+    concepts: list[str] = field(default_factory=list)
+    fields: list[str] = field(default_factory=list)
     any_of: bool = False
     min_years: float | None = None
     degree_level: int | None = None
@@ -124,8 +141,8 @@ HEADING_WORDS = frozenset(
     perks plus points position preferred profile qualifications range requirements
     required responsibilities role salary should skills success summary team the this
     thrive to us value values we what where who why will with work you you'll you’ll
-    your youll we're were we’re you're you’re youre an if be like sounds this these
-    may might also great ideal who's""".split()
+    your youll haves nice-to-haves we're were we’re you're you’re youre an if be like
+    sounds these may might also great ideal who's""".split()
 )
 
 
@@ -179,8 +196,8 @@ def requirement_lines(posting: JobPosting) -> list[tuple[str, bool]]:
             continue
         if section is None:
             continue
-        item = _BULLET.sub("", line).strip()
-        if len(item.split()) < 3 or NOT_REQUIREMENTS.search(item):
+        item = _BULLET.sub("", line).strip().lstrip(":;,. ")
+        if len(item.split()) < 3 or NOT_REQUIREMENTS.search(item) or _DECORATED.match(item):
             continue
         found.append((item, section == "required" and not PREFERRED_ITEM.search(item)))
     if found:
@@ -191,29 +208,41 @@ def requirement_lines(posting: JobPosting) -> list[tuple[str, bool]]:
     return [
         (sentence.strip(), not PREFERRED_ITEM.search(sentence))
         for sentence in sentences
-        if 4 <= len(sentence.split()) <= 60 and REQUIREMENT_CUES.search(sentence)
+        if 4 <= len(sentence.split()) <= 60
+        and REQUIREMENT_CUES.search(sentence)
+        and not NOT_REQUIREMENTS.search(sentence.strip())
     ]
 
 
-def classify(text: str, required: bool, skills_in_text: Callable[[str], list[str]]) -> Requirement:
+def classify(
+    text: str,
+    required: bool,
+    skills_in_text: Callable[[str], list[str]],
+    vocabulary: RequirementVocabulary | None = None,
+) -> Requirement:
     """Decide what a requirement line asks for."""
     years = YEARS.search(text)
     degree_level = next((level for level, pattern in DEGREES if pattern.search(text)), None)
     if degree_level is None and BARE_DEGREE.search(text):
         degree_level = 3
+    fields = vocabulary.fields_in(text) if vocabulary else []
+    field_line = bool(fields) and bool(FIELD_CUE.search(text))
     # In a degree line, "in Computer Science, Statistics, ..." names fields of study, not
-    # skills: look for skills only outside that clause.
-    skill_text = re.sub(r"\bin\s+[^.;()]+", " ", text) if degree_level is not None else text
+    # skills: look for skills and concepts only outside that clause.
+    degree_like = degree_level is not None or field_line
+    skill_text = re.sub(r"\bin\s+[^.;()]+", " ", text) if degree_like else text
     skills = skills_in_text(skill_text)
-    if degree_level is not None and not skills and not years:
+    concepts = vocabulary.concepts_in(skill_text) if vocabulary and not degree_like else []
+    if degree_like and not skills and not years:
         return Requirement(
             text=text,
             required=required,
             kind="degree",
             degree_level=degree_level,
+            fields=fields,
             degree_or_equivalent=bool(re.search(r"equivalent|or related experience", text, re.I)),
         )
-    if years and not skills:
+    if years and not skills and not concepts:
         return Requirement(
             text=text, required=required, kind="years", min_years=float(years["low"])
         )
@@ -223,14 +252,29 @@ def classify(text: str, required: bool, skills_in_text: Callable[[str], list[str
             required=required,
             kind="skill",
             skills=skills,
-            any_of=len(skills) > 1 and bool(ANY_OF.search(text)),
+            concepts=concepts,
+            any_of=len(skills) + len(concepts) > 1 and bool(ANY_OF.search(text)),
             min_years=float(years["low"]) if years else None,
         )
+    if concepts:
+        return Requirement(
+            text=text,
+            required=required,
+            kind="concept",
+            concepts=concepts,
+            min_years=float(years["low"]) if years else None,
+        )
+    if vocabulary and vocabulary.is_trait(text):
+        return Requirement(text=text, required=required, kind="trait")
     return Requirement(text=text, required=required, kind="text")
 
 
 def extract_requirements(
-    posting: JobPosting, skills_in_text: Callable[[str], list[str]], *, limit: int = 40
+    posting: JobPosting,
+    skills_in_text: Callable[[str], list[str]],
+    *,
+    limit: int = 40,
+    vocabulary: RequirementVocabulary | None = None,
 ) -> list[Requirement]:
     """Return the posting's classified requirements (at most ``limit``)."""
     seen: set[str] = set()
@@ -240,7 +284,7 @@ def extract_requirements(
         if key in seen:
             continue
         seen.add(key)
-        requirements.append(classify(text[:500], required, skills_in_text))
+        requirements.append(classify(text[:500], required, skills_in_text, vocabulary))
         if len(requirements) >= limit:
             break
     return requirements

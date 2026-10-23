@@ -414,16 +414,32 @@ each shown with the evidence behind it:
 
 | Dimension | Weight | How it is measured |
 | --- | --- | --- |
-| Requirements coverage | 45% | The posting's requirement lines (Lever qualification lists, or the lines under headings such as "What you'll need" and "Nice to have") are tagged required or preferred and classified as skill, years, degree, or other. Each is marked met, partial, or missing, with the resume line, role, or degree that supports it. Preferred lines count half. |
+| Requirements coverage | 45% | The posting's requirement lines (Lever qualification lists, or the lines under headings such as "What you'll need" and "Nice to have") are tagged required or preferred and classified (see below). Each is marked ✓ met, ◐ partial, or ✗ missing, with the resume line, role, or degree that supports it. Preferred lines count half. |
 | ATS keyword overlap | 30% | Taxonomy skills in the posting, weighted by rarity across current postings (IDF), so a rare skill counts more than "SQL". Lists the keywords to add (★ = named in the requirements). |
 | Seniority fit | 15% | Posting level and minimum years against your resume's years of experience. |
 | Domain alignment | 10% | Industry vocabulary (healthcare, finance, energy, …) in the posting, outside benefits sections, that also appears on your resume. |
+
+Requirement lines are classified as:
+
+- **skill:** names taxonomy skills ("Python or Go"); met when the resume lists them.
+- **concept:** names broad abilities in plain words ("APIs, data pipelines, and cloud
+  infrastructure"). Each concept is met by any of its resume terms (REST for APIs, AWS for
+  cloud) or, for academic concepts like data structures, by a degree in a related field.
+- **degree / field of study:** level and field; fields are compared by group, so a data
+  science degree meets "fields such as Computer Science or Mathematics".
+- **years:** minimum years of experience (also applied to "5+ years of Python").
+- **trait (○ self-assess):** disposition or logistics a resume cannot show ("you approach
+  problems with curiosity", "available to start in June"); listed for you to judge and
+  left out of the score.
+- **text:** anything else, judged by shared words (plurals folded).
 
 Coverage and keyword scores are pulled toward 50% when a posting has only one or two
 assessable lines, so thin postings cannot score 0 or 100 by accident. A posting without a
 requirements section is scored on the other dimensions and capped at a "moderate" band;
 one with neither requirements nor skills is "unknown". Bands: strong ≥ 75, moderate ≥ 55.
-Weights, thresholds, and domain vocabularies live in `config/comparison.yaml`.
+Weights, thresholds, and the domain, concept, field-of-study, and trait vocabularies live
+in `config/comparison.yaml`; add a resume term to a concept there when a line you meet is
+marked missing.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\compare_applications.py   # also run by sync_data.py

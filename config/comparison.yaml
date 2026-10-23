@@ -6,7 +6,7 @@
 #   domain       - industries the posting works in that the resume also shows
 # The fit score is a transparent weighted average; Phase 8 stage B3 will later turn these
 # signals into a calibrated probability using your application outcomes.
-version: 1.0.0
+version: 1.1.0
 weights:
   requirements: 0.45
   keywords: 0.30
@@ -51,3 +51,123 @@ domains:
   hr_workforce: [human resources, HR, payroll, workforce, recruiting, talent acquisition, HCM]
   media_streaming: [music, podcasts, streaming, audio, content creators, media]
   education: [education, students, teaching, learning platform, edtech, university]
+# Fields of study, grouped by how closely they relate. A degree requirement naming any
+# field in a group ("fields such as Computer Science, Mathematics") is met by a degree in
+# any field of the same group. Longer names are matched first, so "software engineering"
+# is not also read as "engineering".
+fields_of_study:
+  computing_and_data: [computer science, data science, software engineering, computer engineering, information technology, information systems, computer information systems, data analytics, analytics, informatics, computer programming, programming, computing]
+  mathematics_and_statistics: [mathematics, applied mathematics, math, statistics, applied statistics, data science, operations research, actuarial science, quantitative finance]
+  engineering_and_physical_sciences: [engineering, electrical engineering, mechanical engineering, industrial engineering, systems engineering, computer engineering, physics, chemistry]
+  business_and_economics: [economics, finance, business, business administration, accounting, management information systems]
+  life_sciences: [biology, bioinformatics, neuroscience, public health, biomedical engineering]
+# Broad abilities postings name in plain words ("APIs, data pipelines, and cloud
+# infrastructure"). A concept is met when the resume shows any of its `resume` terms, or
+# a degree in one of its `fields` groups. Matching ignores case, except terms of one or
+# two characters ("R", "Go").
+concepts:
+  apis_integrations:
+    label: APIs and integrations
+    posting: [APIs, API, REST, RESTful, integrations, integration, web services, webhooks]
+    resume: [API, APIs, REST, RESTful, FastAPI, Flask, Django, GraphQL, endpoint, endpoints, integration, integrations, integrated, webhook, webhooks]
+  data_pipelines:
+    label: Data pipelines
+    posting: [data pipelines, data pipeline, pipelines, ETL, ELT, data ingestion, data integration, data flows]
+    resume: [pipeline, pipelines, ETL, ELT, Airflow, dbt, ingestion, ingest, Kafka, Spark, data integration, Bronze, Silver]
+  cloud_infrastructure:
+    label: Cloud infrastructure
+    posting: [cloud infrastructure, cloud platforms, cloud platform, cloud services, cloud computing, cloud environments, cloud]
+    resume: [AWS, Amazon Web Services, Azure, GCP, Google Cloud, cloud, EC2, S3, Lambda, Docker, Kubernetes, Terraform, GitHub Actions]
+  customer_systems:
+    label: Customer systems
+    posting: [customer systems, customer data, customer-facing, client systems, CRM, customer environments]
+    resume: [customer, customers, client, clients, CRM, Salesforce, point of sale, POS, e-commerce, ecommerce]
+  data_structures_algorithms:
+    label: Data structures and algorithms
+    posting: [data structures, algorithms, algorithmic]
+    resume: [data structures, algorithms, algorithm]
+    fields: [computing_and_data]
+  storage_databases:
+    label: Databases and storage
+    posting: [storage systems, data storage, storage, databases, database, data stores, datastores, data warehouses, data warehouse, relational databases]
+    resume: [SQL, PostgreSQL, Postgres, MySQL, SQL Server, Oracle, SQLite, MongoDB, database, databases, Snowflake, BigQuery, Redshift, Redis, DynamoDB, S3, data warehouse, DuckDB, Parquet]
+  frontend:
+    label: Front-end development
+    posting: [front-end frameworks, frontend frameworks, front-end, frontend, front end, UI frameworks, web frameworks, user interfaces]
+    resume: [React, Angular, Vue, JavaScript, TypeScript, HTML, CSS, front-end, frontend, Next.js, Svelte, jQuery, Streamlit, dashboard, dashboards]
+  backend:
+    label: Back-end development
+    posting: [backend, back-end, server-side, backend systems, backend services]
+    resume: [backend, back-end, server, Node.js, Django, Flask, FastAPI, Spring, .NET, API, APIs]
+  programming:
+    label: Programming
+    posting: [programming languages, programming language, scripting languages, scripting, programming, coding, software development, writing code]
+    resume: [Python, Java, JavaScript, TypeScript, C++, C#, R, SQL, Bash, PowerShell, Go, Scala, programming, developer, software development]
+    fields: [computing_and_data]
+  software_engineering:
+    label: Software engineering practice
+    posting: [software engineering, software development lifecycle, SDLC, object-oriented, object oriented, OOP, design patterns, code review, code reviews]
+    resume: [software engineering, software development, developer, object-oriented, OOP, code review, pull requests, design patterns]
+    fields: [computing_and_data]
+  machine_learning:
+    label: Machine learning
+    posting: [machine learning, ML models, ML, predictive models, predictive modeling, statistical models, statistical modeling, model development]
+    resume: [machine learning, scikit-learn, TensorFlow, PyTorch, Keras, regression, classification, predictive, random forest, XGBoost, clustering, neural network, neural networks, deep learning]
+  statistics:
+    label: Statistics
+    posting: [statistics, statistical analysis, statistical methods, hypothesis testing, experimentation, A/B testing, experimental design, inference]
+    resume: [statistics, statistical, regression, hypothesis, Bayesian, inference, A/B, probability]
+    fields: [mathematics_and_statistics]
+  data_analysis:
+    label: Data analysis
+    posting: [data analysis, analyzing data, analytical, analytics, data-driven, quantitative analysis]
+    resume: [analysis, analyses, analytics, analyzed, analyze, pandas, NumPy, Excel, Tableau, Power BI, SQL]
+    fields: [computing_and_data, mathematics_and_statistics]
+  visualization_reporting:
+    label: Visualization and reporting
+    posting: [data visualization, visualization, visualizations, dashboards, dashboarding, reporting, reports]
+    resume: [Tableau, Power BI, dashboard, dashboards, matplotlib, seaborn, Plotly, visualization, visualizations, Looker, reporting, reports]
+  version_control:
+    label: Version control
+    posting: [version control, source control, Git]
+    resume: [Git, GitHub, GitLab, Bitbucket, version control]
+  testing:
+    label: Testing
+    posting: [testing, unit tests, unit testing, automated testing, test automation, test coverage, QA, quality assurance]
+    resume: [testing, tests, pytest, unit tests, unittest, JUnit, Selenium, Playwright, QA, quality assurance, test]
+  ci_cd_devops:
+    label: CI/CD and DevOps
+    posting: [CI/CD, continuous integration, continuous delivery, continuous deployment, deployment pipelines, DevOps, release engineering]
+    resume: [CI/CD, GitHub Actions, Jenkins, GitLab CI, DevOps, deployment, deployments, deployed, Docker]
+  linux_shell:
+    label: Linux and the command line
+    posting: [Linux, Unix, command line, command-line, shell]
+    resume: [Linux, Unix, Bash, shell, command line, command-line, PowerShell, terminal]
+  agile:
+    label: Agile delivery
+    posting: [Agile, Scrum, sprints, Kanban]
+    resume: [Agile, Scrum, sprint, sprints, Jira, Kanban, standups]
+  distributed_systems:
+    label: Distributed systems
+    posting: [distributed systems, microservices, high-scale, large-scale systems, scalability]
+    resume: [distributed, microservices, Kafka, Spark, Kubernetes, scalable]
+  data_modeling:
+    label: Data modeling
+    posting: [data modeling, data models, data model, schema design, schemas]
+    resume: [data modeling, data model, data models, schema, schemas, star schema, normalization, normalized, Pydantic]
+  ai_llm:
+    label: AI and LLM tools
+    posting: [LLMs, LLM, large language models, generative AI, AI agents, agentic, prompt engineering, AI tools, AI-assisted]
+    resume: [LLM, LLMs, GPT, ChatGPT, Claude, OpenAI, prompt, prompts, generative AI, RAG, LangChain, agents, agentic, AI, Copilot, Codex]
+  system_design:
+    label: System design
+    posting: [systems design, system design, software architecture, system architecture, architecture, designing systems, technical design]
+    resume: [architecture, architected, system design, systems design, designed, design]
+  automation:
+    label: Automation
+    posting: [automation, automate, automating, workflow automation, scripting]
+    resume: [automation, automated, automate, automating, scripts, scripted, scheduled, GitHub Actions, cron]
+# Lines about disposition or logistics rather than experience ("You approach challenges
+# with curiosity", "Available to start in June") cannot be checked against a resume. They are shown as "self-assess" and
+# left out of the coverage score.
+traits: [curiosity, curious, passion, passionate, self-starter, self-motivated, motivated, eager, eagerness, growth mindset, ownership, ambiguity, ambiguous, detail-oriented, attention to detail, team player, collaborative, collaborate, collaboration, communication, communicate, communicator, interpersonal, empathy, empathetic, humble, humility, adaptable, adaptability, resilient, resilience, proactive, initiative, creative, creativity, integrity, enthusiasm, enthusiastic, thrive, fast-paced, you approach, you enjoy, you love, you care, you're excited, you are excited, user of what, users of what, impact the user, impact users, customer obsession, bias for action, sense of urgency, work ethic, problem solver, problem-solver, problem solving, problem-solving, critical thinking, learn quickly, quick learner, willingness to learn, high agency, low ego, judgment, judgement, mission, values, mindset, grit, accountability, accountable, autonomy, autonomous, independently, available to, availability, able to relocate, willing to relocate, relocation, commute, on-site, onsite, in the office, in-office, authorized to work, work authorization, sponsorship, security clearance, travel up to, willing to travel]

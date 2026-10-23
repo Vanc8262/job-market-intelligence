@@ -10,7 +10,8 @@ from urllib.request import urlopen
 
 import pytest
 
-from comparison import ResumeView, compare_posting, extract_requirements
+from comparison import RequirementVocabulary, ResumeView, compare_posting, extract_requirements
+from comparison.compare import assess_requirement
 from comparison.requirements import classify, content_text, requirement_lines
 from comparison.runner import ApplicationComparisonRunner, load_results
 from dashboard.app import attach_application_fit, create_server
@@ -281,3 +282,64 @@ def test_bare_degree_word_needs_a_requirement_reading() -> None:
     )
     program = classify("The program supports degree completion for interns", True, skills_in_text)
     assert program.kind == "text"
+
+
+def _assess(line: str, resume: ResumeView, *, required: bool = True) -> dict[str, object]:
+    settings = Config().comparison
+    vocabulary = RequirementVocabulary(settings)
+    requirement = classify(line, required, skills_in_text, vocabulary)
+    return assess_requirement(requirement, resume, settings, vocabulary)
+
+
+def test_plain_language_concepts_are_judged_on_meaning(resume: ResumeView) -> None:
+    apis = _assess("Comfort working across APIs, data pipelines, and cloud infrastructure", resume)
+    assert apis["kind"] == "concept" and apis["status"] == "met"
+    evidence = {item["concept"]: item["evidence"] for item in apis["concepts"]}  # type: ignore[attr-defined]
+    assert evidence["apis_integrations"]["term"] == "APIs"  # type: ignore[index]
+    assert "AWS" in evidence["cloud_infrastructure"]["text"]  # type: ignore[index]
+
+    mixed = _assess(
+        "Familiarity with data structures, storage systems, and front-end frameworks", resume
+    )
+    met = {item["concept"]: item["met"] for item in mixed["concepts"]}  # type: ignore[attr-defined]
+    assert met == {
+        "data_structures_algorithms": True,  # shown by the data science degree
+        "storage_databases": True,
+        "frontend": False,  # the synthetic resume has no front-end work
+    }
+    assert mixed["status"] == "partial"
+
+
+def test_traits_are_self_assessed_and_left_out_of_coverage(resume: ResumeView) -> None:
+    trait = _assess("You approach challenges with curiosity and find solutions.", resume)
+    assert trait["kind"] == "trait" and trait["status"] == "self_assess"
+    assert trait["weight"] == 0.0
+
+    text = POSTING_TEXT.replace(
+        "Excellent communication with clinical stakeholders",
+        "Understanding of how technical decisions impact the user of what you're building",
+    )
+    result = compare_posting(
+        posting(text),
+        resume,
+        Config().comparison,
+        skills_in_text=skills_in_text,
+        frequencies=Counter(),
+        corpus_size=1,
+    )
+    requirements = result["dimensions"]["requirements"]  # type: ignore[index]
+    assert requirements["self_assess"] == 1
+    assert not any("impact the user" in gap for gap in result["gaps"])  # type: ignore[attr-defined]
+
+
+def test_related_fields_of_study_count(resume: ResumeView) -> None:
+    background = _assess(
+        "Strong engineering background, preferred in fields such as Computer Science, "
+        "Mathematics, Software Engineering, Physics",
+        resume,
+        required=False,
+    )
+    assert background["kind"] == "degree" and background["status"] == "met"
+    assert background["field_match"] == "related"  # B.S. Data Science and Analytics
+    other = _assess("Bachelor's degree in Electrical Engineering", resume)
+    assert other["status"] == "partial" and other["field_match"] == "none"

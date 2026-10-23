@@ -662,16 +662,20 @@ function comparisonMarkup(payload) {
   const domain = dims.domain;
   const bar = (label, value, note) => `<div class="component"><div class="component-top"><strong>${escapeHtml(label)}</strong><span>${value === null || value === undefined ? "Not assessed" : formatPercent(value)}</span></div><div class="component-track"><div class="component-fill" style="--value:${Math.max(0, Math.min(100, Number(value || 0) * 100))}%"></div></div><span class="job-meta wrap">${escapeHtml(note)}</span></div>`;
   const bars = [
-    bar("Requirements coverage", requirements.score, `${requirements.required_met ?? 0} of ${requirements.required_total ?? 0} required met · ${requirements.preferred_met ?? 0} of ${requirements.preferred_total ?? 0} preferred`),
+    bar("Requirements coverage", requirements.score, `${requirements.required_met ?? 0} of ${requirements.required_total ?? 0} required met · ${requirements.preferred_met ?? 0} of ${requirements.preferred_total ?? 0} preferred${requirements.self_assess ? ` · ${requirements.self_assess} to self-assess` : ""}`),
     bar("ATS keyword overlap", keywords?.score, keywords ? `${keywords.matched.length} of ${keywords.matched.length + keywords.to_add.length} posting skills on your resume` : "The posting names no taxonomy skills"),
     bar("Seniority fit", seniority?.score, seniority ? `Posting: ${formatLabel(seniority.posting_level)}${seniority.posting_min_years ? `, ${seniority.posting_min_years}+ years` : ""} · Resume: ${seniority.resume_years} years` : ""),
     bar("Domain alignment", domain?.score, domain ? `Posting domains: ${Object.keys(domain.posting_domains).map(formatLabel).join(", ")}` : "No clear industry domain in the posting"),
   ].join("");
-  const icon = { met: "✓", partial: "◐", missing: "✗" };
+  const icon = { met: "✓", partial: "◐", missing: "✗", self_assess: "○" };
+  const conceptChips = (item) => (item.concepts || []).map((concept) => concept.met ? `<span class="evidence-chip met" title="${escapeHtml(`Resume: ${concept.evidence.text}`)}">${escapeHtml(concept.label)} · ${escapeHtml(concept.evidence.term)}</span>` : `<span class="evidence-chip missing" title="No resume line shows this">${escapeHtml(concept.label)}</span>`).join("");
+  const yearsNote = (item) => item.needed_years ? `<span class="job-meta wrap">Asks for ${item.needed_years}+ years; resume shows ${item.resume_years}</span>` : "";
   const evidenceFor = (item) => {
-    if (item.kind === "skill") return [...(item.matched || []).map((match) => `<span class="evidence-chip met" title="${escapeHtml(match.evidence ? `${formatLabel(match.evidence.section)}: ${match.evidence.text}` : "On your approved resume")}">${escapeHtml(match.skill)}</span>`), ...(item.missing || []).map((skill) => `<span class="evidence-chip missing">${escapeHtml(skill)}</span>`)].join("") + (item.any_of ? `<span class="job-meta">any one of these</span>` : "") + (item.needed_years ? `<span class="job-meta wrap">Asks for ${item.needed_years}+ years; resume shows ${item.resume_years}</span>` : "");
+    if (item.kind === "trait") return `<span class="job-meta wrap">Not something a resume can show; judge this yourself</span>`;
+    if (item.kind === "concept") return conceptChips(item) + yearsNote(item);
+    if (item.kind === "skill") return conceptChips(item) + [...(item.matched || []).map((match) => `<span class="evidence-chip met" title="${escapeHtml(match.evidence ? `${formatLabel(match.evidence.section)}: ${match.evidence.text}` : "On your approved resume")}">${escapeHtml(match.skill)}</span>`), ...(item.missing || []).map((skill) => `<span class="evidence-chip missing">${escapeHtml(skill)}</span>`)].join("") + (item.any_of ? `<span class="job-meta">any one of these</span>` : "") + yearsNote(item);
     if (item.kind === "years") return `<span class="job-meta wrap">Needs ${item.needed_years}+ years; resume shows ${item.resume_years}${(item.evidence?.roles || []).length ? ` (${escapeHtml(item.evidence.roles.join("; "))})` : ""}</span>`;
-    if (item.kind === "degree") return `<span class="job-meta wrap">Needs ${escapeHtml(item.needed_degree)}${(item.needed_fields || []).length ? ` in ${escapeHtml(item.needed_fields.join(", "))}` : ""}; resume: ${escapeHtml(item.evidence ? `${item.evidence.degree}, ${item.evidence.institution}` : "no degree found")}</span>`;
+    if (item.kind === "degree") return `<span class="job-meta wrap">Needs ${escapeHtml(item.needed_degree)}${(item.needed_fields || []).length ? ` in ${escapeHtml(item.needed_fields.join(", "))}` : ""}; resume: ${escapeHtml(item.evidence ? `${item.evidence.degree}, ${item.evidence.institution}` : "no degree found")}${item.field_match === "related" ? " (related field)" : item.field_match === "none" ? " (different field)" : ""}</span>`;
     return (item.matched_terms || []).length ? `<span class="job-meta wrap">Resume mentions: ${escapeHtml(item.matched_terms.join(", "))}</span>` : `<span class="job-meta">Not shown on your resume (word match)</span>`;
   };
   const row = (item) => `<li class="req-row ${escapeHtml(item.status)}"><span class="req-icon" aria-label="${escapeHtml(item.status)}">${icon[item.status] || "–"}</span><div><span class="req-text">${escapeHtml(item.text)}</span><div class="req-evidence">${evidenceFor(item)}</div></div></li>`;
@@ -688,7 +692,7 @@ function comparisonMarkup(payload) {
     ${domainLine}
     ${list("Required", required)}${list("Preferred", preferred)}
     ${detail.note ? `<p class="job-meta wrap">${escapeHtml(detail.note)}</p>` : ""}
-    <p class="job-meta wrap">Compared ${escapeHtml(formatTimestamp(payload.generated_at))}. Evidence comes from your approved resume; hover a green skill to see where.</p>`;
+    <p class="job-meta wrap">Compared ${escapeHtml(formatTimestamp(payload.generated_at))}. Evidence comes from your approved resume; hover a green chip to see the line. ○ marks lines a resume cannot show.</p>`;
 }
 
 function closeDrawer() {

@@ -917,8 +917,11 @@ tbody tr:last-child td { border-bottom: 0; }
 .req-row.met .req-icon { color: var(--green); }
 .req-row.partial .req-icon { color: #86580e; }
 .req-row.missing .req-icon { color: var(--red); }
+.req-row.self_assess .req-icon { color: #6b747b; }
+.req-row.self_assess .req-text { color: #4a545c; }
 .req-text { display: block; color: #18232c; overflow-wrap: anywhere; }
 .req-evidence { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; align-items: center; }
 .evidence-chip { display: inline-flex; align-items: center; min-height: 20px; padding: 0 7px; border-radius: 999px; font-size: 0.64rem; font-weight: 700; }
 .evidence-chip.met { color: #09664f; background: var(--green-soft); }
 .evidence-chip.missing { color: #8a2f2f; background: #f7e9e9; }
+.evidence-chip.met[title] { cursor: help; }

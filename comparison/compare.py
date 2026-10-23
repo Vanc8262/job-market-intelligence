@@ -22,6 +22,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from comparison.requirements import Requirement, content_text, extract_requirements
+from comparison.vocabulary import RequirementVocabulary
 from models.candidate import EducationFact, ExtractedFacts, SkillFact
 from models.job_posting import JobPosting
 from profiles.profile_source import experience_years
@@ -63,6 +64,7 @@ class ResumeView:
     text: str
     terms: frozenset[str]
     roles: list[str]
+    lines: tuple[str, ...] = ()
 
     @classmethod
     def from_facts(cls, facts: ExtractedFacts, text: str) -> ResumeView:
@@ -92,6 +94,7 @@ class ResumeView:
             text=text,
             terms=frozenset(_terms(text)),
             roles=roles,
+            lines=tuple(line.strip() for line in text.splitlines() if line.strip()),
         )
 
     def has_skill(self, skill: str) -> SkillFact | None:
@@ -122,8 +125,43 @@ def _span(start: object, end: object, current: bool) -> str:
     return f" ({label(start)} - {'present' if current else label(end) or '?'})"
 
 
+def _stem(token: str) -> str:
+    """Fold simple plurals so "pipelines" matches "pipeline" and "APIs" matches "API"."""
+    if token.endswith("ies") and len(token) > 5:
+        return token[:-3] + "y"
+    if token.endswith("s") and not token.endswith("ss") and len(token) > 4:
+        return token[:-1]
+    return token
+
+
 def _terms(text: str) -> set[str]:
-    return {token for token in _TOKEN.findall(text.casefold()) if token not in _STOPWORDS}
+    return {_stem(token) for token in _TOKEN.findall(text.casefold()) if token not in _STOPWORDS}
+
+
+def _education_label(education: EducationFact) -> str:
+    return " ".join(part for part in (education.degree, education.field_of_study) if part)
+
+
+def _concept_item(
+    concept: str, resume: ResumeView, vocabulary: RequirementVocabulary
+) -> dict[str, object]:
+    """Judge one plain-language concept against the resume, with the line that shows it."""
+    item: dict[str, object] = {"concept": concept, "label": vocabulary.label(concept)}
+    hit = vocabulary.resume_evidence(concept, resume.lines)
+    if hit is not None:
+        item.update(met=True, evidence={"term": hit.term, "text": hit.line})
+        return item
+    for education in resume.education:
+        label = _education_label(education)
+        groups = vocabulary.field_groups(vocabulary.fields_in(label))
+        if groups & vocabulary.concept_fields(concept):
+            item.update(
+                met=True,
+                evidence={"term": "degree", "text": f"{label}, {education.institution or ''}"},
+            )
+            return item
+    item["met"] = False
+    return item
 
 
 def _evidence(fact: SkillFact) -> dict[str, object] | None:
@@ -142,7 +180,10 @@ def _status(score: float) -> str:
 
 
 def assess_requirement(
-    requirement: Requirement, resume: ResumeView, settings: ComparisonConfig
+    requirement: Requirement,
+    resume: ResumeView,
+    settings: ComparisonConfig,
+    vocabulary: RequirementVocabulary | None = None,
 ) -> dict[str, object]:
     """Judge one requirement line against the resume."""
     result: dict[str, object] = {
@@ -150,19 +191,36 @@ def assess_requirement(
         "required": requirement.required,
         "kind": requirement.kind,
     }
+    vocabulary = vocabulary or RequirementVocabulary(settings)
     weight = 1.0 if requirement.required else settings.preferred_weight
-    if requirement.kind == "skill":
+    concepts = [_concept_item(name, resume, vocabulary) for name in requirement.concepts]
+    concepts_met = sum(bool(item["met"]) for item in concepts)
+    if requirement.kind == "trait":
+        # A resume cannot show curiosity or ownership; the candidate judges these.
+        result.update(score=0.0, status="self_assess", weight=0.0)
+        return result
+    if requirement.kind == "concept":
+        score = concepts_met / len(concepts) if concepts else 0.0
+        result["concepts"] = concepts
+        if requirement.min_years and resume.years < requirement.min_years:
+            score *= 0.5
+            result.update(needed_years=requirement.min_years, resume_years=resume.years)
+    elif requirement.kind == "skill":
         matched = [
             {"skill": skill, "evidence": _evidence(fact)}
             for skill in requirement.skills
             if (fact := resume.has_skill(skill)) is not None
         ]
         missing = [skill for skill in requirement.skills if resume.has_skill(skill) is None]
+        found = len(matched) + concepts_met
+        total = len(requirement.skills) + len(concepts)
         if requirement.any_of:
-            score = 1.0 if matched else 0.0
+            score = 1.0 if found else 0.0
         else:
-            score = len(matched) / len(requirement.skills)
+            score = found / total
         result.update(any_of=requirement.any_of, matched=matched, missing=missing)
+        if concepts:
+            result["concepts"] = concepts
         if requirement.min_years and resume.years < requirement.min_years:
             # "5+ years of Python": having the skill without the years is half a match.
             score *= 0.5
@@ -181,31 +239,45 @@ def assess_requirement(
             evidence={"roles": resume.roles},
         )
     elif requirement.kind == "degree":
-        needed_level = requirement.degree_level or 3
+        needed_level = requirement.degree_level
         level = resume.degree_level or 0
         equivalent = requirement.degree_or_equivalent and resume.years >= 4
         degree = resume.degree
-        fields = _degree_fields(requirement.text)
-        resume_fields = _terms(
-            " ".join(
-                part
-                for education in resume.education
-                for part in (education.degree, education.field_of_study)
-                if part
+        resume_labels = [_education_label(education) for education in resume.education]
+        field_match: str
+        if requirement.fields:
+            # Named fields are compared by group: a data science degree meets "fields such
+            # as Computer Science or Mathematics".
+            fields = set(requirement.fields)
+            resume_fields = {
+                name for label in resume_labels for name in vocabulary.fields_in(label)
+            }
+            if fields & resume_fields:
+                field_match = "exact"
+            elif vocabulary.field_groups(list(fields)) & vocabulary.field_groups(
+                list(resume_fields)
+            ):
+                field_match = "related"
+            else:
+                field_match = "none"
+        else:
+            fields = _degree_fields(requirement.text)
+            field_match = (
+                "exact" if not fields or fields & _terms(" ".join(resume_labels)) else "none"
             )
-        )
-        field_match = not fields or bool(fields & resume_fields)
-        if level >= needed_level:
+        level_ok = bool(resume.education) if needed_level is None else level >= needed_level
+        if level_ok:
             # Right level; a named field the resume does not show counts half
             # ("Bachelor's in Electrical Engineering" vs a data science degree).
-            score = 1.0 if field_match else 0.5
+            score = 1.0 if field_match != "none" else 0.5
         elif equivalent:
             score = 1.0
         else:
             score = 0.0
+        result["field_match"] = field_match
         result["needed_fields"] = sorted(fields)
         result.update(
-            needed_degree=DEGREE_NAMES.get(needed_level, "degree"),
+            needed_degree=DEGREE_NAMES.get(needed_level or 0, "a degree or background"),
             evidence=(
                 {
                     "degree": " ".join(
@@ -219,16 +291,16 @@ def assess_requirement(
         )
     else:
         terms = _terms(requirement.text)
-        found = sorted(terms & resume.terms)
-        support = len(found) / len(terms) if terms else 0.0
-        if len(found) >= 2 and support >= settings.text_match_threshold:
+        shared = sorted(terms & resume.terms)
+        support = len(shared) / len(terms) if terms else 0.0
+        if len(shared) >= 2 and support >= settings.text_match_threshold:
             score = 1.0
-        elif found and support >= settings.text_match_threshold / 2:
+        elif shared and support >= settings.text_match_threshold / 2:
             score = 0.5
         else:
             score = 0.0
         weight *= settings.text_requirement_weight
-        result.update(matched_terms=found, missing_terms=sorted(terms - resume.terms))
+        result.update(matched_terms=shared, missing_terms=sorted(terms - resume.terms))
     result.update(score=round(score, 3), status=_status(score), weight=round(weight, 3))
     return result
 
@@ -344,10 +416,14 @@ def compare_posting(
     skills_in_text: Callable[[str], list[str]],
     frequencies: Counter[str],
     corpus_size: int,
+    vocabulary: RequirementVocabulary | None = None,
 ) -> dict[str, object]:
     """Return the full comparison for one posting."""
-    requirements = extract_requirements(posting, skills_in_text, limit=settings.max_requirements)
-    assessed = [assess_requirement(item, resume, settings) for item in requirements]
+    vocabulary = vocabulary or RequirementVocabulary(settings)
+    requirements = extract_requirements(
+        posting, skills_in_text, limit=settings.max_requirements, vocabulary=vocabulary
+    )
+    assessed = [assess_requirement(item, resume, settings, vocabulary) for item in requirements]
     weight_total = sum(float(str(item["weight"])) for item in assessed)
     # A neutral prior (0.5 with ``evidence_prior_weight`` pseudo-weight) keeps one or two
     # assessed lines from producing a 0% or 100% coverage on their own.
@@ -361,7 +437,9 @@ def compare_posting(
         if weight_total
         else None
     )
-    required = [item for item in assessed if item["required"]]
+    # Self-assessed lines (curiosity, ownership) are listed but neither met nor missing.
+    checkable = [item for item in assessed if item["status"] != "self_assess"]
+    required = [item for item in checkable if item["required"]]
 
     def idf(skill: str) -> float:
         return math.log((corpus_size + 1) / (frequencies.get(skill, 0) + 1)) + 1.0
@@ -416,9 +494,10 @@ def compare_posting(
                 "required_met": sum(item["status"] == "met" for item in required),
                 "required_total": len(required),
                 "preferred_met": sum(
-                    item["status"] == "met" for item in assessed if not item["required"]
+                    item["status"] == "met" for item in checkable if not item["required"]
                 ),
-                "preferred_total": len(assessed) - len(required),
+                "preferred_total": len(checkable) - len(required),
+                "self_assess": len(assessed) - len(checkable),
                 "items": assessed,
             },
             "keywords": keywords,
