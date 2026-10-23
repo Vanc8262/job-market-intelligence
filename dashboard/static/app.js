@@ -571,7 +571,7 @@ function renderQualityOperations() {
   const quality = state.operations.quality;
   const bayes = quality.bayesian;
   const bayesChecks = new Map((bayes?.checks || []).map((check) => [check.name, check]));
-  const rows = (quality.metrics || []).map((metric) => `<tr><td><strong>${escapeHtml(formatLabel(metric.name))}</strong><span class="job-meta">${metric.blocking ? "Blocking" : "Advisory"}</span></td><td>${opsBadge(metric.passed ? "Passed" : "Failed", metric.passed ? "" : "failed")}</td><td class="number-cell">${escapeHtml(formatQualityValue(metric.value, metric))}</td><td class="number-cell">${escapeHtml(formatLabel(metric.comparison))} ${escapeHtml(formatQualityValue(metric.threshold, metric))}</td><td class="number-cell">${metric.available ? "Yes" : "No"}</td><td>${bayesianCell(bayesChecks.get(metric.name), metric)}</td></tr>`).join("");
+  const rows = (quality.metrics || []).map((metric) => `<tr><td><strong>${escapeHtml(formatLabel(metric.name))}</strong><span class="job-meta">${metric.blocking ? "Blocking" : "Advisory"}</span></td><td>${opsBadge(metric.passed ? "Passed" : "Failed", metric.passed ? "" : "failed")}</td><td class="number-cell">${escapeHtml(formatQualityValue(metric.value, metric))}</td><td class="number-cell">${escapeHtml(formatLabel(metric.comparison))} ${escapeHtml(formatQualityValue(metric.threshold, metric))}</td><td class="number-cell">${metric.available ? "Yes" : "No"}</td><td>${bayesianCell(bayesChecks.get(metric.name), metric, Boolean(bayes))}</td></tr>`).join("");
   const failed = quality.failed_metrics || [];
   return `<div class="intel-grid"><section class="ops-status-line ${quality.passed ? "" : "failed"} wide"><div><strong>${quality.passed ? "Quality gateway passed" : `${number(failed.length)} blocking checks failed`}</strong><span>${number(quality.valid_records)} valid records, ${number(quality.invalid_records)} invalid records, generated ${escapeHtml(formatTimestamp(quality.generated_at))}.</span></div></section><section class="intel-block wide">${intelHeading("Quality metrics", `${number((quality.metrics || []).length)} evaluated checks`)}${marketTable(["Metric", "Status", "Current", "Threshold", "Available", "Bayesian (B1)"], rows)}</section>${bayesianEmployerBlock(bayes)}</div>`;
 }
@@ -592,7 +592,8 @@ function renderGoldOperations() {
 
 function stageRow(name, status, detail, timestamp, freshness) { const age = freshness?.age_hours == null ? "age unavailable" : `${number(freshness.age_hours)}h old`; return `<div class="ops-stage"><span class="stage-indicator ${status}"></span><strong>${escapeHtml(name)}${status === "stale" ? `<small>${escapeHtml(age)}</small>` : ""}</strong><span>${escapeHtml(detail)}</span><time>${escapeHtml(formatTimestamp(timestamp))}</time></div>`; }
 // Phase 8 B1: probability that each rate truly meets its threshold.
-function bayesianCell(check, metric) {
+function bayesianCell(check, metric, hasBayes = true) {
+  if (!hasBayes) return `<span class="job-meta">Not in this report</span>`;
   if (!check) return `<span class="job-meta">${metric?.name === "minimum_records" ? "Not modeled: a count, not a rate" : "–"}</span>`;
   if (check.verdict === "estimate") return `${opsBadge("Estimate", "neutral")}<span class="job-meta"> ${formatPercent(check.posterior.mean)} · ${intervalText(check.posterior)}</span>`;
   const style = check.verdict === "fail" ? "failed" : check.verdict === "uncertain" ? "warning" : "";
@@ -601,7 +602,7 @@ function bayesianCell(check, metric) {
 }
 
 function bayesianEmployerBlock(bayes) {
-  if (!bayes) return "";
+  if (!bayes) return `<section class="intel-block wide">${intelHeading("Bayesian quality checks (B1)", "Not available yet")}<div class="intel-empty">This quality report was generated before the Bayesian checks existed. They appear after the next collection run, or now if you run scripts\\check_data_quality.py.</div></section>`;
   const rows = (bayes.checks || []).filter((check) => check.comparison !== "informational").flatMap((check) => (check.by_employer?.rows || []).filter((row) => row.verdict !== "pass").slice(0, 5).map((row) => `<tr><td><strong>${escapeHtml(formatLabel(check.name))}</strong></td><td>${escapeHtml(row.employer)}</td><td class="number-cell">${number(row.successes)} / ${number(row.trials)}</td><td class="number-cell">${formatPercent(row.posterior.mean)} <small class="job-meta">${intervalText(row.posterior)}</small></td><td>${opsBadge(formatLabel(row.verdict), row.verdict === "fail" ? "failed" : "warning")}</td></tr>`)).join("");
   const mode = bayes.mode === "enforce" ? "Bayesian verdicts decide coverage checks" : "Advisory: rule thresholds still decide pass or fail";
   return `<section class="intel-block wide">${intelHeading("Employers below threshold (Bayesian)", mode)}${rows ? marketTable(["Check", "Employer", "Postings", "Estimated rate", "Verdict"], rows) : `<div class="intel-empty">No employer is likely or possibly below a threshold</div>`}</section>`;
