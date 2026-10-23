@@ -5,7 +5,7 @@ const ACTIVE_STATUSES = new Set(["applied", "interviewing", "offer"]);
 const STATUS_OPTIONS = ["new", "reviewing", "saved", "applied", "interviewing", "offer", "rejected", "archived"];
 const SIGNAL_KEYS = ["skills", "title", "experience", "location"];
 const POSITIVE_FEEDBACK_STATUSES = new Set(["reviewing", "saved", "applied", "interviewing", "offer"]);
-const state = { mart: null, market: null, operations: null, candidate: null, opportunities: [], tracking: {}, filtered: [], page: 1, band: "all", view: "opportunities", marketView: "overview", operationsView: "overview", selectedJobId: null, simulatorWeights: null };
+const state = { mart: null, market: null, operations: null, candidate: null, opportunities: [], tracking: {}, filtered: [], page: 1, band: "all", view: "opportunities", marketView: "overview", operationsView: "overview", selectedJobId: null, simulatorWeights: null, comparison: null };
 const elements = {};
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -55,6 +55,7 @@ function bindEvents() {
     if (event.key === "Enter" || event.key === " ") { const row = event.target.closest("tr[data-job-id]"); if (row) { event.preventDefault(); openDrawer(row.dataset.jobId); } }
   });
   elements.drawerContent.addEventListener("submit", saveTracking);
+  elements.drawerContent.addEventListener("click", saveRequirementLabel);
   bindResumeReview();
   elements.drawerContent.addEventListener("change", handleTrackingFormChange);
   elements.resetFilters.addEventListener("click", resetFilters);
@@ -647,6 +648,7 @@ async function loadComparison(item) {
     const response = await fetch(`/api/comparisons/${encodeURIComponent(item.job_id)}`, { cache: "no-store" });
     const payload = await response.json();
     if (state.selectedJobId !== item.job_id) return;
+    state.comparison = response.ok ? { jobId: item.job_id, items: payload.comparison.dimensions?.requirements?.items || [], labels: payload.labels || {} } : null;
     section.innerHTML = response.ok ? comparisonMarkup(payload) : `<div class="section-heading"><h3>Application comparison</h3></div><p class="job-meta wrap">${escapeHtml(payload.error || "No comparison available")}. Approve your resume in Resume review, then run <code>scripts\\sync_data.py</code>.</p>`;
   } catch (error) {
     section.innerHTML = `<div class="section-heading"><h3>Application comparison</h3></div><p class="job-meta wrap">Comparison could not be loaded.</p>`;
@@ -687,8 +689,8 @@ function comparisonMarkup(payload) {
     if (item.kind === "degree") return `<span class="job-meta wrap">Needs ${escapeHtml(item.needed_degree)}${(item.needed_fields || []).length ? ` in ${escapeHtml(item.needed_fields.join(", "))}` : ""}; resume: ${escapeHtml(item.evidence ? `${item.evidence.degree}, ${item.evidence.institution}` : "no degree found")}${item.field_match === "related" ? " (related field)" : item.field_match === "none" ? " (different field)" : ""}</span>`;
     return (item.matched_terms || []).length ? `<span class="job-meta wrap">Resume mentions: ${escapeHtml(item.matched_terms.join(", "))}${(item.missing_terms || []).length ? ` · not found: ${escapeHtml(item.missing_terms.slice(0, 6).join(", "))}` : ""}</span>` : `<span class="job-meta">Not shown on your resume (word match, synonyms included)</span>`;
   };
-  const row = (item) => `<li class="req-row ${escapeHtml(item.status)}"><span class="req-icon" aria-label="${escapeHtml(item.status)}">${icon[item.status] || "–"}</span><div><span class="req-text">${escapeHtml(item.text)}</span><div class="req-evidence">${evidenceFor(item)}</div></div></li>`;
   const items = requirements.items || [];
+  const row = (item) => `<li class="req-row ${escapeHtml(item.status)}"><span class="req-icon" aria-label="${escapeHtml(item.status)}">${icon[item.status] || "–"}</span><div><span class="req-text">${escapeHtml(item.text)}</span><div class="req-evidence">${evidenceFor(item)}</div><div class="req-label" data-label-row="${items.indexOf(item)}">${labelControl(item, items.indexOf(item), (payload.labels || {})[item.text])}</div></div></li>`;
   const required = items.filter((item) => item.required);
   const preferred = items.filter((item) => !item.required);
   const list = (title, rows) => rows.length ? `<h4 class="req-heading">${escapeHtml(title)} (${rows.length})</h4><ul class="req-list">${rows.slice(0, 10).map(row).join("")}</ul>${rows.length > 10 ? `<details><summary>Show ${rows.length - 10} more</summary><ul class="req-list">${rows.slice(10).map(row).join("")}</ul></details>` : ""}` : "";
@@ -709,13 +711,46 @@ function comparisonMarkup(payload) {
     ${domainLine}
     ${list("Required", required)}${list("Preferred", preferred)}
     ${detail.note ? `<p class="job-meta wrap">${escapeHtml(detail.note)}</p>` : ""}
-    <p class="job-meta wrap">Compared ${escapeHtml(formatTimestamp(payload.generated_at))}. Evidence comes from your approved resume; hover a green chip to see the line. ○ marks lines a resume cannot show.</p>`;
+    <p class="job-meta wrap">Compared ${escapeHtml(formatTimestamp(payload.generated_at))}. Evidence comes from your approved resume; hover a green chip to see the line. ○ marks lines a resume cannot show. Agree or correct a verdict to save a private label.</p>`;
+}
+
+// Owner corrections of ✓/◐/✗ verdicts, stored privately as Phase 7 labels.
+const VERDICT_ICONS = { met: "✓", partial: "◐", missing: "✗" };
+function labelControl(item, index, label) {
+  const predicted = item.status;
+  const chosen = label?.corrected_status;
+  const button = (status, text, title) => `<button type="button" class="label-button${chosen === status ? " active" : ""}" data-label-index="${index}" data-label-status="${status}" aria-pressed="${chosen === status}" title="${escapeHtml(title)}">${text}</button>`;
+  const agree = VERDICT_ICONS[predicted] ? button(predicted, "Agree", `Agree: ${formatLabel(predicted)}`) : "";
+  const others = Object.entries(VERDICT_ICONS).filter(([status]) => status !== predicted).map(([status, glyph]) => button(status, glyph, `Should be ${formatLabel(status)}`)).join("");
+  const note = !label ? "" : label.agrees ? `<span class="label-note">Agreed</span>` : `<span class="label-note">You: ${VERDICT_ICONS[label.corrected_status] || ""}${label.predicted_status !== predicted ? ` (labeled when it was ${escapeHtml(formatLabel(label.predicted_status))})` : ""}</span>`;
+  return `<span class="label-prompt">${agree ? "" : "Your call:"}</span>${agree}${agree ? `<span class="label-prompt">should be</span>` : ""}${others}${note}`;
+}
+
+async function saveRequirementLabel(event) {
+  const button = event.target.closest("button[data-label-index]");
+  if (!button || !state.comparison || state.comparison.jobId !== state.selectedJobId) return;
+  const { jobId, items } = state.comparison;
+  const index = Number(button.dataset.labelIndex);
+  const item = items[index];
+  if (!item) return;
+  const container = button.closest(".req-label");
+  container.querySelectorAll("button").forEach((control) => { control.disabled = true; });
+  try {
+    const response = await fetch("/api/requirement-labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: jobId, requirement: item.text, corrected_status: button.dataset.labelStatus }) });
+    const result = await response.json(); if (!response.ok) throw new Error(result.error || "Label could not be saved");
+    if (state.comparison?.jobId !== jobId) return;
+    state.comparison.labels[item.text] = result;
+    document.querySelectorAll(`[data-label-row="${index}"]`).forEach((row) => { row.innerHTML = labelControl(item, index, result); });
+  } catch (error) {
+    container.querySelectorAll("button").forEach((control) => { control.disabled = false; });
+    container.insertAdjacentHTML("beforeend", `<span class="label-note error">${escapeHtml(error.message)}</span>`);
+  }
 }
 
 function closeDrawer() {
   if (!elements.detailDrawer.classList.contains("open")) return;
   elements.detailDrawer.classList.remove("open"); elements.detailDrawer.setAttribute("aria-hidden", "true"); elements.drawerBackdrop.hidden = true; document.body.style.overflow = "";
-  const selected = document.querySelector(`tr[data-job-id="${CSS.escape(state.selectedJobId || "")}"]`); if (selected) selected.focus(); state.selectedJobId = null;
+  const selected = document.querySelector(`tr[data-job-id="${CSS.escape(state.selectedJobId || "")}"]`); if (selected) selected.focus(); state.selectedJobId = null; state.comparison = null;
 }
 function handleTrackingFormChange(event) {
   if (event.target.id === "trackingStatus" && event.target.value === "applied") { const field = document.getElementById("applicationDate"); if (!field.value) field.value = new Date().toISOString().slice(0, 10); }

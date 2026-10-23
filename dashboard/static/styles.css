@@ -920,6 +920,14 @@ tbody tr:last-child td { border-bottom: 0; }
 .req-row.self_assess .req-icon { color: #6b747b; }
 .req-row.self_assess .req-text { color: #4a545c; }
 .req-text { display: block; color: #18232c; overflow-wrap: anywhere; }
+.req-label { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; align-items: center; }
+.label-prompt { color: #6b747b; font-size: 0.64rem; }
+.label-button { min-height: 20px; padding: 0 7px; border: 1px solid #d5dbe0; border-radius: 999px; background: #fff; color: #18232c; font: inherit; font-size: 0.64rem; font-weight: 700; cursor: pointer; }
+.label-button:hover:not(:disabled) { border-color: #8d99a3; }
+.label-button.active { border-color: #18232c; background: #18232c; color: #fff; }
+.label-button:disabled { opacity: 0.6; cursor: wait; }
+.label-note { color: #4a545c; font-size: 0.64rem; }
+.label-note.error { color: var(--red); }
 .req-evidence { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; align-items: center; }
 .evidence-chip { display: inline-flex; align-items: center; min-height: 20px; padding: 0 7px; border-radius: 999px; font-size: 0.64rem; font-weight: 700; }
 .evidence-chip.met { color: #09664f; background: var(--green-soft); }
