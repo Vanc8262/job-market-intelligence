@@ -465,6 +465,14 @@ list only receives each posting's scores; the evidence is loaded when you open a
 Requirement parsing is rule-based and works on plain text, so read "missing" as "not found
 on the resume by matching", and check the line yourself before rewriting your resume.
 
+Each requirement line in the drawer has an **Agree** button and the other verdicts
+(✓ met, ◐ partial, ✗ missing; "Your call" for self-assess lines). A click appends one JSON
+line to `data/private/labels/requirement_labels.jsonl` with the posting id, requirement
+text, the predicted status (taken from the stored comparison, not the browser), your
+corrected status, the comparison model version, and a timestamp. The log is append-only;
+the newest label for a line is the one shown. These labels are the hand-labeled set Phase 7
+will use to measure comparison accuracy, and they never contain resume text.
+
 ## Engineering Commands
 
 ```powershell
@@ -493,6 +501,7 @@ in `docs/`; install the optional `docs` extra (`pip install -e ".[docs]"`) first
 | Application tracking | `data/application_tracking/state.json` |
 | Candidate database and resumes | `data/private/candidates.sqlite3`, `data/private/resumes/` |
 | Application comparison results | `data/private/comparisons/latest.json` |
+| Requirement verdict labels | `data/private/labels/requirement_labels.jsonl` |
 
 CLI commands emit JSON summaries. Exit code `0` means success; pipeline and quality
 commands return nonzero when a required stage fails.

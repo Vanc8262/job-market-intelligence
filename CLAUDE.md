@@ -62,7 +62,7 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
    `master`. Descriptive subject + body explaining why.
 5. **Dashboard assets:** when `app.js`, `resume-review.js`, or `styles.css` change, bump
    the `?v=resume-vN` asset version in `dashboard/static/index.html` **and** in
-   `tests/test_dashboard.py` (currently `resume-v11`).
+   `tests/test_dashboard.py` (currently `resume-v12`).
 6. **Config over code:** thresholds, weights, vocabularies, and taxonomies go in
    `config/*.yaml`, each validated by a Pydantic model in `utils/config.py`
    (`extra="forbid"`; add the field there when adding a YAML key). Bump the config's
@@ -108,6 +108,9 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
   alternative counts fully; "or comparable/similar" → `comparable_credit` (0.6).
   Missing named products go to `named_to_add` ("Keywords to add" in the drawer).
 - `runner.py`: compares all active Silver postings, writes results privately.
+- `labels.py`: owner agree/correct verdicts from the drawer (`POST /api/requirement-labels`),
+  appended to `data/private/labels/requirement_labels.jsonl`; the predicted status is read
+  from the stored comparison. This is the Phase 7 labeled set.
 - When the owner reports a wrong ✓/◐/✗, fix it in the vocabulary/config first, add a
   regression test in `tests/test_comparison.py` with the synthetic resume, and sanity
   check on real postings (counts by kind/status) before committing.

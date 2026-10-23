@@ -17,6 +17,7 @@ from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel, ValidationError
 
+from comparison.labels import RequirementLabelStore, labels_path
 from comparison.runner import load_results
 from dashboard.resumes import load_candidate_profile, load_resume_review, load_resume_reviews
 from dashboard.tracking import ApplicationTrackingRepository
@@ -57,6 +58,7 @@ RESUME_REVIEW_PREFIX = "/api/resume-reviews/"
 COMPARISON_PREFIX = "/api/comparisons/"
 RESUME_VERSION_PREFIX = "/api/resume-versions/"
 ACTIVE_RESUME_PATH = "/api/candidate-profile/active-resume"
+REQUIREMENT_LABELS_PATH = "/api/requirement-labels"
 OPERATIONS_FRESHNESS_HOURS = 36
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
@@ -363,6 +365,7 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
                     "generated_at": comparisons.get("generated_at") if comparisons else None,
                     "resume": comparisons.get("resume") if comparisons else None,
                     "model": comparisons.get("model") if comparisons else None,
+                    "labels": self._labels_for(job_id) if job_id else {},
                 }
             )
             return
@@ -484,6 +487,59 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         except (OSError, ValueError):
             return None
 
+    def _label_store(self) -> RequirementLabelStore | None:
+        """Return the private requirement-label log, when the resume workflow is set up."""
+        service = self.resume_service
+        return RequirementLabelStore(labels_path(service.private_root)) if service else None
+
+    def _labels_for(self, job_id: str) -> dict[str, dict[str, object]]:
+        """Return the owner's newest label per requirement line for one posting."""
+        store = self._label_store()
+        if store is None:
+            return {}
+        try:
+            latest = store.latest_for(job_id)
+        except (OSError, ValueError):
+            return {}
+        return {
+            text: label.model_dump(
+                mode="json",
+                include={"predicted_status", "corrected_status", "agrees", "labeled_at"},
+            )
+            for text, label in latest.items()
+        }
+
+    def _record_label(self) -> None:
+        """Append the owner's verdict on one requirement line to the private label log."""
+        store = self._label_store()
+        if store is None:
+            self._send_json(
+                {"error": "Resume workflow is unavailable"}, status=HTTPStatus.SERVICE_UNAVAILABLE
+            )
+            return
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0 or content_length > MAX_REQUEST_BYTES:
+                raise ValueError("Request body must be between 1 byte and 64 KB")
+            payload = json.loads(self.rfile.read(content_length))
+            if not isinstance(payload, dict):
+                raise ValueError("Request body must be a JSON object")
+            job_id = payload.get("job_id")
+            requirement = payload.get("requirement")
+            corrected = payload.get("corrected_status")
+            if not isinstance(job_id, str) or _path_identifier(job_id) is None:
+                raise ValueError("job_id is required")
+            if not isinstance(requirement, str) or not requirement:
+                raise ValueError("requirement is required")
+            if not isinstance(corrected, str):
+                raise ValueError("corrected_status must be met, partial, or missing")
+            label = store.record(self._comparisons(), job_id, requirement, corrected)
+            self._send_json(label.model_dump(mode="json"), status=HTTPStatus.CREATED)
+        except LookupError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
+        except (json.JSONDecodeError, UnicodeDecodeError, ValidationError, ValueError) as exc:
+            self._send_json({"error": _validation_message(exc)}, status=HTTPStatus.BAD_REQUEST)
+
     def _with_resume_service(
         self, build: Callable[[ResumeIngestionService], dict[str, Any]]
     ) -> None:
@@ -544,7 +600,7 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": _validation_message(exc)}, status=HTTPStatus.BAD_REQUEST)
 
     def do_POST(self) -> None:  # noqa: N802
-        """Create a revision of a review, or a new resume version from edited text."""
+        """Create a review revision, a resume version from edited text, or a requirement label."""
         if self._reject_foreign_request(mutating=True):
             return
         path = urlsplit(self.path).path
@@ -555,6 +611,9 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         if path.startswith(RESUME_VERSION_PREFIX) and path.endswith("/edited-text"):
             raw_id = path.removeprefix(RESUME_VERSION_PREFIX).removesuffix("/edited-text")
             self._resume_action(raw_id, self._edited_version)
+            return
+        if path == REQUIREMENT_LABELS_PATH:
+            self._record_label()
             return
         self._send_json({"error": "Endpoint not found"}, status=HTTPStatus.NOT_FOUND)
 
