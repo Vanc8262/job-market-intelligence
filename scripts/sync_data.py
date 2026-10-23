@@ -8,8 +8,9 @@ clone of that repository and run:
 
 It discards local edits in the data clone (Gold files rebuilt here are derived outputs),
 fast-forwards it to the collector's latest commit, then rebuilds Gold so relevance uses
-your approved resume and ``config/resume_profile.local.yaml``. Application tracking and
-resumes are stored elsewhere and are never touched.
+your approved resume and ``config/resume_profile.local.yaml``, and compares every
+current opportunity with that resume (Phase 6.3; results stay in ``data/private``).
+Application tracking and resumes are stored elsewhere and are never touched.
 """
 
 # ruff: noqa: E402
@@ -29,6 +30,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from analytics import SilverToGoldRunner
+from comparison.runner import ApplicationComparisonRunner
 from profiles.profile_source import resolve_resume_profile
 from utils.config import Config
 from utils.logger import configure_logging
@@ -87,7 +89,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     profile, source = resolve_resume_profile(config)
     gold = SilverToGoldRunner(config, resume_profile=profile, profile_source=source).run()
-    output.update({"profile_source": source, "gold": gold.summary()})
+    comparison = ApplicationComparisonRunner(config).run()
+    output.update(
+        {"profile_source": source, "gold": gold.summary(), "comparison": comparison.summary()}
+    )
     print(json.dumps(output, indent=2, sort_keys=True, default=str))
     return 1 if gold.failed else 0
 

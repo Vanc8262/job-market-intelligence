@@ -504,6 +504,47 @@ class BayesianSkillSharesConfig(BaseModel):
     max_prior_strength: float = Field(default=1000, gt=0)
 
 
+class ComparisonWeights(BaseModel):
+    """Relative weight of each application-comparison dimension."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    requirements: float = Field(default=0.45, ge=0)
+    keywords: float = Field(default=0.30, ge=0)
+    seniority: float = Field(default=0.15, ge=0)
+    domain: float = Field(default=0.10, ge=0)
+
+
+class ComparisonConfig(BaseModel):
+    """Validated contents of comparison.yaml (Phase 6.3 application comparison)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: str = Field(default="1.0.0", min_length=1)
+    weights: ComparisonWeights = Field(default_factory=ComparisonWeights)
+    preferred_weight: float = Field(default=0.5, ge=0, le=1)
+    text_requirement_weight: float = Field(default=0.5, ge=0, le=1)
+    text_match_threshold: float = Field(default=0.6, gt=0, le=1)
+    evidence_prior_weight: float = Field(default=2.0, ge=0)
+    max_requirements: int = Field(default=40, ge=1)
+    strong_threshold: float = Field(default=75, ge=0, le=100)
+    moderate_threshold: float = Field(default=55, ge=0, le=100)
+    seniority_scores: dict[str, float] = Field(
+        default_factory=lambda: {
+            "entry": 1.0,
+            "mid": 1.0,
+            "unknown": 0.8,
+            "senior": 0.4,
+            "staff": 0.1,
+            "manager": 0.1,
+            "director": 0.05,
+            "executive": 0.05,
+        }
+    )
+    domains: dict[str, list[str]] = Field(default_factory=dict)
+    domain_minimum_hits: int = Field(default=2, ge=1)
+
+
 class BayesianConfig(BaseModel):
     """Validated contents of bayesian.yaml (Phase 8)."""
 
@@ -759,6 +800,7 @@ class Config:
         self._candidate_collection: CandidateCollectionConfig | None = None
         self._data_quality: DataQualityConfig | None = None
         self._bayesian: BayesianConfig | None = None
+        self._comparison: ComparisonConfig | None = None
         self._lifecycle: LifecycleConfig | None = None
         self._companies: GenericYamlConfig | None = None
         self._salary: GenericYamlConfig | None = None
@@ -835,6 +877,15 @@ class Config:
                 "candidate_queries.yaml",
             )
         return self._candidate_collection
+
+    @property
+    def comparison(self) -> ComparisonConfig:
+        """Return application-comparison settings (defaults when the file is absent)."""
+        if self._comparison is None:
+            path = self._config_dir / "comparison.yaml"
+            data = self._read_yaml("comparison.yaml") if path.exists() else {}
+            self._comparison = self._validate(ComparisonConfig, data, "comparison.yaml")
+        return self._comparison
 
     @property
     def bayesian(self) -> BayesianConfig:
@@ -932,6 +983,7 @@ class Config:
         self._candidate_collection = None
         self._data_quality = None
         self._bayesian = None
+        self._comparison = None
         self._lifecycle = None
         self._companies = None
         self._salary = None

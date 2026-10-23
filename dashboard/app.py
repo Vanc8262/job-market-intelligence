@@ -17,6 +17,7 @@ from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel, ValidationError
 
+from comparison.runner import load_results
 from dashboard.resumes import load_candidate_profile, load_resume_review, load_resume_reviews
 from dashboard.tracking import ApplicationTrackingRepository
 from models.candidate import ReviewApproval, ReviewDraft
@@ -53,6 +54,7 @@ OPERATIONS_PATHS = {
 MAX_REQUEST_BYTES = 64 * 1024
 MAX_REVIEW_REQUEST_BYTES = 512 * 1024
 RESUME_REVIEW_PREFIX = "/api/resume-reviews/"
+COMPARISON_PREFIX = "/api/comparisons/"
 RESUME_VERSION_PREFIX = "/api/resume-versions/"
 ACTIVE_RESUME_PATH = "/api/candidate-profile/active-resume"
 OPERATIONS_FRESHNESS_HOURS = 36
@@ -339,9 +341,30 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == "/api/opportunities":
             try:
-                self._send_json(load_opportunities_mart(self.mart_path))
+                mart = load_opportunities_mart(self.mart_path)
+                self._send_json(attach_application_fit(mart, self._comparisons()))
             except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
                 self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        if path.startswith(COMPARISON_PREFIX):
+            job_id = _path_identifier(path.removeprefix(COMPARISON_PREFIX))
+            comparisons = self._comparisons()
+            jobs = comparisons.get("jobs") if comparisons else None
+            detail = jobs.get(job_id) if isinstance(jobs, dict) and job_id else None
+            if detail is None:
+                self._send_json(
+                    {"error": "No comparison for this posting yet; run scripts/sync_data.py"},
+                    status=HTTPStatus.NOT_FOUND,
+                )
+                return
+            self._send_json(
+                {
+                    "comparison": detail,
+                    "generated_at": comparisons.get("generated_at") if comparisons else None,
+                    "resume": comparisons.get("resume") if comparisons else None,
+                    "model": comparisons.get("model") if comparisons else None,
+                }
+            )
             return
         if path == "/api/application-tracking":
             try:
@@ -450,6 +473,16 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
 
         except (json.JSONDecodeError, UnicodeDecodeError, ValidationError, ValueError) as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+
+    def _comparisons(self) -> dict[str, object] | None:
+        """Return stored Phase 6.3 comparison results, if any."""
+        service = self.resume_service
+        if service is None:
+            return None
+        try:
+            return load_results(service.private_root)
+        except (OSError, ValueError):
+            return None
 
     def _with_resume_service(
         self, build: Callable[[ResumeIngestionService], dict[str, Any]]
@@ -665,6 +698,40 @@ def create_server(
         },
     )
     return DashboardHTTPServer((host, port), handler)
+
+
+def attach_application_fit(
+    mart: dict[str, Any], comparisons: dict[str, object] | None
+) -> dict[str, Any]:
+    """Add each posting's Phase 6.3 fit summary (no resume evidence) to the mart."""
+    jobs = comparisons.get("jobs") if comparisons else None
+    if not isinstance(jobs, dict):
+        return {**mart, "application_fit_available": False}
+    rows = []
+    for row in mart.get("opportunities", []):
+        detail = jobs.get(row.get("job_id"))
+        if isinstance(detail, dict):
+            dimensions = detail.get("dimensions") or {}
+            requirements = dimensions.get("requirements") or {}
+            keywords = dimensions.get("keywords") or {}
+            row = {
+                **row,
+                "application_fit": {
+                    "fit_score": detail.get("fit_score"),
+                    "band": detail.get("band"),
+                    "requirements_score": requirements.get("score"),
+                    "required_met": requirements.get("required_met"),
+                    "required_total": requirements.get("required_total"),
+                    "keywords_score": keywords.get("score"),
+                },
+            }
+        rows.append(row)
+    return {
+        **mart,
+        "opportunities": rows,
+        "application_fit_available": True,
+        "application_fit_generated_at": comparisons.get("generated_at") if comparisons else None,
+    }
 
 
 def _path_identifier(raw: str) -> str | None:

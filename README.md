@@ -56,14 +56,16 @@ state and is excluded from version control.
 | 3. Transformation | Bronze-to-Silver normalization, deduplication, and validation | Complete |
 | 4. Intelligence | Lifecycle, Gold summaries, relevance scoring, and quality gateway | Complete |
 | 5. Reporting | Dashboard: opportunities, shortlist, tracking, market views, pipeline status, weight simulator | Complete |
-| 6. Candidate workflow | Resume ingestion and extraction (6.1), review with revisions and edited versions (6.2), application comparison (6.3) | 6.1–6.2 complete; 6.3 next |
+| 6. Candidate workflow | Resume ingestion and extraction (6.1), review with revisions and edited versions (6.2), application comparison (6.3) | Complete |
 | 7. Bayesian evaluation | Labeled benchmark sets, accuracy with credible intervals, calibration checks, and model comparison | Planned (redesigned) |
 | 8. Bayesian analytics | Bayesian quality gate, salary, relevance, survival, and trend models (stages B0–B5) | B0–B1 complete; B2–B5 as data accumulates |
 | 9. Deep learning | Title and skill embeddings (for example JobBERT or ModernBERT) as inputs to the Bayesian models | Future |
 
-Application comparison (6.3) scores each posting two ways, **requirement coverage with
-evidence** and **taxonomy-weighted ATS keyword overlap**; Phase 8 stage B3 later turns
-those signals into a calibrated fit probability with an uncertainty range.
+Application comparison (6.3) scores each posting against your approved resume on
+**requirement coverage with evidence** and **taxonomy-weighted ATS keyword overlap**,
+plus seniority fit and domain alignment (see [Application Comparison](#application-comparison-phase-63));
+Phase 8 stage B3 later turns those signals into a calibrated fit probability with an
+uncertainty range.
 
 Phase 7 evaluates every model the Bayesian way: accuracy and agreement are reported as
 posterior distributions (Beta-Binomial) with credible intervals, predicted probabilities
@@ -294,7 +296,8 @@ Add-Content .env "JMIP_PIPELINE_DATA_DIR=../jmip-data"
 
 `sync_data.py` resets the clone to the collector's latest commit (Gold files rebuilt
 locally are derived and safe to discard), then rebuilds Gold with your approved resume and
-`config/resume_profile.local.yaml`. Application tracking and resumes stay in `data/`.
+`config/resume_profile.local.yaml`, and compares every current posting with that resume
+(Phase 6.3). Application tracking, resumes, and comparison results stay in `data/`.
 
 **Choosing a cadence.** Each scheduled run is logged to `gold/cadence/observations.jsonl`.
 `scripts/cadence_report.py` replays the daily history as weekly and biweekly schedules and
@@ -349,6 +352,8 @@ expired, and duplicate jobs in research summaries with
 - **Pipeline operations:** read-only freshness, collection, quality, lifecycle, and Gold views.
 - **Weight simulator:** test relevance weights against current Gold data without saving.
 - **Resume review:** check extracted resume facts against the source text and approve them.
+- **Application fit:** a Fit column (sortable as "Application fit") and an Application
+  comparison section in the detail drawer.
 
 The server binds to `127.0.0.1` by default. It rejects requests whose `Host` is not a
 local name (preventing DNS-rebinding reads), rejects writes from other origins, and
@@ -402,11 +407,39 @@ How it works:
 7. **Tracking.** The opportunity drawer records which resume version you used for an
    application.
 
+## Application Comparison (Phase 6.3)
+
+Every current posting is compared with your approved active resume on four dimensions,
+each shown with the evidence behind it:
+
+| Dimension | Weight | How it is measured |
+| --- | --- | --- |
+| Requirements coverage | 45% | The posting's requirement lines (Lever qualification lists, or the lines under headings such as "What you'll need" and "Nice to have") are tagged required or preferred and classified as skill, years, degree, or other. Each is marked met, partial, or missing, with the resume line, role, or degree that supports it. Preferred lines count half. |
+| ATS keyword overlap | 30% | Taxonomy skills in the posting, weighted by rarity across current postings (IDF), so a rare skill counts more than "SQL". Lists the keywords to add (★ = named in the requirements). |
+| Seniority fit | 15% | Posting level and minimum years against your resume's years of experience. |
+| Domain alignment | 10% | Industry vocabulary (healthcare, finance, energy, …) in the posting, outside benefits sections, that also appears on your resume. |
+
+Coverage and keyword scores are pulled toward 50% when a posting has only one or two
+assessable lines, so thin postings cannot score 0 or 100 by accident. A posting without a
+requirements section is scored on the other dimensions and capped at a "moderate" band;
+one with neither requirements nor skills is "unknown". Bands: strong ≥ 75, moderate ≥ 55.
+Weights, thresholds, and domain vocabularies live in `config/comparison.yaml`.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\compare_applications.py   # also run by sync_data.py
+```
+
+Results contain resume evidence, so they are written to
+`data/private/comparisons/latest.json` and never to the data repository. The opportunity
+list only receives each posting's scores; the evidence is loaded when you open a posting.
+Requirement parsing is rule-based and works on plain text, so read "missing" as "not found
+on the resume by matching", and check the line yourself before rewriting your resume.
+
 ## Engineering Commands
 
 ```powershell
 .\.venv\Scripts\python.exe -m ruff check .
-.\.venv\Scripts\python.exe -m mypy analytics bayesian dashboard enrichment extractors models pipeline processors profiles storage utils
+.\.venv\Scripts\python.exe -m mypy analytics bayesian comparison dashboard enrichment extractors models pipeline processors profiles storage utils
 .\.venv\Scripts\python.exe -m pytest
 node --check dashboard/static/app.js
 node --check dashboard/static/resume-review.js
@@ -429,6 +462,7 @@ in `docs/`; install the optional `docs` extra (`pip install -e ".[docs]"`) first
 | Latest quality report | `data/gold/data_quality/latest.json` |
 | Application tracking | `data/application_tracking/state.json` |
 | Candidate database and resumes | `data/private/candidates.sqlite3`, `data/private/resumes/` |
+| Application comparison results | `data/private/comparisons/latest.json` |
 
 CLI commands emit JSON summaries. Exit code `0` means success; pipeline and quality
 commands return nonzero when a required stage fails.
@@ -436,6 +470,8 @@ commands return nonzero when a required stage fails.
 ## Project Structure
 
 - `analytics/`: Gold summaries and the current-opportunities mart.
+- `bayesian/`: Phase 8 Bayesian quality gate, skill shrinkage, and diagnostics.
+- `comparison/`: Phase 6.3 requirement extraction and application comparison.
 - `config/`: typed YAML configuration.
 - `dashboard/`: local HTTP API and static dashboard.
 - `extractors/`: shared interface and source adapters.

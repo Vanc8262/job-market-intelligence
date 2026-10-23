@@ -156,6 +156,7 @@ function sortRows(rows, sort) {
     freshness: (a, b) => new Date(b.last_seen_at) - new Date(a.last_seen_at) || a.rank - b.rank,
     salary: (a, b) => (b.salary_midpoint || -1) - (a.salary_midpoint || -1) || a.rank - b.rank,
     employer: (a, b) => a.employer.localeCompare(b.employer) || a.rank - b.rank,
+    fit: (a, b) => (b.application_fit?.fit_score ?? -1) - (a.application_fit?.fit_score ?? -1) || a.rank - b.rank,
   };
   rows.sort(comparators[sort] || comparators.rank);
 }
@@ -239,7 +240,7 @@ function renderTable() {
     const tracking = trackingFor(item.job_id);
     const marker = tracking.shortlisted ? `<span class="shortlist-marker">Shortlisted</span>` : "";
     return `<tr tabindex="0" data-job-id="${escapeHtml(item.job_id)}" aria-label="Open ${escapeHtml(item.title)} at ${escapeHtml(item.employer)}">
-      <td class="rank-cell">${item.rank}</td><td><span class="score-badge score-${escapeHtml(item.match_band)}">${formatScore(item.resume_relevance_score)}</span></td>
+      <td class="rank-cell">${item.rank}</td><td><span class="score-badge score-${escapeHtml(item.match_band)}">${formatScore(item.resume_relevance_score)}</span></td><td>${fitBadge(item.application_fit)}</td>
       <td><span class="job-title">${escapeHtml(item.title)}</span><span class="job-meta">${escapeHtml(formatLabel(item.seniority || "unknown"))} / ${escapeHtml(formatSalary(item))} ${marker}</span></td>
       <td class="cell-truncate">${escapeHtml(item.employer)}</td><td class="cell-truncate" title="${escapeHtml(item.location || "Unknown")}">${escapeHtml(item.location || "Unknown")}</td>
       <td><span class="status-label ${escapeHtml(item.workplace_type)}">${escapeHtml(formatLabel(item.workplace_type))}</span></td><td><span class="status-label application-${escapeHtml(tracking.status)}">${escapeHtml(formatLabel(tracking.status))}</span></td></tr>`;
@@ -627,8 +628,69 @@ function openDrawer(jobId) {
   state.selectedJobId = jobId;
   elements.drawerRank.textContent = `Rank ${item.rank} / ${formatLabel(item.match_band)} match`;
   elements.drawerContent.innerHTML = drawerMarkup(item);
+  loadComparison(item);
   elements.drawerBackdrop.hidden = false; elements.detailDrawer.classList.add("open"); elements.detailDrawer.setAttribute("aria-hidden", "false"); document.body.style.overflow = "hidden"; elements.closeDrawer.focus();
 }
+// Phase 6.3: application comparison against the approved resume.
+function fitBadge(fit) {
+  if (!fit || fit.fit_score === null || fit.fit_score === undefined) return `<span class="score-badge score-limited fit-badge" title="No comparison yet">–</span>`;
+  return `<span class="score-badge score-${escapeHtml(fit.band)} fit-badge" title="Application fit: ${escapeHtml(formatLabel(fit.band))}">${formatScore(fit.fit_score)}</span>`;
+}
+
+async function loadComparison(item) {
+  const anchor = [...elements.drawerContent.querySelectorAll(".detail-section")].find((section) => section.querySelector("h3")?.textContent === "Resume relevance");
+  const section = document.createElement("section");
+  section.className = "detail-section comparison";
+  section.innerHTML = `<div class="section-heading"><h3>Application comparison</h3><span class="match-band">Loading</span></div>`;
+  if (anchor) anchor.after(section); else elements.drawerContent.append(section);
+  try {
+    const response = await fetch(`/api/comparisons/${encodeURIComponent(item.job_id)}`, { cache: "no-store" });
+    const payload = await response.json();
+    if (state.selectedJobId !== item.job_id) return;
+    section.innerHTML = response.ok ? comparisonMarkup(payload) : `<div class="section-heading"><h3>Application comparison</h3></div><p class="job-meta wrap">${escapeHtml(payload.error || "No comparison available")}. Approve your resume in Resume review, then run <code>scripts\\sync_data.py</code>.</p>`;
+  } catch (error) {
+    section.innerHTML = `<div class="section-heading"><h3>Application comparison</h3></div><p class="job-meta wrap">Comparison could not be loaded.</p>`;
+  }
+}
+
+function comparisonMarkup(payload) {
+  const detail = payload.comparison;
+  const dims = detail.dimensions || {};
+  const requirements = dims.requirements || {};
+  const keywords = dims.keywords;
+  const seniority = dims.seniority;
+  const domain = dims.domain;
+  const bar = (label, value, note) => `<div class="component"><div class="component-top"><strong>${escapeHtml(label)}</strong><span>${value === null || value === undefined ? "Not assessed" : formatPercent(value)}</span></div><div class="component-track"><div class="component-fill" style="--value:${Math.max(0, Math.min(100, Number(value || 0) * 100))}%"></div></div><span class="job-meta wrap">${escapeHtml(note)}</span></div>`;
+  const bars = [
+    bar("Requirements coverage", requirements.score, `${requirements.required_met ?? 0} of ${requirements.required_total ?? 0} required met · ${requirements.preferred_met ?? 0} of ${requirements.preferred_total ?? 0} preferred`),
+    bar("ATS keyword overlap", keywords?.score, keywords ? `${keywords.matched.length} of ${keywords.matched.length + keywords.to_add.length} posting skills on your resume` : "The posting names no taxonomy skills"),
+    bar("Seniority fit", seniority?.score, seniority ? `Posting: ${formatLabel(seniority.posting_level)}${seniority.posting_min_years ? `, ${seniority.posting_min_years}+ years` : ""} · Resume: ${seniority.resume_years} years` : ""),
+    bar("Domain alignment", domain?.score, domain ? `Posting domains: ${Object.keys(domain.posting_domains).map(formatLabel).join(", ")}` : "No clear industry domain in the posting"),
+  ].join("");
+  const icon = { met: "✓", partial: "◐", missing: "✗" };
+  const evidenceFor = (item) => {
+    if (item.kind === "skill") return [...(item.matched || []).map((match) => `<span class="evidence-chip met" title="${escapeHtml(match.evidence ? `${formatLabel(match.evidence.section)}: ${match.evidence.text}` : "On your approved resume")}">${escapeHtml(match.skill)}</span>`), ...(item.missing || []).map((skill) => `<span class="evidence-chip missing">${escapeHtml(skill)}</span>`)].join("") + (item.any_of ? `<span class="job-meta">any one of these</span>` : "") + (item.needed_years ? `<span class="job-meta wrap">Asks for ${item.needed_years}+ years; resume shows ${item.resume_years}</span>` : "");
+    if (item.kind === "years") return `<span class="job-meta wrap">Needs ${item.needed_years}+ years; resume shows ${item.resume_years}${(item.evidence?.roles || []).length ? ` (${escapeHtml(item.evidence.roles.join("; "))})` : ""}</span>`;
+    if (item.kind === "degree") return `<span class="job-meta wrap">Needs ${escapeHtml(item.needed_degree)}${(item.needed_fields || []).length ? ` in ${escapeHtml(item.needed_fields.join(", "))}` : ""}; resume: ${escapeHtml(item.evidence ? `${item.evidence.degree}, ${item.evidence.institution}` : "no degree found")}</span>`;
+    return (item.matched_terms || []).length ? `<span class="job-meta wrap">Resume mentions: ${escapeHtml(item.matched_terms.join(", "))}</span>` : `<span class="job-meta">Not shown on your resume (word match)</span>`;
+  };
+  const row = (item) => `<li class="req-row ${escapeHtml(item.status)}"><span class="req-icon" aria-label="${escapeHtml(item.status)}">${icon[item.status] || "–"}</span><div><span class="req-text">${escapeHtml(item.text)}</span><div class="req-evidence">${evidenceFor(item)}</div></div></li>`;
+  const items = requirements.items || [];
+  const required = items.filter((item) => item.required);
+  const preferred = items.filter((item) => !item.required);
+  const list = (title, rows) => rows.length ? `<h4 class="req-heading">${escapeHtml(title)} (${rows.length})</h4><ul class="req-list">${rows.slice(0, 10).map(row).join("")}</ul>${rows.length > 10 ? `<details><summary>Show ${rows.length - 10} more</summary><ul class="req-list">${rows.slice(10).map(row).join("")}</ul></details>` : ""}` : "";
+  const toAdd = (keywords?.to_add || []).slice(0, 12).map((item) => `<span class="evidence-chip missing" title="${item.in_requirements ? "Named in the requirements" : "Mentioned in the posting"}">${escapeHtml(item.skill)}${item.in_requirements ? " ★" : ""}</span>`).join("");
+  const domainLine = domain ? `<p class="job-meta wrap">Shared domains: ${escapeHtml(Object.keys(domain.shared).map(formatLabel).join(", ") || "none")}${domain.not_shown.length ? ` · Not on your resume: ${escapeHtml(domain.not_shown.map(formatLabel).join(", "))}` : ""}</p>` : "";
+  return `<div class="section-heading"><h3>Application comparison</h3><span class="match-band">${escapeHtml(formatLabel(detail.band))} fit</span></div>
+    <div class="score-overview"><div class="score-number">${detail.fit_score === null ? "–" : formatScore(detail.fit_score)}</div><div class="score-copy"><strong>Fit with your approved resume</strong><span>Weighted: requirements 45%, keywords 30%, seniority 15%, domain 10% (missing parts are left out)</span></div></div>
+    <div class="component-list">${bars}</div>
+    ${toAdd ? `<h4 class="req-heading">Keywords to add (★ = in requirements)</h4><div class="chip-list">${toAdd}</div>` : ""}
+    ${domainLine}
+    ${list("Required", required)}${list("Preferred", preferred)}
+    ${detail.note ? `<p class="job-meta wrap">${escapeHtml(detail.note)}</p>` : ""}
+    <p class="job-meta wrap">Compared ${escapeHtml(formatTimestamp(payload.generated_at))}. Evidence comes from your approved resume; hover a green skill to see where.</p>`;
+}
+
 function closeDrawer() {
   if (!elements.detailDrawer.classList.contains("open")) return;
   elements.detailDrawer.classList.remove("open"); elements.detailDrawer.setAttribute("aria-hidden", "true"); elements.drawerBackdrop.hidden = true; document.body.style.overflow = "";

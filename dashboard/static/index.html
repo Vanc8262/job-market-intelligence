@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light">
   <title>JMIP Dashboard</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="/styles.css?v=resume-v7">
+  <link rel="stylesheet" href="/styles.css?v=resume-v8">
 </head>
 <body>
   <header class="app-header">
@@ -66,13 +66,13 @@
           <div><h1 id="viewTitle">Current opportunities</h1><p id="resultCount">Loading opportunities</p></div>
           <div class="toolbar-actions">
             <button class="filter-toggle" id="filterToggle" type="button" aria-expanded="false" aria-controls="filtersPanel">Filters</button>
-            <label class="sort-control"><span>Sort</span><select id="sortSelect"><option value="rank">Best match</option><option value="freshness">Recently seen</option><option value="salary">Highest salary</option><option value="employer">Employer</option></select></label>
+            <label class="sort-control"><span>Sort</span><select id="sortSelect"><option value="rank">Best match</option><option value="fit">Application fit</option><option value="freshness">Recently seen</option><option value="salary">Highest salary</option><option value="employer">Employer</option></select></label>
           </div>
         </div>
         <div class="active-filters" id="activeFilters" aria-live="polite"></div>
         <div class="table-shell">
           <table>
-            <thead><tr><th class="rank-column">Rank</th><th class="score-column">Score</th><th>Opportunity</th><th>Employer</th><th>Location</th><th>Workplace</th><th>Application</th></tr></thead>
+            <thead><tr><th class="rank-column">Rank</th><th class="score-column">Score</th><th class="score-column" title="Application fit with your approved resume">Fit</th><th>Opportunity</th><th>Employer</th><th>Location</th><th>Workplace</th><th>Application</th></tr></thead>
             <tbody id="opportunitiesBody"></tbody>
           </table>
           <div class="empty-state" id="emptyState" hidden><strong>No opportunities match these filters</strong><button class="text-button" id="emptyReset" type="button">Reset filters</button></div>
@@ -140,7 +140,7 @@
     <div class="drawer-header"><span class="drawer-eyebrow" id="drawerRank">Opportunity</span><button class="icon-button" id="closeDrawer" type="button" aria-label="Close details" title="Close details">&times;</button></div>
     <div class="drawer-content" id="drawerContent"></div>
   </aside>
-  <script src="/app.js?v=resume-v7" defer></script>
-  <script src="/resume-review.js?v=resume-v7" defer></script>
+  <script src="/app.js?v=resume-v8" defer></script>
+  <script src="/resume-review.js?v=resume-v8" defer></script>
 </body>
 </html>

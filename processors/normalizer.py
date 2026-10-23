@@ -324,6 +324,19 @@ class JobPostingNormalizer:
                 cls._append_unique(countries, country)
         return countries
 
+    def skills_in_text(self, text: str) -> list[str]:
+        """Return taxonomy skills mentioned in ``text``, in taxonomy order.
+
+        Uses the same alias and ambiguity rules as posting normalization, so a
+        requirement line and its posting agree on which skills it names.
+        """
+        found: list[str] = []
+        for category, configured_skills in self.config.skills.categories.items():
+            for skill in configured_skills:
+                if skill not in found and self._mentions_skill(text, skill, category):
+                    found.append(skill)
+        return found
+
     def _mentions_skill(self, text: str, skill: str, category: str) -> bool:
         """Return whether ``text`` mentions ``skill`` or one of its aliases.
 

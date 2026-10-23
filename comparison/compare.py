@@ -1,0 +1,441 @@
+"""Phase 6.3: compare one posting with the approved resume, with evidence for every call.
+
+Four dimensions, each scored 0-1 and explained:
+
+* **Requirements coverage** - each requirement line is met, partly met, or missing,
+  quoting the resume text that supports it (skill evidence, experience dates, degree).
+* **ATS keyword overlap** - the posting's taxonomy skills found on the resume, each
+  weighted by how rare it is across current postings, plus the keywords to add.
+* **Seniority fit** - the posting's level and minimum years against the resume.
+* **Domain alignment** - industries the posting works in that the resume also shows.
+
+The fit score is their weighted average (weights in ``config/comparison.yaml``),
+rescaled over the dimensions that apply to the posting.
+"""
+
+from __future__ import annotations
+
+import math
+import re
+from collections import Counter
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+
+from comparison.requirements import Requirement, content_text, extract_requirements
+from models.candidate import EducationFact, ExtractedFacts, SkillFact
+from models.job_posting import JobPosting
+from profiles.profile_source import experience_years
+from utils.config import ComparisonConfig
+
+_TOKEN = re.compile(r"[a-z][a-z+#.-]{3,}")
+_STOPWORDS = frozenset(
+    """able about above across after against also among amongst ability abilities and any
+    applications approach areas around based being best both build building built can
+    closely company complex continuous create cross culture deep deliver delivering design
+    designing develop developing development drive driving each effective effectively
+    empower ensure environment equivalent etc every excellent experience experienced
+    expertise fast field focus from fully functional good great hands help high highly
+    ideal including into knowledge large level like make making manage management modern
+    more most must need needs new other others ownership part passion passionate plus
+    preferred problems product products proficiency proven quality related relevant role
+    scale scalable similar skills solid solving some strong such support systems team teams
+    technical than that their them they things this through tools understanding using various
+    well what when where which while will with within work working world years your""".split()
+)
+DEGREE_LEVELS = (
+    (5, re.compile(r"ph\.?\s?d|doctor", re.IGNORECASE)),
+    (4, re.compile(r"master|m\.s\.|\bms\b|mba", re.IGNORECASE)),
+    (3, re.compile(r"bachelor|b\.s\.|b\.a\.|\bbs\b|\bba\b", re.IGNORECASE)),
+    (2, re.compile(r"associate|a\.a\.|a\.s\.", re.IGNORECASE)),
+)
+DEGREE_NAMES = {2: "associate degree", 3: "bachelor's degree", 4: "master's degree", 5: "PhD"}
+
+
+@dataclass(frozen=True)
+class ResumeView:
+    """What the comparison needs from an approved resume."""
+
+    skills: dict[str, SkillFact]
+    years: float
+    degree_level: int | None
+    degree: EducationFact | None
+    education: list[EducationFact]
+    text: str
+    terms: frozenset[str]
+    roles: list[str]
+
+    @classmethod
+    def from_facts(cls, facts: ExtractedFacts, text: str) -> ResumeView:
+        """Build the view from approved facts and the resume's extracted text."""
+        skills: dict[str, SkillFact] = {}
+        for fact in facts.skills:
+            for name in (fact.canonical, fact.name):
+                if name:
+                    skills.setdefault(name.casefold(), fact)
+        best: tuple[int, EducationFact] | None = None
+        for education in facts.education:
+            label = " ".join(part for part in (education.degree, education.field_of_study) if part)
+            level = next((value for value, pattern in DEGREE_LEVELS if pattern.search(label)), None)
+            if level is not None and (best is None or level > best[0]):
+                best = (level, education)
+        roles = [
+            f"{role.title}{f', {role.employer}' if role.employer else ''}"
+            f"{_span(role.start, role.end, role.current)}"
+            for role in facts.experience
+        ]
+        return cls(
+            skills=skills,
+            years=experience_years(facts.experience),
+            degree_level=best[0] if best else None,
+            degree=best[1] if best else None,
+            education=list(facts.education),
+            text=text,
+            terms=frozenset(_terms(text)),
+            roles=roles,
+        )
+
+    def has_skill(self, skill: str) -> SkillFact | None:
+        """Return the resume's fact for ``skill`` (case-insensitive), if any."""
+        return self.skills.get(skill.casefold())
+
+
+_FIELD_CLAUSE = re.compile(r"\bin\s+(?P<fields>[^.;()]+)", re.IGNORECASE)
+_GENERIC_FIELD_TERMS = frozenset(
+    {"related", "field", "fields", "quantitative", "technical", "discipline", "area", "similar"}
+)
+
+
+def _degree_fields(text: str) -> set[str]:
+    """Return the field-of-study terms a degree requirement names, if any."""
+    match = _FIELD_CLAUSE.search(text)
+    if not match:
+        return set()
+    return _terms(match["fields"]) - _GENERIC_FIELD_TERMS
+
+
+def _span(start: object, end: object, current: bool) -> str:
+    def label(value: object) -> str:
+        return value.label() if hasattr(value, "label") else ""
+
+    if not start:
+        return ""
+    return f" ({label(start)} - {'present' if current else label(end) or '?'})"
+
+
+def _terms(text: str) -> set[str]:
+    return {token for token in _TOKEN.findall(text.casefold()) if token not in _STOPWORDS}
+
+
+def _evidence(fact: SkillFact) -> dict[str, object] | None:
+    if not fact.evidence:
+        return None
+    first = fact.evidence[0]
+    return {"section": first.section, "text": first.text, "start": first.start, "end": first.end}
+
+
+def _status(score: float) -> str:
+    if score >= 0.999:
+        return "met"
+    if score > 0:
+        return "partial"
+    return "missing"
+
+
+def assess_requirement(
+    requirement: Requirement, resume: ResumeView, settings: ComparisonConfig
+) -> dict[str, object]:
+    """Judge one requirement line against the resume."""
+    result: dict[str, object] = {
+        "text": requirement.text,
+        "required": requirement.required,
+        "kind": requirement.kind,
+    }
+    weight = 1.0 if requirement.required else settings.preferred_weight
+    if requirement.kind == "skill":
+        matched = [
+            {"skill": skill, "evidence": _evidence(fact)}
+            for skill in requirement.skills
+            if (fact := resume.has_skill(skill)) is not None
+        ]
+        missing = [skill for skill in requirement.skills if resume.has_skill(skill) is None]
+        if requirement.any_of:
+            score = 1.0 if matched else 0.0
+        else:
+            score = len(matched) / len(requirement.skills)
+        result.update(any_of=requirement.any_of, matched=matched, missing=missing)
+        if requirement.min_years and resume.years < requirement.min_years:
+            # "5+ years of Python": having the skill without the years is half a match.
+            score *= 0.5
+            result.update(needed_years=requirement.min_years, resume_years=resume.years)
+    elif requirement.kind == "years":
+        needed = requirement.min_years or 0.0
+        if resume.years >= needed:
+            score = 1.0
+        elif resume.years >= needed - 1:
+            score = 0.5
+        else:
+            score = 0.0
+        result.update(
+            needed_years=needed,
+            resume_years=resume.years,
+            evidence={"roles": resume.roles},
+        )
+    elif requirement.kind == "degree":
+        needed_level = requirement.degree_level or 3
+        level = resume.degree_level or 0
+        equivalent = requirement.degree_or_equivalent and resume.years >= 4
+        degree = resume.degree
+        fields = _degree_fields(requirement.text)
+        resume_fields = _terms(
+            " ".join(
+                part
+                for education in resume.education
+                for part in (education.degree, education.field_of_study)
+                if part
+            )
+        )
+        field_match = not fields or bool(fields & resume_fields)
+        if level >= needed_level:
+            # Right level; a named field the resume does not show counts half
+            # ("Bachelor's in Electrical Engineering" vs a data science degree).
+            score = 1.0 if field_match else 0.5
+        elif equivalent:
+            score = 1.0
+        else:
+            score = 0.0
+        result["needed_fields"] = sorted(fields)
+        result.update(
+            needed_degree=DEGREE_NAMES.get(needed_level, "degree"),
+            evidence=(
+                {
+                    "degree": " ".join(
+                        part for part in (degree.degree, degree.field_of_study) if part
+                    ),
+                    "institution": degree.institution,
+                }
+                if degree
+                else None
+            ),
+        )
+    else:
+        terms = _terms(requirement.text)
+        found = sorted(terms & resume.terms)
+        support = len(found) / len(terms) if terms else 0.0
+        if len(found) >= 2 and support >= settings.text_match_threshold:
+            score = 1.0
+        elif found and support >= settings.text_match_threshold / 2:
+            score = 0.5
+        else:
+            score = 0.0
+        weight *= settings.text_requirement_weight
+        result.update(matched_terms=found, missing_terms=sorted(terms - resume.terms))
+    result.update(score=round(score, 3), status=_status(score), weight=round(weight, 3))
+    return result
+
+
+def keyword_overlap(
+    posting_skills: list[str],
+    resume: ResumeView,
+    idf: Callable[[str], float],
+    requirement_skills: set[str],
+    *,
+    prior: float = 0.0,
+) -> dict[str, object] | None:
+    """Return the IDF-weighted share of the posting's skills on the resume."""
+    if not posting_skills:
+        return None
+    weighted = [(skill, idf(skill)) for skill in posting_skills]
+    total = sum(weight for _, weight in weighted)
+    matched = [
+        {"skill": skill, "weight": round(weight, 3), "evidence": _evidence(fact)}
+        for skill, weight in weighted
+        if (fact := resume.has_skill(skill)) is not None
+    ]
+    missing = [
+        {"skill": skill, "weight": round(weight, 3), "in_requirements": skill in requirement_skills}
+        for skill, weight in weighted
+        if resume.has_skill(skill) is None
+    ]
+    missing.sort(key=lambda item: (not item["in_requirements"], -float(str(item["weight"]))))
+    matched_weight = sum(float(str(item["weight"])) for item in matched)
+    score = (matched_weight + 0.5 * prior) / (total + prior) if total else 0.0
+    return {
+        "score": round(score, 3),
+        "raw_share": round(matched_weight / total, 3) if total else 0.0,
+        "matched": matched,
+        "to_add": missing,
+    }
+
+
+def domains_in(
+    text: str, vocabulary: dict[str, list[str]], minimum_hits: int
+) -> dict[str, list[str]]:
+    """Return domains with at least ``minimum_hits`` distinct terms present in ``text``."""
+    found: dict[str, list[str]] = {}
+    for domain, terms in vocabulary.items():
+        hits = [
+            term
+            for term in terms
+            if re.search(rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])", text, re.I)
+        ]
+        if len(hits) >= minimum_hits:
+            found[domain] = hits
+    return found
+
+
+def domain_alignment(
+    posting: JobPosting, resume: ResumeView, settings: ComparisonConfig
+) -> dict[str, object] | None:
+    """Return the share of the posting's domains the resume also shows."""
+    posting_domains = domains_in(
+        content_text(posting), settings.domains, settings.domain_minimum_hits
+    )
+    if not posting_domains:
+        return None
+    resume_domains = domains_in(resume.text, settings.domains, 1)
+    shared = sorted(set(posting_domains) & set(resume_domains))
+    return {
+        "score": round(len(shared) / len(posting_domains), 3),
+        "posting_domains": {name: terms[:5] for name, terms in posting_domains.items()},
+        "shared": {name: resume_domains[name][:5] for name in shared},
+        "not_shown": sorted(set(posting_domains) - set(resume_domains)),
+    }
+
+
+def seniority_fit(
+    posting: JobPosting, resume: ResumeView, settings: ComparisonConfig
+) -> dict[str, object]:
+    """Score the posting's level and minimum years against the resume's experience."""
+    level = (posting.position.seniority or "unknown").casefold()
+    level_score = settings.seniority_scores.get(
+        level, settings.seniority_scores.get("unknown", 0.8)
+    )
+    needed = posting.experience.min_years
+    years_score: float | None = None
+    if needed is not None:
+        gap = needed - resume.years
+        years_score = 1.0 if gap <= 0 else 0.7 if gap <= 1 else 0.4 if gap <= 2 else 0.1
+    score = min(level_score, years_score) if years_score is not None else level_score
+    return {
+        "score": round(score, 3),
+        "posting_level": level,
+        "posting_min_years": needed,
+        "resume_years": resume.years,
+        "level_score": level_score,
+        "years_score": years_score,
+    }
+
+
+def document_frequencies(postings: Iterable[JobPosting]) -> tuple[Counter[str], int]:
+    """Return how many postings name each skill, and the number of postings."""
+    counts: Counter[str] = Counter()
+    total = 0
+    for posting in postings:
+        total += 1
+        counts.update({*posting.skills.explicit, *posting.skills.inferred})
+    return counts, total
+
+
+def compare_posting(
+    posting: JobPosting,
+    resume: ResumeView,
+    settings: ComparisonConfig,
+    *,
+    skills_in_text: Callable[[str], list[str]],
+    frequencies: Counter[str],
+    corpus_size: int,
+) -> dict[str, object]:
+    """Return the full comparison for one posting."""
+    requirements = extract_requirements(posting, skills_in_text, limit=settings.max_requirements)
+    assessed = [assess_requirement(item, resume, settings) for item in requirements]
+    weight_total = sum(float(str(item["weight"])) for item in assessed)
+    # A neutral prior (0.5 with ``evidence_prior_weight`` pseudo-weight) keeps one or two
+    # assessed lines from producing a 0% or 100% coverage on their own.
+    prior = settings.evidence_prior_weight
+    coverage = (
+        (
+            sum(float(str(item["score"])) * float(str(item["weight"])) for item in assessed)
+            + 0.5 * prior
+        )
+        / (weight_total + prior)
+        if weight_total
+        else None
+    )
+    required = [item for item in assessed if item["required"]]
+
+    def idf(skill: str) -> float:
+        return math.log((corpus_size + 1) / (frequencies.get(skill, 0) + 1)) + 1.0
+
+    posting_skills = list(dict.fromkeys([*posting.skills.explicit, *posting.skills.inferred]))
+    requirement_skills = {skill for item in requirements for skill in item.skills}
+    keywords = keyword_overlap(
+        posting_skills, resume, idf, requirement_skills, prior=settings.evidence_prior_weight
+    )
+    domain = domain_alignment(posting, resume, settings)
+    seniority = seniority_fit(posting, resume, settings)
+
+    weights = settings.weights
+    parts = [
+        ("requirements", coverage, weights.requirements),
+        ("keywords", keywords["score"] if keywords else None, weights.keywords),
+        ("seniority", seniority["score"], weights.seniority),
+        ("domain", domain["score"] if domain else None, weights.domain),
+    ]
+    used = [(value, weight) for _, value, weight in parts if value is not None and weight > 0]
+    total_weight = sum(weight for _, weight in used)
+    fit: float | None
+    note: str | None = None
+    if coverage is None and keywords is None:
+        # Seniority and domain alone say too little; the posting lists no requirements
+        # or skills to compare (for example a "description forthcoming" placeholder).
+        fit, band = None, "unknown"
+    else:
+        fit = 100 * sum(float(str(value)) * weight for value, weight in used) / total_weight
+        band = (
+            "strong"
+            if fit >= settings.strong_threshold
+            else "moderate"
+            if fit >= settings.moderate_threshold
+            else "limited"
+        )
+        if coverage is None:
+            # Without a requirements list the score rests on skill keywords alone, which
+            # cannot support a "strong" call.
+            note = "No requirements section was found; this score uses skill keywords only."
+            if band == "strong":
+                band = "moderate"
+    return {
+        "job_id": posting.metadata.job_id,
+        "fit_score": round(fit, 1) if fit is not None else None,
+        "band": band,
+        "note": note,
+        "dimensions": {
+            "requirements": {
+                "score": round(coverage, 3) if coverage is not None else None,
+                "evidence_weight": round(weight_total, 2),
+                "required_met": sum(item["status"] == "met" for item in required),
+                "required_total": len(required),
+                "preferred_met": sum(
+                    item["status"] == "met" for item in assessed if not item["required"]
+                ),
+                "preferred_total": len(assessed) - len(required),
+                "items": assessed,
+            },
+            "keywords": keywords,
+            "seniority": seniority,
+            "domain": domain,
+        },
+        "gaps": [str(item["text"]) for item in required if item["status"] == "missing"][:8],
+    }
+
+
+__all__ = [
+    "ResumeView",
+    "assess_requirement",
+    "compare_posting",
+    "document_frequencies",
+    "domain_alignment",
+    "domains_in",
+    "keyword_overlap",
+    "seniority_fit",
+]

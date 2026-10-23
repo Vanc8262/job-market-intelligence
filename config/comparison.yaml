@@ -1,0 +1,53 @@
+# Phase 6.3: application comparison. Each current posting is compared with the approved,
+# active resume on four dimensions, each with evidence:
+#   requirements - share of the posting's requirement lines the resume meets
+#   keywords     - ATS-style overlap of taxonomy skills, rarer skills weighted higher
+#   seniority    - posting level and minimum years against the resume's experience
+#   domain       - industries the posting works in that the resume also shows
+# The fit score is a transparent weighted average; Phase 8 stage B3 will later turn these
+# signals into a calibrated probability using your application outcomes.
+version: 1.0.0
+weights:
+  requirements: 0.45
+  keywords: 0.30
+  seniority: 0.15
+  domain: 0.10
+# Preferred ("nice to have") lines count half as much as required ones.
+preferred_weight: 0.5
+# Lines with no skill, years, or degree are judged by word overlap with the resume and
+# count half as much; at least this share of their key terms must appear in the resume.
+text_requirement_weight: 0.5
+text_match_threshold: 0.6
+max_requirements: 40
+# Requirements and keyword scores start from a neutral 50% worth this many requirement
+# lines (or rarity-weighted keywords), so a posting with one or two assessable lines
+# cannot score 0% or 100% on its own.
+evidence_prior_weight: 2.0
+strong_threshold: 75
+moderate_threshold: 55
+seniority_scores:
+  entry: 1.0
+  mid: 1.0
+  unknown: 0.8
+  senior: 0.4
+  staff: 0.1
+  manager: 0.1
+  director: 0.05
+  executive: 0.05
+# A posting is in a domain when at least `domain_minimum_hits` different terms appear
+# outside its benefits and legal sections; the resume needs one.
+domain_minimum_hits: 2
+domains:
+  healthcare: [healthcare, health care, medical, clinical, patient, patients, EHR, hospital, FHIR, HL7, pharmacy, physicians]
+  finance: [fintech, financial, banking, payments, credit, lending, fraud, trading, accounting, insurance, transactions]
+  retail_ecommerce: [e-commerce, ecommerce, retail, retailer, merchandising, marketplace, shoppers, storefront, consumer products]
+  supply_chain: [supply chain, logistics, fulfillment, warehouse, inventory, shipping, procurement, distribution center]
+  energy: [energy, utility, utilities, power generation, renewable, solar, wind, grid, electricity, nuclear]
+  cloud_infrastructure: [cloud, infrastructure, observability, DevOps, distributed systems, Kubernetes, CI/CD, microservices, SaaS]
+  security: [cybersecurity, security engineering, threat detection, vulnerability, zero trust, identity and access, IAM, SOC 2]
+  data_analytics: [analytics, data platform, data warehouse, business intelligence, dashboards, reporting, ETL]
+  ai_ml: [machine learning, artificial intelligence, AI, LLM, LLMs, deep learning, computer vision, neural networks, generative AI]
+  iot_sensors: [IoT, sensors, sensor, digital twin, telemetry, real-time data, devices]
+  hr_workforce: [human resources, HR, payroll, workforce, recruiting, talent acquisition, HCM]
+  media_streaming: [music, podcasts, streaming, audio, content creators, media]
+  education: [education, students, teaching, learning platform, edtech, university]
