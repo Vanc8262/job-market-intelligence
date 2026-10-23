@@ -65,3 +65,7 @@ Thumbs.db
 
 # Personal job-search preferences (home bases, name); see config/resume_profile.yaml
 config/*.local.yaml
+
+# Claude Code: personal notes and machine-specific settings
+CLAUDE.local.md
+.claude/settings.local.json
