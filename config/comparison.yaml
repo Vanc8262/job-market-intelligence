@@ -6,7 +6,7 @@
 #   domain       - industries the posting works in that the resume also shows
 # The fit score is a transparent weighted average; Phase 8 stage B3 will later turn these
 # signals into a calibrated probability using your application outcomes.
-version: 1.1.0
+version: 1.2.0
 weights:
   requirements: 0.45
   keywords: 0.30
@@ -19,6 +19,9 @@ preferred_weight: 0.5
 text_requirement_weight: 0.5
 text_match_threshold: 0.6
 max_requirements: 40
+# "Foundry, Contour, or comparable platforms": having a named product meets the line;
+# having only something comparable earns this share of it (shown as partial).
+comparable_credit: 0.6
 # Requirements and keyword scores start from a neutral 50% worth this many requirement
 # lines (or rarity-weighted keywords), so a posting with one or two assessable lines
 # cannot score 0% or 100% on its own.
@@ -125,7 +128,7 @@ concepts:
     fields: [computing_and_data, mathematics_and_statistics]
   visualization_reporting:
     label: Visualization and reporting
-    posting: [data visualization, visualization, visualizations, dashboards, dashboarding, reporting, reports]
+    posting: [data visualization, visualization, visualizations, dashboards, dashboarding, reporting, reports, BI tools, business intelligence]
     resume: [Tableau, Power BI, dashboard, dashboards, matplotlib, seaborn, Plotly, visualization, visualizations, Looker, reporting, reports]
   version_control:
     label: Version control
@@ -171,3 +174,37 @@ concepts:
 # with curiosity", "Available to start in June") cannot be checked against a resume. They are shown as "self-assess" and
 # left out of the coverage score.
 traits: [curiosity, curious, passion, passionate, self-starter, self-motivated, motivated, eager, eagerness, growth mindset, ownership, ambiguity, ambiguous, detail-oriented, attention to detail, team player, collaborative, collaborate, collaboration, communication, communicate, communicator, interpersonal, empathy, empathetic, humble, humility, adaptable, adaptability, resilient, resilience, proactive, initiative, creative, creativity, integrity, enthusiasm, enthusiastic, thrive, fast-paced, you approach, you enjoy, you love, you care, you're excited, you are excited, user of what, users of what, impact the user, impact users, customer obsession, bias for action, sense of urgency, work ethic, problem solver, problem-solver, problem solving, problem-solving, critical thinking, learn quickly, quick learner, willingness to learn, high agency, low ego, judgment, judgement, mission, values, mindset, grit, accountability, accountable, autonomy, autonomous, independently, available to, availability, able to relocate, willing to relocate, relocation, commute, on-site, onsite, in the office, in-office, authorized to work, work authorization, sponsorship, security clearance, travel up to, willing to travel]
+# Words that count as the same thing when a requirement is judged by shared words. Each
+# group folds to its first word; plurals and -ing/-ed/-er/-ment forms are handled by
+# stemming, so list only words that stemming cannot connect.
+synonyms:
+  - [pipeline, ETL, ELT, dataflow, ingestion, ingest, workflow, workflows]
+  - [analysis, analyses, analyze, analyse, analytics, analytical, analyst, analyzing, analyzed]
+  - [model, modeling, modelling, models, modeled]
+  - [dashboard, reporting, report, reports, visualization, visualizations, visualize, charts, BI]
+  - [deploy, deployment, deployed, ship, shipped, shipping, release, released, launch, launched, productionize]
+  - [stakeholder, stakeholders, client, clients, customer, customers, partner, partners]
+  - [automate, automation, automated, automating, scripting, scripted, scripts]
+  - [optimize, optimise, optimization, optimized, tune, tuning, tuned]
+  - [debug, debugging, troubleshoot, troubleshooting, troubleshot, diagnose, diagnosed]
+  - [database, databases, datastore, datastores, warehouse, warehouses, SQL, PostgreSQL, MySQL]
+  - [cloud, AWS, Azure, GCP]
+  - [test, testing, tested, tests, QA, validate, validation, validated, verify, verification]
+  - [document, documentation, documented, docs]
+  - [dataset, datasets, data set, data sets]
+  - [API, APIs, endpoint, endpoints, REST, RESTful, integration, integrations, integrate, integrated]
+  - [monitor, monitoring, monitored, observability, alerting, logging]
+  - [clean, cleaning, cleaned, cleanse, cleansing, wrangle, wrangling, preprocess, preprocessing, transform, transformation, transformations]
+  - [query, queries, querying, SQL]
+  - [mentor, mentoring, mentored, coach, coaching, tutor, tutoring, teach, teaching]
+  - [lead, led, leading, spearhead, spearheaded, head, headed, own, owned]
+  - [research, researched, investigate, investigated, investigation, explore, explored, experiment, experiments, experimentation]
+  - [maintain, maintained, maintaining, maintenance, operate, operated, operating]
+  - [implement, implemented, implementing, implementation, build, built, develop, developed, create, created, engineer, engineered, construct, constructed]
+  - [improve, improved, improving, enhance, enhanced, enhancing]
+  - [infrastructure, platform, platforms]
+  - [machine learning, ML, predictive, prediction, predictions, forecasting, forecast]
+  - [statistics, statistical, stats]
+  - [schema, schemas, data model, data models, data modeling]
+  - [spreadsheet, spreadsheets, Excel]
+  - [large-scale, high-scale, scalable, scalability, scale]

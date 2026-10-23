@@ -14,6 +14,7 @@ from comparison import RequirementVocabulary, ResumeView, compare_posting, extra
 from comparison.compare import assess_requirement
 from comparison.requirements import classify, content_text, requirement_lines
 from comparison.runner import ApplicationComparisonRunner, load_results
+from comparison.vocabulary import stem
 from dashboard.app import attach_application_fit, create_server
 from models.candidate import ReviewApproval, ReviewSection
 from models.job_posting import (
@@ -343,3 +344,35 @@ def test_related_fields_of_study_count(resume: ResumeView) -> None:
     assert background["field_match"] == "related"  # B.S. Data Science and Analytics
     other = _assess("Bachelor's degree in Electrical Engineering", resume)
     assert other["status"] == "partial" and other["field_match"] == "none"
+
+
+def test_stemming_and_synonyms_match_different_wording() -> None:
+    vocabulary = RequirementVocabulary(Config().comparison)
+    assert stem("pipelines") == stem("pipeline")
+    assert stem("databases") == stem("database")
+    assert stem("reliability") == stem("reliable")
+    assert vocabulary.canonical("ETL") == vocabulary.canonical("pipelines")
+    assert vocabulary.canonical("troubleshooting") == vocabulary.canonical("debug")
+    assert vocabulary.canonical("built") == vocabulary.canonical("implementing")
+    view = ResumeView.from_facts(
+        ResumeParser(SkillVocabulary(Config().skills, [])).parse(SAMPLE_RESUME).facts,
+        SAMPLE_RESUME + "\nTroubleshot failing ETL jobs and set up alerting for them.\n",
+    )
+    text = _assess("Experience debugging data workflows and monitoring their health", view)
+    assert text["kind"] == "text" and text["status"] == "met"
+    assert "debugging (troubleshot)" in text["matched_terms"]  # type: ignore[operator]
+
+
+def test_named_products_count_more_than_comparable_experience(resume: ResumeView) -> None:
+    foundry = _assess(
+        "Hands-on experience with Foundry, Contour, or comparable data and analytics platforms",
+        resume,
+    )
+    assert [item["name"] for item in foundry["named"]] == ["Foundry", "Contour"]  # type: ignore[attr-defined]
+    assert foundry["status"] == "partial" and foundry["score"] == 0.6
+
+    airflow = _assess("Experience with Airflow, Dagster, or similar orchestration tools", resume)
+    assert airflow["status"] == "met"  # Airflow is on the resume
+
+    generic = _assess("Experience with APIs, cloud, or similar", resume)
+    assert "named" not in generic and generic["status"] == "met"  # concepts, not products

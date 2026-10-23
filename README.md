@@ -431,13 +431,20 @@ Requirement lines are classified as:
 - **trait (○ self-assess):** disposition or logistics a resume cannot show ("you approach
   problems with curiosity", "available to start in June"); listed for you to judge and
   left out of the score.
-- **text:** anything else, judged by shared words (plurals folded).
+- **text:** anything else, judged by shared words after light stemming ("building",
+  "builds" → "build") and synonym folding (ETL counts as pipeline, troubleshooting as
+  debugging). The drawer shows which resume word matched, e.g. "debugging (troubleshot)".
+
+When a line names specific products before "or comparable / similar / other …"
+("Foundry, Contour, or comparable analytics platforms"), having one of the named products
+meets it; having only comparable experience earns `comparable_credit` (60%) and shows as
+partial, so a general skill no longer counts as experience with the named tool.
 
 Coverage and keyword scores are pulled toward 50% when a posting has only one or two
 assessable lines, so thin postings cannot score 0 or 100 by accident. A posting without a
 requirements section is scored on the other dimensions and capped at a "moderate" band;
 one with neither requirements nor skills is "unknown". Bands: strong ≥ 75, moderate ≥ 55.
-Weights, thresholds, and the domain, concept, field-of-study, and trait vocabularies live
+Weights, thresholds, and the domain, concept, field-of-study, trait, and synonym vocabularies live
 in `config/comparison.yaml`; add a resume term to a concept there when a line you meet is
 marked missing.
 

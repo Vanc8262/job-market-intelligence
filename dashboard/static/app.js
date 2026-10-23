@@ -670,13 +670,22 @@ function comparisonMarkup(payload) {
   const icon = { met: "✓", partial: "◐", missing: "✗", self_assess: "○" };
   const conceptChips = (item) => (item.concepts || []).map((concept) => concept.met ? `<span class="evidence-chip met" title="${escapeHtml(`Resume: ${concept.evidence.text}`)}">${escapeHtml(concept.label)} · ${escapeHtml(concept.evidence.term)}</span>` : `<span class="evidence-chip missing" title="No resume line shows this">${escapeHtml(concept.label)}</span>`).join("");
   const yearsNote = (item) => item.needed_years ? `<span class="job-meta wrap">Asks for ${item.needed_years}+ years; resume shows ${item.resume_years}</span>` : "";
-  const evidenceFor = (item) => {
+  const namedChips = (item) => {
+    const shown = new Set([...(item.matched || []).map((match) => match.skill), ...(item.missing || [])]);
+    const named = item.named || [];
+    if (!named.length) return "";
+    const chips = named.filter((entry) => !shown.has(entry.name)).map((entry) => entry.met ? `<span class="evidence-chip met" title="${escapeHtml(`Resume: ${entry.evidence?.text || entry.name}`)}">${escapeHtml(entry.name)}</span>` : `<span class="evidence-chip missing" title="Named in the posting; not on your resume">${escapeHtml(entry.name)}</span>`).join("");
+    const note = named.some((entry) => entry.met) ? "" : `<span class="job-meta wrap">Names ${escapeHtml(named.map((entry) => entry.name).join(", "))}; comparable experience earns ${Math.round((item.comparable_credit ?? 0.6) * 100)}%</span>`;
+    return chips + note;
+  };
+  const evidenceFor = (item) => namedChips(item) + baseEvidence(item);
+  const baseEvidence = (item) => {
     if (item.kind === "trait") return `<span class="job-meta wrap">Not something a resume can show; judge this yourself</span>`;
     if (item.kind === "concept") return conceptChips(item) + yearsNote(item);
     if (item.kind === "skill") return conceptChips(item) + [...(item.matched || []).map((match) => `<span class="evidence-chip met" title="${escapeHtml(match.evidence ? `${formatLabel(match.evidence.section)}: ${match.evidence.text}` : "On your approved resume")}">${escapeHtml(match.skill)}</span>`), ...(item.missing || []).map((skill) => `<span class="evidence-chip missing">${escapeHtml(skill)}</span>`)].join("") + (item.any_of ? `<span class="job-meta">any one of these</span>` : "") + yearsNote(item);
     if (item.kind === "years") return `<span class="job-meta wrap">Needs ${item.needed_years}+ years; resume shows ${item.resume_years}${(item.evidence?.roles || []).length ? ` (${escapeHtml(item.evidence.roles.join("; "))})` : ""}</span>`;
     if (item.kind === "degree") return `<span class="job-meta wrap">Needs ${escapeHtml(item.needed_degree)}${(item.needed_fields || []).length ? ` in ${escapeHtml(item.needed_fields.join(", "))}` : ""}; resume: ${escapeHtml(item.evidence ? `${item.evidence.degree}, ${item.evidence.institution}` : "no degree found")}${item.field_match === "related" ? " (related field)" : item.field_match === "none" ? " (different field)" : ""}</span>`;
-    return (item.matched_terms || []).length ? `<span class="job-meta wrap">Resume mentions: ${escapeHtml(item.matched_terms.join(", "))}</span>` : `<span class="job-meta">Not shown on your resume (word match)</span>`;
+    return (item.matched_terms || []).length ? `<span class="job-meta wrap">Resume mentions: ${escapeHtml(item.matched_terms.join(", "))}${(item.missing_terms || []).length ? ` · not found: ${escapeHtml(item.missing_terms.slice(0, 6).join(", "))}` : ""}</span>` : `<span class="job-meta">Not shown on your resume (word match, synonyms included)</span>`;
   };
   const row = (item) => `<li class="req-row ${escapeHtml(item.status)}"><span class="req-icon" aria-label="${escapeHtml(item.status)}">${icon[item.status] || "–"}</span><div><span class="req-text">${escapeHtml(item.text)}</span><div class="req-evidence">${evidenceFor(item)}</div></div></li>`;
   const items = requirements.items || [];

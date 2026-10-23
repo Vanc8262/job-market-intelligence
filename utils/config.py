@@ -557,6 +557,8 @@ class ComparisonConfig(BaseModel):
     concepts: dict[str, ComparisonConcept] = Field(default_factory=dict)
     fields_of_study: dict[str, list[str]] = Field(default_factory=dict)
     traits: list[str] = Field(default_factory=list)
+    synonyms: list[list[str]] = Field(default_factory=list)
+    comparable_credit: float = Field(default=0.6, ge=0, le=1)
 
     @model_validator(mode="after")
     def _concept_fields_exist(self) -> ComparisonConfig:

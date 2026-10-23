@@ -22,27 +22,12 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from comparison.requirements import Requirement, content_text, extract_requirements
-from comparison.vocabulary import RequirementVocabulary
+from comparison.vocabulary import STOPWORDS, TOKEN, RequirementVocabulary, phrase_pattern, stem
 from models.candidate import EducationFact, ExtractedFacts, SkillFact
 from models.job_posting import JobPosting
 from profiles.profile_source import experience_years
 from utils.config import ComparisonConfig
 
-_TOKEN = re.compile(r"[a-z][a-z+#.-]{3,}")
-_STOPWORDS = frozenset(
-    """able about above across after against also among amongst ability abilities and any
-    applications approach areas around based being best both build building built can
-    closely company complex continuous create cross culture deep deliver delivering design
-    designing develop developing development drive driving each effective effectively
-    empower ensure environment equivalent etc every excellent experience experienced
-    expertise fast field focus from fully functional good great hands help high highly
-    ideal including into knowledge large level like make making manage management modern
-    more most must need needs new other others ownership part passion passionate plus
-    preferred problems product products proficiency proven quality related relevant role
-    scale scalable similar skills solid solving some strong such support systems team teams
-    technical than that their them they things this through tools understanding using various
-    well what when where which while will with within work working world years your""".split()
-)
 DEGREE_LEVELS = (
     (5, re.compile(r"ph\.?\s?d|doctor", re.IGNORECASE)),
     (4, re.compile(r"master|m\.s\.|\bms\b|mba", re.IGNORECASE)),
@@ -125,17 +110,8 @@ def _span(start: object, end: object, current: bool) -> str:
     return f" ({label(start)} - {'present' if current else label(end) or '?'})"
 
 
-def _stem(token: str) -> str:
-    """Fold simple plurals so "pipelines" matches "pipeline" and "APIs" matches "API"."""
-    if token.endswith("ies") and len(token) > 5:
-        return token[:-3] + "y"
-    if token.endswith("s") and not token.endswith("ss") and len(token) > 4:
-        return token[:-1]
-    return token
-
-
 def _terms(text: str) -> set[str]:
-    return {_stem(token) for token in _TOKEN.findall(text.casefold()) if token not in _STOPWORDS}
+    return {stem(token) for token in TOKEN.findall(text.casefold()) if token not in STOPWORDS}
 
 
 def _education_label(education: EducationFact) -> str:
@@ -290,9 +266,12 @@ def assess_requirement(
             ),
         )
     else:
-        terms = _terms(requirement.text)
-        shared = sorted(terms & resume.terms)
-        support = len(shared) / len(terms) if terms else 0.0
+        # Shared words after stemming and synonym folding: "Built ETL jobs" on the resume
+        # supports "experience building data pipelines".
+        wanted = vocabulary.term_index(requirement.text)
+        have = vocabulary.resume_index(resume.text)
+        shared = [term for term in wanted if term in have]
+        support = len(shared) / len(wanted) if wanted else 0.0
         if len(shared) >= 2 and support >= settings.text_match_threshold:
             score = 1.0
         elif shared and support >= settings.text_match_threshold / 2:
@@ -300,9 +279,54 @@ def assess_requirement(
         else:
             score = 0.0
         weight *= settings.text_requirement_weight
-        result.update(matched_terms=shared, missing_terms=sorted(terms - resume.terms))
+        result.update(
+            matched_terms=[
+                wanted[term]
+                if have[term].casefold() == wanted[term]
+                else f"{wanted[term]} ({have[term]})"
+                for term in shared
+            ],
+            missing_terms=[wanted[term] for term in wanted if term not in have],
+        )
+    if requirement.named and requirement.kind in {"skill", "concept", "text"}:
+        score = _apply_named(requirement, resume, settings, score, result)
     result.update(score=round(score, 3), status=_status(score), weight=round(weight, 3))
     return result
+
+
+def _named_evidence(name: str, resume: ResumeView) -> dict[str, object] | None:
+    fact = resume.has_skill(name)
+    if fact is not None:
+        return _evidence(fact) or {"text": name}
+    pattern = phrase_pattern([name])
+    for line in resume.lines:
+        if pattern is not None and pattern.search(line):
+            return {"text": line[:200]}
+    return None
+
+
+def _apply_named(
+    requirement: Requirement,
+    resume: ResumeView,
+    settings: ComparisonConfig,
+    score: float,
+    result: dict[str, object],
+) -> float:
+    """Score "A, B, or comparable X": a named product counts fully, a comparable one less.
+
+    Without this, "Foundry, Contour, or comparable analytics platforms" would be met by
+    any analytics experience. Comparable experience earns ``comparable_credit``.
+    """
+    named = [
+        {"name": name, "met": evidence is not None, "evidence": evidence}
+        for name in requirement.named
+        for evidence in [_named_evidence(name, resume)]
+    ]
+    years_factor = 0.5 if "needed_years" in result else 1.0
+    result.update(named=named, comparable_credit=settings.comparable_credit)
+    if any(item["met"] for item in named):
+        return years_factor
+    return score * settings.comparable_credit
 
 
 def keyword_overlap(

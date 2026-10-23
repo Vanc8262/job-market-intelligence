@@ -100,6 +100,25 @@ FIELD_CUE = re.compile(
     r"major(ing)? in|studying|coursework in|related field)",
     re.IGNORECASE,
 )
+COMPARABLE = re.compile(
+    r"\bor (an?other|any other|other|comparable|similar|equivalent|alternative|related)\b|"
+    r"\bor the like\b|\bor something similar\b|\band/or similar\b",
+    re.IGNORECASE,
+)
+# The list of names ends the clause that introduces it ("experience with A, B, or ...").
+_LIST_INTRO = re.compile(r"\b(with|in|using|of|like|such as|e\.g\.,?|including)\b|:", re.I)
+_LEAD_IN = re.compile(
+    r"^(preferably|ideally|especially|particularly|e\.g\.,?|i\.e\.,?|like|such as|"
+    r"including|at least one of|one of|either)\s+",
+    re.IGNORECASE,
+)
+# Words that open a sentence rather than name a product.
+_NOT_NAMES = frozenset(
+    """experience strong proven deep solid demonstrated hands-on knowledge familiarity
+    proficiency expertise exposure comfort understanding ability background fluency
+    you we our the a an this current modern advanced working""".split()
+)
+_LIST_SPLIT = re.compile(r",|/|\bor\b|\band\b|\(|\)", re.IGNORECASE)
 ANY_OF = re.compile(r"\bor\b|/|\bone of\b|\bsuch as\b|\be\.g\.|\bsimilar\b|\bequivalent\b", re.I)
 # Perk lines often start with an emoji ("🏝 Generous vacation policy").
 _DECORATED = re.compile(r"[^\w\s\"'(“‘]")
@@ -117,6 +136,9 @@ class Requirement:
     skills: list[str] = field(default_factory=list)
     concepts: list[str] = field(default_factory=list)
     fields: list[str] = field(default_factory=list)
+    # Products a line names before "or comparable ..." ("Foundry, Contour, or comparable
+    # platforms"); having one of them counts more than having something comparable.
+    named: list[str] = field(default_factory=list)
     any_of: bool = False
     min_years: float | None = None
     degree_level: int | None = None
@@ -214,6 +236,31 @@ def requirement_lines(posting: JobPosting) -> list[tuple[str, bool]]:
     ]
 
 
+def named_items(
+    text: str,
+    skills_in_text: Callable[[str], list[str]],
+    vocabulary: RequirementVocabulary | None,
+) -> list[str]:
+    """Return the specific products a line names before "or comparable/similar/other"."""
+    comparable = COMPARABLE.search(text)
+    if comparable is None:
+        return []
+    head = text[: comparable.start()]
+    intros = list(_LIST_INTRO.finditer(head))
+    segment = head[intros[-1].end() :] if intros else head
+    names: list[str] = []
+    for raw in _LIST_SPLIT.split(segment):
+        item = _LEAD_IN.sub("", raw.strip(" .;:-'\"")).strip()
+        if not item or len(item.split()) > 4 or item.split()[0].casefold() in _NOT_NAMES:
+            continue
+        # Generic abilities ("APIs", "cloud") are concepts, not products.
+        if vocabulary and (vocabulary.concepts_in(item) or vocabulary.fields_in(item)):
+            continue
+        if item[0].isupper() or (len(item.split()) <= 2 and skills_in_text(item)):
+            names.append(item)
+    return list(dict.fromkeys(names))
+
+
 def classify(
     text: str,
     required: bool,
@@ -233,6 +280,7 @@ def classify(
     skill_text = re.sub(r"\bin\s+[^.;()]+", " ", text) if degree_like else text
     skills = skills_in_text(skill_text)
     concepts = vocabulary.concepts_in(skill_text) if vocabulary and not degree_like else []
+    named = [] if degree_like else named_items(text, skills_in_text, vocabulary)
     if degree_like and not skills and not years:
         return Requirement(
             text=text,
@@ -253,6 +301,7 @@ def classify(
             kind="skill",
             skills=skills,
             concepts=concepts,
+            named=named,
             any_of=len(skills) + len(concepts) > 1 and bool(ANY_OF.search(text)),
             min_years=float(years["low"]) if years else None,
         )
@@ -262,11 +311,12 @@ def classify(
             required=required,
             kind="concept",
             concepts=concepts,
+            named=named,
             min_years=float(years["low"]) if years else None,
         )
     if vocabulary and vocabulary.is_trait(text):
         return Requirement(text=text, required=required, kind="trait")
-    return Requirement(text=text, required=required, kind="text")
+    return Requirement(text=text, required=required, kind="text", named=named)
 
 
 def extract_requirements(
@@ -320,5 +370,6 @@ __all__ = [
     "classify",
     "content_text",
     "extract_requirements",
+    "named_items",
     "requirement_lines",
 ]
