@@ -315,7 +315,9 @@ def _apply_named(
     """Score "A, B, or comparable X": a named product counts fully, a comparable one less.
 
     Without this, "Foundry, Contour, or comparable analytics platforms" would be met by
-    any analytics experience. Comparable experience earns ``comparable_credit``.
+    any analytics experience. Comparable experience earns ``comparable_credit``; lines
+    that accept any alternative outright ("TypeScript, or another general-purpose
+    language", "EKS, GKE, or equivalent") give an alternative the resume shows full credit.
     """
     named = [
         {"name": name, "met": evidence is not None, "evidence": evidence}
@@ -323,10 +325,33 @@ def _apply_named(
         for evidence in [_named_evidence(name, resume)]
     ]
     years_factor = 0.5 if "needed_years" in result else 1.0
-    result.update(named=named, comparable_credit=settings.comparable_credit)
+    credit = 1.0 if requirement.alternatives == "equivalent" else settings.comparable_credit
+    result.update(named=named, alternatives=requirement.alternatives, comparable_credit=credit)
     if any(item["met"] for item in named):
         return years_factor
-    return score * settings.comparable_credit
+    return score * credit
+
+
+def _named_to_add(
+    assessed: list[dict[str, object]], keywords: dict[str, object] | None
+) -> list[dict[str, object]]:
+    """Return products named in requirements that the resume lacks, for "Keywords to add".
+
+    Taxonomy skills already listed by the keyword overlap are left out, so each keyword
+    appears once.
+    """
+    listed = {
+        str(item["skill"]).casefold()
+        for item in (keywords or {}).get("to_add", [])  # type: ignore[attr-defined]
+    }
+    found: dict[str, dict[str, object]] = {}
+    for item in assessed:
+        for entry in item.get("named", []) or []:  # type: ignore[attr-defined]
+            name = str(entry["name"])
+            if entry["met"] or name.casefold() in listed or name.casefold() in found:
+                continue
+            found[name.casefold()] = {"skill": name, "required": bool(item["required"])}
+    return sorted(found.values(), key=lambda entry: not entry["required"])
 
 
 def keyword_overlap(
@@ -529,6 +554,7 @@ def compare_posting(
             "domain": domain,
         },
         "gaps": [str(item["text"]) for item in required if item["status"] == "missing"][:8],
+        "named_to_add": _named_to_add(assessed, keywords),
     }
 
 

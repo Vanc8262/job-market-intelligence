@@ -427,8 +427,8 @@ def test_dashboard_assets_reference_only_supported_features() -> None:
     ):
         assert f'data-view="{view}"' in index
     assert 'data-view="benchmarks"' not in index
-    assert "/app.js?v=resume-v10" in index
-    assert "/resume-review.js?v=resume-v10" in index
+    assert "/app.js?v=resume-v11" in index
+    assert "/resume-review.js?v=resume-v11" in index
 
 
 @pytest.mark.skipif(

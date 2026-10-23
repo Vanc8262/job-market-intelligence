@@ -105,6 +105,9 @@ COMPARABLE = re.compile(
     r"\bor the like\b|\bor something similar\b|\band/or similar\b",
     re.IGNORECASE,
 )
+# "TypeScript, or another general-purpose language" / "or equivalent" accept any
+# alternative outright; "or comparable/similar" ask for the named product first.
+EQUIVALENT = re.compile(r"\bor (an?other|any other|other|equivalent|alternative)\b", re.I)
 # The list of names ends the clause that introduces it ("experience with A, B, or ...").
 _LIST_INTRO = re.compile(r"\b(with|in|using|of|like|such as|e\.g\.,?|including)\b|:", re.I)
 _LEAD_IN = re.compile(
@@ -117,6 +120,13 @@ _NOT_NAMES = frozenset(
     """experience strong proven deep solid demonstrated hands-on knowledge familiarity
     proficiency expertise exposure comfort understanding ability background fluency
     you we our the a an this current modern advanced working""".split()
+)
+# Capitalized list items that name a business area, not a product ("Recruiting, HR,
+# People, or other operational data").
+_AREAS = frozenset(
+    """people hr recruiting talent sales marketing finance accounting operations legal
+    security engineering product design support customers customer success revenue
+    procurement payroll benefits compliance risk research data analytics it""".split()
 )
 _LIST_SPLIT = re.compile(r",|/|\bor\b|\band\b|\(|\)", re.IGNORECASE)
 ANY_OF = re.compile(r"\bor\b|/|\bone of\b|\bsuch as\b|\be\.g\.|\bsimilar\b|\bequivalent\b", re.I)
@@ -139,6 +149,8 @@ class Requirement:
     # Products a line names before "or comparable ..." ("Foundry, Contour, or comparable
     # platforms"); having one of them counts more than having something comparable.
     named: list[str] = field(default_factory=list)
+    # "equivalent": another product the resume shows counts fully; "comparable": less.
+    alternatives: str = ""
     any_of: bool = False
     min_years: float | None = None
     degree_level: int | None = None
@@ -253,6 +265,8 @@ def named_items(
         item = _LEAD_IN.sub("", raw.strip(" .;:-'\"")).strip()
         if not item or len(item.split()) > 4 or item.split()[0].casefold() in _NOT_NAMES:
             continue
+        if item.casefold() in _AREAS:
+            continue
         # Generic abilities ("APIs", "cloud") are concepts, not products.
         if vocabulary and (vocabulary.concepts_in(item) or vocabulary.fields_in(item)):
             continue
@@ -281,6 +295,14 @@ def classify(
     skills = skills_in_text(skill_text)
     concepts = vocabulary.concepts_in(skill_text) if vocabulary and not degree_like else []
     named = [] if degree_like else named_items(text, skills_in_text, vocabulary)
+    comparable = COMPARABLE.search(text) if named else None
+    alternatives = (
+        ""
+        if comparable is None
+        else "equivalent"
+        if EQUIVALENT.match(comparable.group(0))
+        else "comparable"
+    )
     if degree_like and not skills and not years:
         return Requirement(
             text=text,
@@ -302,6 +324,7 @@ def classify(
             skills=skills,
             concepts=concepts,
             named=named,
+            alternatives=alternatives,
             any_of=len(skills) + len(concepts) > 1 and bool(ANY_OF.search(text)),
             min_years=float(years["low"]) if years else None,
         )
@@ -312,11 +335,14 @@ def classify(
             kind="concept",
             concepts=concepts,
             named=named,
+            alternatives=alternatives,
             min_years=float(years["low"]) if years else None,
         )
     if vocabulary and vocabulary.is_trait(text):
         return Requirement(text=text, required=required, kind="trait")
-    return Requirement(text=text, required=required, kind="text", named=named)
+    return Requirement(
+        text=text, required=required, kind="text", named=named, alternatives=alternatives
+    )
 
 
 def extract_requirements(

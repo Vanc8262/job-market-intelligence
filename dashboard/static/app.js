@@ -675,7 +675,7 @@ function comparisonMarkup(payload) {
     const named = item.named || [];
     if (!named.length) return "";
     const chips = named.filter((entry) => !shown.has(entry.name)).map((entry) => entry.met ? `<span class="evidence-chip met" title="${escapeHtml(`Resume: ${entry.evidence?.text || entry.name}`)}">${escapeHtml(entry.name)}</span>` : `<span class="evidence-chip missing" title="Named in the posting; not on your resume">${escapeHtml(entry.name)}</span>`).join("");
-    const note = named.some((entry) => entry.met) ? "" : `<span class="job-meta wrap">Names ${escapeHtml(named.map((entry) => entry.name).join(", "))}; comparable experience earns ${Math.round((item.comparable_credit ?? 0.6) * 100)}%</span>`;
+    const note = named.some((entry) => entry.met) ? "" : (item.alternatives === "equivalent" ? `<span class="job-meta wrap">Names ${escapeHtml(named.map((entry) => entry.name).join(", "))}; any equivalent on your resume counts fully</span>` : `<span class="job-meta wrap">Names ${escapeHtml(named.map((entry) => entry.name).join(", "))}; comparable experience earns ${Math.round((item.comparable_credit ?? 0.6) * 100)}%</span>`);
     return chips + note;
   };
   const evidenceFor = (item) => namedChips(item) + baseEvidence(item);
@@ -692,7 +692,15 @@ function comparisonMarkup(payload) {
   const required = items.filter((item) => item.required);
   const preferred = items.filter((item) => !item.required);
   const list = (title, rows) => rows.length ? `<h4 class="req-heading">${escapeHtml(title)} (${rows.length})</h4><ul class="req-list">${rows.slice(0, 10).map(row).join("")}</ul>${rows.length > 10 ? `<details><summary>Show ${rows.length - 10} more</summary><ul class="req-list">${rows.slice(10).map(row).join("")}</ul></details>` : ""}` : "";
-  const toAdd = (keywords?.to_add || []).slice(0, 12).map((item) => `<span class="evidence-chip missing" title="${item.in_requirements ? "Named in the requirements" : "Mentioned in the posting"}">${escapeHtml(item.skill)}${item.in_requirements ? " ★" : ""}</span>`).join("");
+  // One list for resume edits: taxonomy skills named in requirements, then products the
+  // requirements name ("Foundry, Contour, or comparable"), then other posting skills.
+  const taxonomy = keywords?.to_add || [];
+  const keywordList = [
+    ...taxonomy.filter((item) => item.in_requirements).map((item) => ({ skill: item.skill, starred: true, title: "Named in the requirements" })),
+    ...(detail.named_to_add || []).map((item) => ({ skill: item.skill, starred: true, title: item.required ? "Product named in a required line" : "Product named in a preferred line" })),
+    ...taxonomy.filter((item) => !item.in_requirements).map((item) => ({ skill: item.skill, starred: false, title: "Mentioned in the posting" })),
+  ];
+  const toAdd = keywordList.slice(0, 16).map((item) => `<span class="evidence-chip missing" title="${escapeHtml(item.title)}">${escapeHtml(item.skill)}${item.starred ? " ★" : ""}</span>`).join("");
   const domainLine = domain ? `<p class="job-meta wrap">Shared domains: ${escapeHtml(Object.keys(domain.shared).map(formatLabel).join(", ") || "none")}${domain.not_shown.length ? ` · Not on your resume: ${escapeHtml(domain.not_shown.map(formatLabel).join(", "))}` : ""}</p>` : "";
   return `<div class="section-heading"><h3>Application comparison</h3><span class="match-band">${escapeHtml(formatLabel(detail.band))} fit</span></div>
     <div class="score-overview"><div class="score-number">${detail.fit_score === null ? "–" : formatScore(detail.fit_score)}</div><div class="score-copy"><strong>Fit with your approved resume</strong><span>Weighted: requirements 45%, keywords 30%, seniority 15%, domain 10% (missing parts are left out)</span></div></div>

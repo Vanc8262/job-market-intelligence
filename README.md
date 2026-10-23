@@ -435,10 +435,17 @@ Requirement lines are classified as:
   "builds" → "build") and synonym folding (ETL counts as pipeline, troubleshooting as
   debugging). The drawer shows which resume word matched, e.g. "debugging (troubleshot)".
 
-When a line names specific products before "or comparable / similar / other …"
-("Foundry, Contour, or comparable analytics platforms"), having one of the named products
-meets it; having only comparable experience earns `comparable_credit` (60%) and shows as
-partial, so a general skill no longer counts as experience with the named tool.
+When a line names specific products before an alternatives clause, having one of the
+named products meets it. Otherwise the wording decides:
+
+- "or another / any other / other / equivalent / alternative" ("TypeScript, or another
+  general-purpose language"): an alternative your resume shows counts fully.
+- "or comparable / similar / related / the like" ("Foundry, Contour, or comparable
+  analytics platforms"): comparable experience earns `comparable_credit` (60%) and shows
+  as partial, so a general skill does not count as experience with the named tool.
+
+Named products you lack join the drawer's **Keywords to add** list (★, after taxonomy
+skills named in the requirements), so every keyword for a resume edit is in one place.
 
 Coverage and keyword scores are pulled toward 50% when a posting has only one or two
 assessable lines, so thin postings cannot score 0 or 100 by accident. A posting without a

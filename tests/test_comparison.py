@@ -376,3 +376,28 @@ def test_named_products_count_more_than_comparable_experience(resume: ResumeView
 
     generic = _assess("Experience with APIs, cloud, or similar", resume)
     assert "named" not in generic and generic["status"] == "met"  # concepts, not products
+
+
+def test_equivalent_alternatives_count_fully_and_named_products_join_keywords(
+    resume: ResumeView,
+) -> None:
+    another = _assess(
+        "Fluency in TypeScript, or another general-purpose programming language", resume
+    )
+    assert another["alternatives"] == "equivalent" and another["status"] == "met"  # Python
+    comparable = _assess("Experience with RocksDB or similar data stores", resume)
+    assert comparable["alternatives"] == "comparable" and comparable["status"] == "partial"
+
+    text = POSTING_TEXT.replace(
+        "Experience with Spark or Kafka",
+        "Hands-on experience with Foundry, Contour, or comparable analytics platforms",
+    )
+    result = compare_posting(
+        posting(text),
+        resume,
+        Config().comparison,
+        skills_in_text=skills_in_text,
+        frequencies=Counter(),
+        corpus_size=1,
+    )
+    assert [item["skill"] for item in result["named_to_add"]] == ["Foundry", "Contour"]  # type: ignore[attr-defined]
