@@ -525,6 +525,26 @@ seed. There is no skip button, because skipping hard or dull lines would bias th
 Groups are sampled to equal size, so Phase 7 weights each group by its `population` when it
 combines group accuracies into one number. Withdrawing a queue label puts its line back.
 
+### Changes and snapshots
+
+**Labels → Changes** (`GET /api/labels/changes`, `comparison/label_changes.py`) reads the
+append-only log as a change log: each entry is an event (labeled, changed, confirmed,
+withdrawn, restored), and the first label made under a new comparison model version is
+marked. It shows activity by day, the latest `recent_events` events, and progress of the
+application-tracking decisions that train the weight simulator (10, with at least 3 of
+each kind) and Phase 8 B3 (30 to 50). Which statuses count, and the thresholds, live under
+`tracking` in `config/labels.yaml`.
+
+A **snapshot** freezes the labeled set so a Phase 7 number can cite it. Because the log only
+grows, a snapshot is its first N complete lines: the manifest in
+`data/private/labels/snapshots/` stores N, their SHA-256, and counts (never requirement or
+resume text). A snapshot whose prefix no longer matches is shown as not verified. Saving
+without new labels returns the existing snapshot.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\label_snapshots.py create   # also: list, verify (exit 1 if any mismatch)
+```
+
 ## Engineering Commands
 
 ```powershell

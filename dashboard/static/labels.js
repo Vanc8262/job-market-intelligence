@@ -20,15 +20,17 @@ const LABEL_SOURCE_NAMES = { drawer: "Drawer", labels_tab: "Labels tab", queue: 
 
 state.labels = { data: null, loading: false, error: null, filter: "all", kind: "", search: "", busy: null, feedback: null, view: "all" };
 state.queue = { data: null, loading: false, error: null, busy: false, feedback: null };
+state.changes = { data: null, loading: false, error: null, busy: false, feedback: null };
 
 function bindLabels() {
-  elements.refreshLabels.addEventListener("click", () => { loadLabels(); if (state.labels.view === "queue") loadQueue(); });
+  elements.refreshLabels.addEventListener("click", () => { loadLabels(); if (state.labels.view === "queue") loadQueue(); if (state.labels.view === "changes") loadChanges(); });
   elements.labelsTabs.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-labels-view]");
     if (!button) return;
     state.labels.view = button.dataset.labelsView;
     elements.labelsTabs.querySelectorAll("button").forEach((item) => item.classList.toggle("active", item === button));
     if (state.labels.view === "queue" && !state.queue.data && !state.queue.loading) loadQueue();
+    if (state.labels.view === "changes" && !state.changes.loading) loadChanges();
     renderLabels();
   });
   elements.labelsContent.addEventListener("click", handleLabelsClick);
@@ -71,6 +73,7 @@ function updateLabelsAlert() {
 
 function renderLabels() {
   if (state.labels.view === "queue") { renderQueue(); return; }
+  if (state.labels.view === "changes") { renderChanges(); return; }
   const labels = state.labels;
   const summary = labels.data?.summary;
   if (labels.loading && !labels.data) { elements.labelsSummary.textContent = "Loading labels"; elements.labelsContent.innerHTML = `<div class="loading-state"><span>Loading labels</span></div>`; return; }
@@ -176,6 +179,7 @@ function handleLabelsFilter(event) {
 async function handleLabelsClick(event) {
   const filterButton = event.target.closest("[data-labels-filter]");
   if (filterButton) { state.labels.filter = filterButton.dataset.labelsFilter; renderLabels(); return; }
+  if (event.target.closest("button[data-save-snapshot]")) { saveSnapshot(); return; }
   const queueButton = event.target.closest("button[data-queue-status]");
   if (queueButton) { saveQueueLabel(queueButton.dataset.queueStatus); return; }
   const openButton = event.target.closest("[data-open-job]");
@@ -292,4 +296,84 @@ async function saveQueueLabel(status) {
   queue.busy = false;
   await loadQueue();
   loadLabels();
+}
+
+// Changes: what happened to the labeled data, frozen snapshots of it, and how close the
+// tracking decisions are to what the simulator and Phase 8 B3 need.
+const CHANGE_NAMES = { added: "Labeled", changed: "Changed", confirmed: "Confirmed", withdrawn: "Withdrawn", restored: "Restored", model_version: "New model version" };
+
+async function loadChanges() {
+  const changes = state.changes;
+  changes.loading = true;
+  changes.error = null;
+  if (state.view === "labels" && state.labels.view === "changes") renderChanges();
+  try {
+    const response = await fetch("/api/labels/changes", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Label changes could not be loaded");
+    changes.data = payload;
+  } catch (error) {
+    changes.error = error.message;
+  }
+  changes.loading = false;
+  if (state.view === "labels" && state.labels.view === "changes") renderChanges();
+}
+
+function renderChanges() {
+  const changes = state.changes;
+  if (changes.loading && !changes.data) { elements.labelsContent.innerHTML = `<div class="loading-state"><span>Loading label changes</span></div>`; return; }
+  if (changes.error) { elements.labelsContent.innerHTML = `<div class="error-state"><strong>Label changes could not be loaded</strong><span>${escapeHtml(changes.error)}</span></div>`; return; }
+  const data = changes.data;
+  if (!data) return;
+  const feedback = changes.feedback ? `<p class="save-feedback ${changes.feedback.error ? "error" : "success"}">${escapeHtml(changes.feedback.text)}</p>` : "";
+  elements.labelsContent.innerHTML = `${trackingProgressBlock(data.tracking)}
+    <section class="intel-block wide"><div class="intel-heading"><h2>Snapshots</h2><button type="button" class="secondary-button" data-save-snapshot${changes.busy ? " disabled" : ""}>Save snapshot</button></div>
+      <p class="job-meta wrap">A snapshot freezes the labels as they are now, so a Phase 7 number can name exactly which set it used. It stores counts and a fingerprint of the log, not the labels themselves; "Verified" means the log still matches.</p>${feedback}
+      ${data.snapshots.length ? marketTable(["Snapshot", "Saved", "Labels", "Sampled", "Agree", "Log lines", "Check"], data.snapshots.map((item) => `<tr><td><code>${escapeHtml(item.snapshot_id)}</code></td><td>${escapeHtml(formatTimestamp(item.created_at))}</td><td class="number-cell">${number(item.active_labels)}</td><td class="number-cell">${number(item.sampled_labels)}</td><td class="number-cell">${number(item.agree)}</td><td class="number-cell">${number(item.log_lines)}</td><td>${item.verified ? `<span class="label-state current">Verified</span>` : `<span class="label-state orphaned" title="The label log was edited after this snapshot">Does not match</span>`}</td></tr>`).join("")) : `<p class="job-meta">No snapshots yet.</p>`}
+    </section>
+    <section class="intel-block wide"><div class="intel-heading"><h2>Activity by day</h2><span>${number(data.event_count)} label events in total (UTC dates)</span></div>
+      ${data.days.length ? marketTable(["Date", "Labeled", "Changed", "Confirmed", "Withdrawn", "Restored", "From the queue"], data.days.map((day) => `<tr><td>${escapeHtml(day.date)}</td><td class="number-cell">${number(day.added)}</td><td class="number-cell">${number(day.changed)}</td><td class="number-cell">${number(day.confirmed)}</td><td class="number-cell">${number(day.withdrawn)}</td><td class="number-cell">${number(day.restored)}</td><td class="number-cell">${number(day.sampled)}</td></tr>`).join("")) : `<p class="job-meta">No label activity yet.</p>`}
+    </section>
+    <section class="intel-block wide"><div class="intel-heading"><h2>Recent changes</h2><span>Newest first${data.event_count > data.events.length ? `, latest ${number(data.events.length)}` : ""}</span></div>
+      ${data.events.length ? `<ul class="change-log">${data.events.map(changeEntry).join("")}</ul>` : `<p class="job-meta">No label activity yet.</p>`}
+    </section>`;
+}
+
+function changeEntry(event) {
+  const when = `<span class="change-when">${escapeHtml(formatTimestamp(event.at))}</span>`;
+  if (event.type === "model_version") return `<li class="change-entry model">${when}<strong>${CHANGE_NAMES.model_version}</strong><span>Labels from here on were made against comparison model ${escapeHtml(event.model_version)}.</span></li>`;
+  const verdicts = event.type === "withdrawn" ? `was ${verdictCell(event.from_status)}` : event.type === "changed" ? `${verdictCell(event.from_status)} → ${verdictCell(event.to_status)}` : verdictCell(event.to_status);
+  const source = LABEL_SOURCE_NAMES[event.source] || formatLabel(event.source);
+  return `<li class="change-entry ${escapeHtml(event.type)}">${when}<strong>${escapeHtml(CHANGE_NAMES[event.type] || formatLabel(event.type))}</strong><span>${verdicts} · ${escapeHtml(event.requirement)}<span class="job-meta">${escapeHtml(formatLabel(event.kind))} · model said ${escapeHtml(formatLabel(event.predicted_status))} · ${escapeHtml(source)}${event.sampled ? " (sampled)" : ""}${event.note ? ` · “${escapeHtml(event.note)}”` : ""}</span></span></li>`;
+}
+
+function trackingProgressBlock(tracking) {
+  const bar = (value, goal) => `<div class="queue-bar"><span style="--progress:${Math.min(100, goal ? (value / goal) * 100 : 0)}%"></span></div>`;
+  const simulator = tracking.simulator;
+  const b3 = tracking.b3;
+  return `<section class="intel-block wide"><div class="intel-heading"><h2>Training labels from application tracking</h2><span>${number(tracking.positive)} positive · ${number(tracking.negative)} archived</span></div>
+    <div class="tracking-progress">
+      <div><strong>Weight simulator calibration: ${number(tracking.total)} of ${number(simulator.minimum)}</strong>${bar(tracking.total, simulator.minimum)}<span class="job-meta wrap">${simulator.ready ? "Ready: the simulator can recommend weights." : `Needs ${number(simulator.minimum)} decisions, with at least ${number(simulator.minimum_each)} positive and ${number(simulator.minimum_each)} archived.`}</span></div>
+      <div><strong>Phase 8 B3 relevance model: ${number(tracking.total)} of ${number(b3.minimum)}–${number(b3.target)}</strong>${bar(tracking.total, b3.target)}<span class="job-meta wrap">${b3.ready ? "Enough to start B3." : `B3 can start at ${number(b3.minimum)} decisions and is comfortable at ${number(b3.target)}.`}</span></div>
+    </div>
+    <p class="job-meta wrap">Positive: ${escapeHtml(tracking.positive_statuses.map(formatLabel).join(", "))}. Negative: ${escapeHtml(tracking.negative_statuses.map(formatLabel).join(", "))}. Other statuses, including rejections (an outcome, not a preference), count as neither. Set in config/labels.yaml under tracking.</p>
+  </section>`;
+}
+
+async function saveSnapshot() {
+  const changes = state.changes;
+  if (changes.busy) return;
+  changes.busy = true;
+  changes.feedback = null;
+  renderChanges();
+  try {
+    const response = await fetch("/api/labels/snapshots", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Snapshot could not be saved");
+    changes.feedback = { text: result.created ? `Saved snapshot ${result.snapshot.snapshot_id}.` : `Nothing changed since snapshot ${result.snapshot.snapshot_id}; no new snapshot saved.` };
+  } catch (error) {
+    changes.feedback = { text: error.message, error: true };
+  }
+  changes.busy = false;
+  await loadChanges();
 }

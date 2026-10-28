@@ -18,6 +18,7 @@ from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel, ValidationError
 
+from comparison.label_changes import build_changes, create_snapshot
 from comparison.label_review import review_labels, summarize_labels
 from comparison.labels import CLIENT_SOURCES, LabelSource, RequirementLabelStore, labels_path
 from comparison.review_queue import build_queue, is_queue_head, public_queue
@@ -64,6 +65,8 @@ ACTIVE_RESUME_PATH = "/api/candidate-profile/active-resume"
 REQUIREMENT_LABELS_PATH = "/api/requirement-labels"
 LABELS_PATH = "/api/labels"
 LABEL_QUEUE_PATH = "/api/labels/queue"
+LABEL_CHANGES_PATH = "/api/labels/changes"
+LABEL_SNAPSHOTS_PATH = "/api/labels/snapshots"
 OPERATIONS_FRESHNESS_HOURS = 36
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
@@ -380,6 +383,9 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         if path == LABEL_QUEUE_PATH:
             self._send_queue()
             return
+        if path == LABEL_CHANGES_PATH:
+            self._send_changes()
+            return
         if path == "/api/application-tracking":
             try:
                 self._send_json(self.tracking_repository.load().model_dump(mode="json"))
@@ -578,6 +584,51 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
             }
         )
 
+    def _tracking_statuses(self) -> list[str]:
+        """Return every tracking decision's status, or none when tracking is unreadable."""
+        try:
+            records = self.tracking_repository.load().records
+        except (OSError, ValueError, ValidationError):
+            return []
+        return [record.status.value for record in records.values()]
+
+    def _send_changes(self) -> None:
+        """Send the label change log, snapshots, and tracking-label progress."""
+        store = self._label_store()
+        if store is None:
+            self._send_json(
+                {"error": "Resume workflow is unavailable"}, status=HTTPStatus.SERVICE_UNAVAILABLE
+            )
+            return
+        try:
+            payload = build_changes(store, Config().labels, self._tracking_statuses())
+        except (OSError, ValueError) as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        self._send_json(payload)
+
+    def _save_snapshot(self) -> None:
+        """Freeze the current label log as a snapshot (a no-op when nothing changed)."""
+        store = self._label_store()
+        if store is None:
+            self._send_json(
+                {"error": "Resume workflow is unavailable"}, status=HTTPStatus.SERVICE_UNAVAILABLE
+            )
+            return
+        comparisons = self._comparisons()
+        model = comparisons.get("model") if comparisons else None
+        try:
+            manifest, created = create_snapshot(
+                store, Config().labels, model if isinstance(model, dict) else None
+            )
+        except (OSError, ValueError) as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        self._send_json(
+            {"snapshot": manifest, "created": created},
+            status=HTTPStatus.CREATED if created else HTTPStatus.OK,
+        )
+
     def _record_queue_label(self) -> None:
         """Save a sampled label, but only for a line the sampler currently serves.
 
@@ -762,6 +813,9 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
             return
         if path == LABEL_QUEUE_PATH:
             self._record_queue_label()
+            return
+        if path == LABEL_SNAPSHOTS_PATH:
+            self._save_snapshot()
             return
         self._send_json({"error": "Endpoint not found"}, status=HTTPStatus.NOT_FOUND)
 

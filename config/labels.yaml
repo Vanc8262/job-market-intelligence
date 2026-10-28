@@ -27,3 +27,19 @@ queue:
   # Fixes the random order within each group, so the sample is reproducible. Changing it
   # draws a different sample for lines not yet labeled; labels already made still count.
   seed: 20261028
+
+# Changes view: tracking decisions are the training labels for the weight simulator's
+# calibration and, later, Phase 8 B3 (relevance weights). Rejected applications are an
+# outcome, not a preference, so they count as neither.
+tracking:
+  positive_statuses: [reviewing, saved, applied, interviewing, offer]
+  negative_statuses: [archived]
+  # The simulator recommends weights after this many, with at least `_each` of both kinds.
+  simulator_minimum: 10
+  simulator_minimum_each: 3
+  # B3 starts at b3_minimum labels and is comfortable at b3_target (README Phase 8 table).
+  b3_minimum: 30
+  b3_target: 50
+
+# How many of the newest label events the Changes view lists.
+recent_events: 200
