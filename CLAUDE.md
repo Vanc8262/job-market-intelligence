@@ -62,7 +62,7 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
    `master`. Descriptive subject + body explaining why.
 5. **Dashboard assets:** when `app.js`, `resume-review.js`, `labels.js`, or `styles.css` change, bump
    the `?v=resume-vN` asset version in `dashboard/static/index.html` **and** in
-   `tests/test_dashboard.py` (currently `resume-v14`).
+   `tests/test_dashboard.py` (currently `resume-v15`).
 6. **Config over code:** thresholds, weights, vocabularies, and taxonomies go in
    `config/*.yaml`, each validated by a Pydantic model in `utils/config.py`
    (`extra="forbid"`; add the field there when adding a YAML key). Bump the config's
@@ -117,6 +117,9 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
   to `latest.json` as current/stale/orphaned/closed, plus the orphan alert from
   `config/labels.yaml` (kept out of `comparison.yaml` so its settings hash is unaffected).
   Drawer and queue labels are always counted separately.
+- `review_queue.py`: seeded, stratified (kind × verdict) random sample of comparison lines
+  for unbiased labels (`GET/POST /api/labels/queue`). A queue label is accepted only for the
+  line currently first in its group, then stored with `source=queue`, `sampled=True`.
 - When the owner reports a wrong ✓/◐/✗, fix it in the vocabulary/config first, add a
   regression test in `tests/test_comparison.py` with the synthetic resume, and sanity
   check on real postings (counts by kind/status) before committing.

@@ -978,3 +978,22 @@ tbody tr:last-child td { border-bottom: 0; }
   .labels-alert { grid-template-columns: 1fr; }
   .labels-alert button { grid-column: 1; grid-row: auto; justify-self: start; }
 }
+
+/* Labels review queue. */
+.queue-progress { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, 320px); gap: 16px; align-items: center; margin-bottom: 14px; }
+.queue-progress strong { display: block; font-size: 0.92rem; }
+.queue-progress span { display: block; margin-top: 3px; color: var(--muted); font-size: 0.7rem; }
+.queue-bar { height: 8px; border-radius: 4px; background: var(--soft); overflow: hidden; }
+.queue-bar span { display: block; height: 100%; width: var(--progress); margin: 0; background: var(--green); }
+.queue-card { display: block; margin-bottom: 18px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); }
+.queue-requirement { margin: 8px 0 4px; font-size: 0.95rem; color: #18232c; }
+.queue-card .req-label { margin-top: 10px; }
+.queue-card .label-note-input { max-width: 420px; }
+.queue-groups td .job-meta { display: block; }
+.queue-done { color: var(--green); font-weight: 700; }
+.queue-card.met .req-icon { color: var(--green); }
+.queue-card.partial .req-icon { color: #86580e; }
+.queue-card.missing .req-icon { color: var(--red); }
+@media (max-width: 700px) {
+  .queue-progress { grid-template-columns: 1fr; }
+}

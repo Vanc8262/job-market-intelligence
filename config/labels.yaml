@@ -24,3 +24,6 @@ queue:
   target_per_group: 10
   # Self-assess lines are not scored by 6.3, so there is no verdict to check.
   exclude_kinds: [trait]
+  # Fixes the random order within each group, so the sample is reproducible. Changing it
+  # draws a different sample for lines not yet labeled; labels already made still count.
+  seed: 20261028

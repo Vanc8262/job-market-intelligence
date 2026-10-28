@@ -133,6 +133,11 @@ class RequirementLabelStore:
         self.path = path
         self._lock = RLock()
 
+    @property
+    def lock(self) -> RLock:
+        """Re-entrant lock held while appending; hold it to check-then-append atomically."""
+        return self._lock
+
     def record(
         self,
         comparisons: Mapping[str, object] | None,
@@ -142,9 +147,13 @@ class RequirementLabelStore:
         *,
         source: LabelSource = LabelSource.DRAWER,
         note: str | None = None,
+        sample_seed: int | None = None,
         now: datetime | None = None,
     ) -> RequirementLabel:
         """Label one requirement from the stored comparison and append it to the log.
+
+        ``sample_seed`` marks a review-queue label as randomly sampled; only the queue
+        endpoint passes it, after checking the line is the one the sampler drew.
 
         The predicted status comes from the stored comparison, not from the request, so
         a label always pairs the owner's verdict with what the model actually said.
@@ -164,6 +173,8 @@ class RequirementLabelStore:
         required = item.get("required")
         label = RequirementLabel(
             source=source,
+            sampled=sample_seed is not None,
+            sample_seed=sample_seed,
             note=_clean_note(note),
             job_id=job_id,
             requirement=requirement,

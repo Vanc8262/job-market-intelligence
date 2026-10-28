@@ -5,6 +5,8 @@
 // posting, flags labels that went stale or orphaned against the latest comparison, and
 // re-labels or withdraws a line through the same append-only endpoint the drawer uses.
 // Withdrawn lines stay findable under their own filter but are left out of every count.
+// The Review queue view serves lines drawn at random by the server; only labels saved
+// there are marked sampled, which is what Phase 7 accuracy estimates use.
 
 const LABEL_STATE_NAMES = { current: "Current", stale: "Stale", orphaned: "Orphaned", closed: "Posting closed" };
 const LABEL_STATE_HINTS = {
@@ -16,10 +18,19 @@ const LABEL_STATE_HINTS = {
 const LABEL_FILTERS = [["all", "All labels"], ["disagree", "Disagreements"], ["stale", "Stale"], ["orphaned", "Orphaned"], ["closed", "Posting closed"], ["current", "Current"], ["withdrawn", "Withdrawn"]];
 const LABEL_SOURCE_NAMES = { drawer: "Drawer", labels_tab: "Labels tab", queue: "Review queue" };
 
-state.labels = { data: null, loading: false, error: null, filter: "all", kind: "", search: "", busy: null, feedback: null };
+state.labels = { data: null, loading: false, error: null, filter: "all", kind: "", search: "", busy: null, feedback: null, view: "all" };
+state.queue = { data: null, loading: false, error: null, busy: false, feedback: null };
 
 function bindLabels() {
-  elements.refreshLabels.addEventListener("click", () => loadLabels());
+  elements.refreshLabels.addEventListener("click", () => { loadLabels(); if (state.labels.view === "queue") loadQueue(); });
+  elements.labelsTabs.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-labels-view]");
+    if (!button) return;
+    state.labels.view = button.dataset.labelsView;
+    elements.labelsTabs.querySelectorAll("button").forEach((item) => item.classList.toggle("active", item === button));
+    if (state.labels.view === "queue" && !state.queue.data && !state.queue.loading) loadQueue();
+    renderLabels();
+  });
   elements.labelsContent.addEventListener("click", handleLabelsClick);
   elements.labelsContent.addEventListener("change", handleLabelsFilter);
   let searchTimer;
@@ -59,6 +70,7 @@ function updateLabelsAlert() {
 }
 
 function renderLabels() {
+  if (state.labels.view === "queue") { renderQueue(); return; }
   const labels = state.labels;
   const summary = labels.data?.summary;
   if (labels.loading && !labels.data) { elements.labelsSummary.textContent = "Loading labels"; elements.labelsContent.innerHTML = `<div class="loading-state"><span>Loading labels</span></div>`; return; }
@@ -66,7 +78,7 @@ function renderLabels() {
   if (!summary) return;
   const model = labels.data.comparison_model;
   elements.labelsSummary.textContent = labels.data.comparison_generated_at ? `${number(summary.total)} labeled lines · checked against the comparison from ${formatTimestamp(labels.data.comparison_generated_at)}${model?.version ? ` (model ${model.version})` : ""}` : `${number(summary.total)} labeled lines · no comparison results yet; run scripts/sync_data.py`;
-  if (!summary.total) { elements.labelsContent.innerHTML = `<div class="empty-state"><strong>No labels yet</strong><span>Open a posting and agree with or correct a ✓/◐/✗ verdict to save your first label.</span></div>`; return; }
+  if (!summary.total && !summary.withdrawn) { elements.labelsContent.innerHTML = `<div class="empty-state"><strong>No labels yet</strong><span>Open a posting and agree with or correct a ✓/◐/✗ verdict to save your first label.</span></div>`; return; }
   const kinds = Object.keys(summary.by_kind).sort();
   elements.labelsContent.innerHTML = `${labelsAlertBanner(summary.orphan_alert)}${labelsTracker(summary)}
     <div class="labels-toolbar">
@@ -164,6 +176,8 @@ function handleLabelsFilter(event) {
 async function handleLabelsClick(event) {
   const filterButton = event.target.closest("[data-labels-filter]");
   if (filterButton) { state.labels.filter = filterButton.dataset.labelsFilter; renderLabels(); return; }
+  const queueButton = event.target.closest("button[data-queue-status]");
+  if (queueButton) { saveQueueLabel(queueButton.dataset.queueStatus); return; }
   const openButton = event.target.closest("[data-open-job]");
   if (openButton) { openDrawer(openButton.dataset.openJob); return; }
   const button = event.target.closest("button[data-relabel-index], button[data-withdraw-index]");
@@ -194,4 +208,88 @@ async function handleLabelsClick(event) {
     state.labels.feedback = { text: error.message, error: true };
     renderLabelRows();
   }
+}
+
+// Review queue: one randomly drawn line at a time. There is no skip button on purpose:
+// skipping the hard or dull lines would bias the sample the accuracy estimate rests on.
+async function loadQueue() {
+  const queue = state.queue;
+  queue.loading = true;
+  queue.error = null;
+  if (state.view === "labels" && state.labels.view === "queue") renderQueue();
+  try {
+    const response = await fetch("/api/labels/queue", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "The review queue could not be loaded");
+    queue.data = payload;
+  } catch (error) {
+    queue.error = error.message;
+  }
+  queue.loading = false;
+  if (state.view === "labels" && state.labels.view === "queue") renderQueue();
+}
+
+function renderQueue() {
+  const queue = state.queue;
+  if (queue.loading && !queue.data) { elements.labelsContent.innerHTML = `<div class="loading-state"><span>Drawing the next line</span></div>`; return; }
+  if (queue.error) { elements.labelsContent.innerHTML = `<div class="error-state"><strong>The review queue could not be loaded</strong><span>${escapeHtml(queue.error)}</span></div>`; return; }
+  const data = queue.data;
+  if (!data) return;
+  if (!data.groups.length) { elements.labelsContent.innerHTML = `<div class="empty-state"><strong>Nothing to sample yet</strong><span>The queue draws from the latest comparison. Approve your resume and run scripts/sync_data.py first.</span></div>`; return; }
+  const percent = data.target ? Math.min(100, (data.labeled / data.target) * 100) : 0;
+  const feedback = queue.feedback ? `<p class="save-feedback ${queue.feedback.error ? "error" : "success"}">${escapeHtml(queue.feedback.text)}</p>` : "";
+  elements.labelsContent.innerHTML = `<div class="queue-progress"><div><strong>${number(data.labeled)} of ${number(data.target)} sampled labels</strong><span>Up to ${number(data.target_per_group)} per group, drawn at random (seed ${escapeHtml(data.seed)}). ${escapeHtml(formatLabel(data.exclude_kinds.join(", ") || "none"))} lines are left out.</span></div><div class="queue-bar"><span style="--progress:${percent}%"></span></div></div>
+    ${feedback}${data.next ? queueCard(data.next) : `<div class="empty-state"><strong>Every group has reached its target</strong><span>Raise queue.target_per_group in config/labels.yaml to collect more.</span></div>`}
+    <section class="intel-block wide queue-groups"><div class="intel-heading"><h2>Progress by group</h2><span>Sampled labels / target · lines available now</span></div>${queueGroupsTable(data.groups)}</section>`;
+}
+
+function queueCard(next) {
+  const busy = state.queue.busy ? " disabled" : "";
+  const posting = next.title ? `${next.title}${next.employer ? ` · ${next.employer}` : ""}` : next.job_id;
+  const openable = state.opportunities.some((item) => item.job_id === next.job_id);
+  const predicted = next.status;
+  const button = (status, text, title) => `<button type="button" class="label-button" data-queue-status="${status}" title="${escapeHtml(title)}"${busy}>${text}</button>`;
+  const others = Object.entries(VERDICT_ICONS).filter(([status]) => status !== predicted).map(([status, glyph]) => button(status, glyph, `Should be ${formatLabel(status)}`)).join("");
+  return `<article class="queue-card ${escapeHtml(predicted)}">
+    <span class="drawer-eyebrow">${escapeHtml(formatLabel(next.kind))} · model says ${escapeHtml(formatLabel(predicted))}${next.item.required === false ? " · preferred" : ""}</span>
+    <p class="queue-requirement"><span class="req-icon">${VERDICT_ICONS[predicted] || "–"}</span> ${escapeHtml(next.requirement)}</p>
+    <span class="job-meta wrap">${openable ? `<button type="button" class="text-button" data-open-job="${escapeHtml(next.job_id)}">${escapeHtml(posting)}</button>` : escapeHtml(posting)}</span>
+    <div class="req-evidence">${requirementEvidence(next.item)}</div>
+    <div class="req-label">${button(predicted, "Agree", `Agree: ${formatLabel(predicted)}`)}<span class="label-prompt">should be</span>${others}</div>
+    <input class="label-note-input" id="queueNote" type="text" maxlength="500" placeholder="Note (optional)" aria-label="Note for this label">
+    <p class="job-meta wrap">Please label every line the queue shows, even easy ones. Lines are drawn at random so the accuracy estimate is fair; skipping would bias it.</p>
+  </article>`;
+}
+
+function queueGroupsTable(groups) {
+  const kinds = [...new Set(groups.map((group) => group.kind))].sort();
+  const cell = (kind, status) => {
+    const group = groups.find((item) => item.kind === kind && item.status === status);
+    if (!group) return `<td class="number-cell"><span class="job-meta">—</span></td>`;
+    const done = group.target && group.labeled >= group.target;
+    return `<td class="number-cell${done ? " queue-done" : ""}">${number(group.labeled)} / ${number(group.target)}<span class="job-meta">${number(group.population)} available</span></td>`;
+  };
+  return marketTable(["Kind", ...QUEUE_STATUSES.map((status) => `${VERDICT_ICONS[status]} ${formatLabel(status)}`)], kinds.map((kind) => `<tr><td>${escapeHtml(formatLabel(kind))}</td>${QUEUE_STATUSES.map((status) => cell(kind, status)).join("")}</tr>`).join(""));
+}
+const QUEUE_STATUSES = ["met", "partial", "missing"];
+
+async function saveQueueLabel(status) {
+  const queue = state.queue;
+  const next = queue.data?.next;
+  if (!next || queue.busy) return;
+  const note = document.getElementById("queueNote")?.value.trim() || null;
+  queue.busy = true;
+  queue.feedback = null;
+  renderQueue();
+  try {
+    const response = await fetch("/api/labels/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: next.job_id, requirement: next.requirement, corrected_status: status, note }) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Label could not be saved");
+    queue.feedback = { text: `Saved ${formatLabel(result.corrected_status)} for "${next.requirement.slice(0, 80)}".` };
+  } catch (error) {
+    queue.feedback = { text: error.message, error: true };
+  }
+  queue.busy = false;
+  await loadQueue();
+  loadLabels();
 }

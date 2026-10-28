@@ -12,6 +12,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from socket import socket
 from socketserver import BaseServer
+from threading import Lock
 from typing import Any, ClassVar, cast
 from urllib.parse import unquote, urlsplit
 
@@ -19,6 +20,7 @@ from pydantic import BaseModel, ValidationError
 
 from comparison.label_review import review_labels, summarize_labels
 from comparison.labels import CLIENT_SOURCES, LabelSource, RequirementLabelStore, labels_path
+from comparison.review_queue import build_queue, is_queue_head, public_queue
 from comparison.runner import load_results
 from dashboard.resumes import load_candidate_profile, load_resume_review, load_resume_reviews
 from dashboard.tracking import ApplicationTrackingRepository
@@ -61,6 +63,7 @@ RESUME_VERSION_PREFIX = "/api/resume-versions/"
 ACTIVE_RESUME_PATH = "/api/candidate-profile/active-resume"
 REQUIREMENT_LABELS_PATH = "/api/requirement-labels"
 LABELS_PATH = "/api/labels"
+LABEL_QUEUE_PATH = "/api/labels/queue"
 OPERATIONS_FRESHNESS_HOURS = 36
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
@@ -374,6 +377,9 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         if path == LABELS_PATH:
             self._send_labels()
             return
+        if path == LABEL_QUEUE_PATH:
+            self._send_queue()
+            return
         if path == "/api/application-tracking":
             try:
                 self._send_json(self.tracking_repository.load().model_dump(mode="json"))
@@ -495,7 +501,7 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
     def _label_store(self) -> RequirementLabelStore | None:
         """Return the private requirement-label log, when the resume workflow is set up."""
         service = self.resume_service
-        return RequirementLabelStore(labels_path(service.private_root)) if service else None
+        return _shared_label_store(labels_path(service.private_root)) if service else None
 
     def _labels_for(self, job_id: str) -> dict[str, dict[str, object]]:
         """Return the owner's newest label per requirement line for one posting."""
@@ -527,17 +533,8 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         except (OSError, ValueError) as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
             return
-        try:
-            mart = load_opportunities_mart(self.mart_path)
-        except (FileNotFoundError, ValueError, json.JSONDecodeError):
-            mart = {}
-        postings = {
-            str(row["job_id"]): row
-            for row in mart.get("opportunities", [])
-            if isinstance(row, dict) and row.get("job_id")
-        }
         comparisons = self._comparisons()
-        rows = review_labels(labels, comparisons, postings)
+        rows = review_labels(labels, comparisons, self._postings())
         self._send_json(
             {
                 "summary": summarize_labels(rows, Config().labels),
@@ -546,6 +543,97 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
                 "comparison_model": comparisons.get("model") if comparisons else None,
             }
         )
+
+    def _postings(self) -> dict[str, dict[str, Any]]:
+        """Return mart rows by job id, for posting titles; empty before Gold is built."""
+        try:
+            mart = load_opportunities_mart(self.mart_path)
+        except (FileNotFoundError, ValueError, json.JSONDecodeError):
+            return {}
+        return {
+            str(row["job_id"]): row
+            for row in mart.get("opportunities", [])
+            if isinstance(row, dict) and row.get("job_id")
+        }
+
+    def _send_queue(self) -> None:
+        """Send review-queue progress and the next randomly drawn line to label."""
+        store = self._label_store()
+        if store is None:
+            self._send_json(
+                {"error": "Resume workflow is unavailable"}, status=HTTPStatus.SERVICE_UNAVAILABLE
+            )
+            return
+        try:
+            labels = store.all()
+        except (OSError, ValueError) as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        comparisons = self._comparisons()
+        queue = build_queue(comparisons, labels, Config().labels, self._postings())
+        self._send_json(
+            {
+                **public_queue(queue),
+                "comparison_generated_at": comparisons.get("generated_at") if comparisons else None,
+            }
+        )
+
+    def _record_queue_label(self) -> None:
+        """Save a sampled label, but only for a line the sampler currently serves.
+
+        The browser names the line it was shown; the server re-draws the queue and accepts
+        the label only if that line is first in its group. That check is what makes the
+        ``sampled`` flag trustworthy for Phase 7.
+        """
+        store = self._label_store()
+        if store is None:
+            self._send_json(
+                {"error": "Resume workflow is unavailable"}, status=HTTPStatus.SERVICE_UNAVAILABLE
+            )
+            return
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0 or content_length > MAX_REQUEST_BYTES:
+                raise ValueError("Request body must be between 1 byte and 64 KB")
+            payload = json.loads(self.rfile.read(content_length))
+            if not isinstance(payload, dict):
+                raise ValueError("Request body must be a JSON object")
+            job_id = payload.get("job_id")
+            requirement = payload.get("requirement")
+            corrected = payload.get("corrected_status")
+            note = payload.get("note")
+            if not isinstance(job_id, str) or _path_identifier(job_id) is None:
+                raise ValueError("job_id is required")
+            if not isinstance(requirement, str) or not requirement:
+                raise ValueError("requirement is required")
+            if not isinstance(corrected, str):
+                raise ValueError("corrected_status must be met, partial, or missing")
+            if note is not None and not isinstance(note, str):
+                raise ValueError("note must be text")
+            settings = Config().labels
+            comparisons = self._comparisons()
+            with store.lock:
+                queue = build_queue(comparisons, store.all(), settings)
+                if not is_queue_head(queue, job_id, requirement):
+                    self._send_json(
+                        {"error": "This line is no longer next in the review queue; refresh it"},
+                        status=HTTPStatus.CONFLICT,
+                    )
+                    return
+                label = store.record(
+                    comparisons,
+                    job_id,
+                    requirement,
+                    corrected,
+                    source=LabelSource.QUEUE,
+                    note=note,
+                    sample_seed=settings.queue.seed,
+                )
+            self._send_json(label.model_dump(mode="json"), status=HTTPStatus.CREATED)
+        except LookupError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
+        except (json.JSONDecodeError, UnicodeDecodeError, ValidationError, ValueError) as exc:
+            self._send_json({"error": _validation_message(exc)}, status=HTTPStatus.BAD_REQUEST)
 
     def _record_label(self) -> None:
         """Append the owner's verdict on one requirement line to the private label log."""
@@ -671,6 +759,9 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
             return
         if path == REQUIREMENT_LABELS_PATH:
             self._record_label()
+            return
+        if path == LABEL_QUEUE_PATH:
+            self._record_queue_label()
             return
         self._send_json({"error": "Endpoint not found"}, status=HTTPStatus.NOT_FOUND)
 
@@ -848,6 +939,19 @@ def attach_application_fit(
         "application_fit_available": True,
         "application_fit_generated_at": comparisons.get("generated_at") if comparisons else None,
     }
+
+
+_LABEL_STORES: dict[Path, RequirementLabelStore] = {}
+_LABEL_STORES_LOCK = Lock()
+
+
+def _shared_label_store(path: Path) -> RequirementLabelStore:
+    """Return one store per log file, so its lock is shared by every request thread."""
+    with _LABEL_STORES_LOCK:
+        store = _LABEL_STORES.get(path)
+        if store is None:
+            store = _LABEL_STORES[path] = RequirementLabelStore(path)
+        return store
 
 
 def _path_identifier(raw: str) -> str | None:

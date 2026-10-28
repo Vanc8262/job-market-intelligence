@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light">
   <title>JMIP Dashboard</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="/styles.css?v=resume-v14">
+  <link rel="stylesheet" href="/styles.css?v=resume-v15">
 </head>
 <body>
   <header class="app-header">
@@ -139,6 +139,10 @@
           <div><h1>Labels</h1><p id="labelsSummary">Loading labels</p></div>
           <button class="secondary-button" id="refreshLabels" type="button">Refresh</button>
         </div>
+        <nav class="operations-tabs" id="labelsTabs" aria-label="Labels views">
+          <button type="button" data-labels-view="all" class="active">All labels</button>
+          <button type="button" data-labels-view="queue">Review queue</button>
+        </nav>
         <div id="labelsContent"></div>
       </section>
     </div>
@@ -149,8 +153,8 @@
     <div class="drawer-header"><span class="drawer-eyebrow" id="drawerRank">Opportunity</span><button class="icon-button" id="closeDrawer" type="button" aria-label="Close details" title="Close details">&times;</button></div>
     <div class="drawer-content" id="drawerContent"></div>
   </aside>
-  <script src="/app.js?v=resume-v14" defer></script>
-  <script src="/resume-review.js?v=resume-v14" defer></script>
-  <script src="/labels.js?v=resume-v14" defer></script>
+  <script src="/app.js?v=resume-v15" defer></script>
+  <script src="/resume-review.js?v=resume-v15" defer></script>
+  <script src="/labels.js?v=resume-v15" defer></script>
 </body>
 </html>

@@ -586,6 +586,7 @@ class LabelQueueConfig(BaseModel):
 
     target_per_group: int = Field(default=10, ge=1, le=500)
     exclude_kinds: list[str] = Field(default_factory=lambda: ["trait"])
+    seed: int = Field(default=1, ge=0)
 
 
 class LabelsConfig(BaseModel):
