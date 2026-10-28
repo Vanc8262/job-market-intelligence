@@ -33,7 +33,7 @@ def _checks() -> list[tuple[str, list[str]]]:
     ]
     node = shutil.which("node")
     if node:
-        for script in ("app.js", "resume-review.js"):
+        for script in ("app.js", "resume-review.js", "labels.js"):
             checks.append(
                 (f"dashboard-js:{script}", [node, "--check", f"dashboard/static/{script}"])
             )

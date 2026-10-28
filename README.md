@@ -177,6 +177,7 @@ any working directory.
 | `config/salary.yaml` | Currency, pay-period, and annualization rules |
 | `config/lifecycle.yaml` | Missing-run and removal behavior |
 | `config/data_quality.yaml` | Blocking and advisory quality thresholds |
+| `config/labels.yaml` | Labels tab: orphaned-label alert threshold and review-queue size per group |
 | `config/settings.yaml` | Paths, retries, and processing limits |
 | `config/logging.yaml` | Console and rotating file sinks |
 
@@ -352,6 +353,8 @@ expired, and duplicate jobs in research summaries with
 - **Pipeline operations:** read-only freshness, collection, quality, lifecycle, and Gold views.
 - **Weight simulator:** test relevance weights against current Gold data without saving.
 - **Resume review:** check extracted resume facts against the source text and approve them.
+- **Labels:** every requirement label you saved, checked against the latest comparison, with
+  an orphaned-label alert on the nav button (see [Labels tab](#labels-tab)).
 - **Application fit:** a Fit column (sortable as "Application fit") and an Application
   comparison section in the detail drawer.
 
@@ -472,6 +475,27 @@ text, the predicted status (taken from the stored comparison, not the browser), 
 corrected status, the comparison model version, and a timestamp. The log is append-only;
 the newest label for a line is the one shown. These labels are the hand-labeled set Phase 7
 will use to measure comparison accuracy, and they never contain resume text.
+
+### Labels tab
+
+The **Labels** view lists the newest label for every requirement line across all postings
+(`GET /api/labels`, read model in `comparison/label_review.py`) and compares each with the
+latest comparison:
+
+| State | Meaning |
+| --- | --- |
+| Current | The model still gives the verdict it gave when you labeled the line |
+| Stale | The model's verdict changed since ("Then" vs "Now" columns) |
+| Orphaned | The posting is still compared but the line is not, usually after a parser change rewords it |
+| Posting closed | The posting is no longer active; the label is kept as evidence but cannot be changed |
+
+The tiles at the top count each state and filter the table. Current and stale lines can be
+re-labeled in place, which appends a new label exactly as the drawer does; earlier verdicts
+stay under "earlier". When orphaned labels pass `orphans.alert_count` or `orphans.alert_share`
+in `config/labels.yaml`, the tab shows a warning and the nav button carries a ⚠ count.
+Closed postings never raise the alert. Labels made in the drawer and labels from the
+upcoming review queue (`queue.target_per_group`) are always counted separately, because
+only randomly sampled lines give an unbiased accuracy estimate.
 
 ## Engineering Commands
 

@@ -17,6 +17,7 @@ from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel, ValidationError
 
+from comparison.label_review import review_labels, summarize_labels
 from comparison.labels import RequirementLabelStore, labels_path
 from comparison.runner import load_results
 from dashboard.resumes import load_candidate_profile, load_resume_review, load_resume_reviews
@@ -59,6 +60,7 @@ COMPARISON_PREFIX = "/api/comparisons/"
 RESUME_VERSION_PREFIX = "/api/resume-versions/"
 ACTIVE_RESUME_PATH = "/api/candidate-profile/active-resume"
 REQUIREMENT_LABELS_PATH = "/api/requirement-labels"
+LABELS_PATH = "/api/labels"
 OPERATIONS_FRESHNESS_HOURS = 36
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
@@ -369,6 +371,9 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
                 }
             )
             return
+        if path == LABELS_PATH:
+            self._send_labels()
+            return
         if path == "/api/application-tracking":
             try:
                 self._send_json(self.tracking_repository.load().model_dump(mode="json"))
@@ -508,6 +513,39 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
             )
             for text, label in latest.items()
         }
+
+    def _send_labels(self) -> None:
+        """Send every newest label with its state against the latest comparison."""
+        store = self._label_store()
+        if store is None:
+            self._send_json(
+                {"error": "Resume workflow is unavailable"}, status=HTTPStatus.SERVICE_UNAVAILABLE
+            )
+            return
+        try:
+            labels = store.all()
+        except (OSError, ValueError) as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        try:
+            mart = load_opportunities_mart(self.mart_path)
+        except (FileNotFoundError, ValueError, json.JSONDecodeError):
+            mart = {}
+        postings = {
+            str(row["job_id"]): row
+            for row in mart.get("opportunities", [])
+            if isinstance(row, dict) and row.get("job_id")
+        }
+        comparisons = self._comparisons()
+        rows = review_labels(labels, comparisons, postings)
+        self._send_json(
+            {
+                "summary": summarize_labels(rows, Config().labels),
+                "labels": rows,
+                "comparison_generated_at": comparisons.get("generated_at") if comparisons else None,
+                "comparison_model": comparisons.get("model") if comparisons else None,
+            }
+        )
 
     def _record_label(self) -> None:
         """Append the owner's verdict on one requirement line to the private label log."""

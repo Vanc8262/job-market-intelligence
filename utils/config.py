@@ -569,6 +569,35 @@ class ComparisonConfig(BaseModel):
         return self
 
 
+class LabelOrphanAlertConfig(BaseModel):
+    """When the Labels tab warns that labels no longer match the latest comparison."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    alert_count: int = Field(default=10, ge=1)
+    alert_share: float | None = Field(default=0.1, gt=0, le=1)
+    share_minimum_labels: int = Field(default=20, ge=1)
+
+
+class LabelQueueConfig(BaseModel):
+    """How many randomly sampled lines the review queue asks for in each group."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_per_group: int = Field(default=10, ge=1, le=500)
+    exclude_kinds: list[str] = Field(default_factory=lambda: ["trait"])
+
+
+class LabelsConfig(BaseModel):
+    """Validated contents of labels.yaml (Labels tab: review and monitor owner labels)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: str = Field(default="1.0.0", min_length=1)
+    orphans: LabelOrphanAlertConfig = Field(default_factory=LabelOrphanAlertConfig)
+    queue: LabelQueueConfig = Field(default_factory=LabelQueueConfig)
+
+
 class BayesianConfig(BaseModel):
     """Validated contents of bayesian.yaml (Phase 8)."""
 
@@ -825,6 +854,7 @@ class Config:
         self._data_quality: DataQualityConfig | None = None
         self._bayesian: BayesianConfig | None = None
         self._comparison: ComparisonConfig | None = None
+        self._labels: LabelsConfig | None = None
         self._lifecycle: LifecycleConfig | None = None
         self._companies: GenericYamlConfig | None = None
         self._salary: GenericYamlConfig | None = None
@@ -910,6 +940,15 @@ class Config:
             data = self._read_yaml("comparison.yaml") if path.exists() else {}
             self._comparison = self._validate(ComparisonConfig, data, "comparison.yaml")
         return self._comparison
+
+    @property
+    def labels(self) -> LabelsConfig:
+        """Return Labels tab settings (defaults when the file is absent)."""
+        if self._labels is None:
+            path = self._config_dir / "labels.yaml"
+            data = self._read_yaml("labels.yaml") if path.exists() else {}
+            self._labels = self._validate(LabelsConfig, data, "labels.yaml")
+        return self._labels
 
     @property
     def bayesian(self) -> BayesianConfig:
@@ -1008,6 +1047,7 @@ class Config:
         self._data_quality = None
         self._bayesian = None
         self._comparison = None
+        self._labels = None
         self._lifecycle = None
         self._companies = None
         self._salary = None
