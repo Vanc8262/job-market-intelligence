@@ -12,8 +12,15 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
+from pydantic import ValidationError
 
-from comparison.labels import RequirementLabelStore, find_requirement, labels_path
+from comparison.labels import (
+    LabelSource,
+    RequirementLabel,
+    RequirementLabelStore,
+    find_requirement,
+    labels_path,
+)
 from comparison.runner import results_path
 from dashboard.app import DashboardHTTPServer, create_server
 
@@ -72,7 +79,12 @@ def test_record_takes_the_prediction_from_the_stored_comparison(tmp_path: Path) 
     assert label.agrees is False
     [line] = _lines(store.path)
     assert line == {
-        "schema_version": 1,
+        "schema_version": 2,
+        "action": "label",
+        "source": "drawer",
+        "sampled": False,
+        "sample_seed": None,
+        "note": None,
         "job_id": "job-1",
         "requirement": DEGREE_LINE,
         "predicted_status": "partial",
@@ -158,6 +170,100 @@ def test_find_requirement_matches_exact_text() -> None:
     assert find_requirement(_comparisons(), "job-1", SQL_LINE.upper()) is None
 
 
+V1_LINE = {
+    "schema_version": 1,
+    "job_id": "job-1",
+    "requirement": SQL_LINE,
+    "predicted_status": "met",
+    "corrected_status": "met",
+    "agrees": True,
+    "kind": "skill",
+    "required": True,
+    "model_version": "1.3.0",
+    "settings_hash": "abc123",
+    "resume_version_id": "resume-v1",
+    "labeled_at": "2026-10-23T17:00:00Z",
+}
+
+
+def test_schema_v1_lines_still_load_as_drawer_labels(tmp_path: Path) -> None:
+    store = RequirementLabelStore(labels_path(tmp_path))
+    store.path.parent.mkdir(parents=True)
+    store.path.write_text(json.dumps(V1_LINE) + "\n", encoding="utf-8")
+    store.record(_comparisons(), "job-1", DEGREE_LINE, "missing", source=LabelSource.LABELS_TAB)
+
+    old, new = store.all()
+
+    assert (old.schema_version, old.action, old.source, old.sampled) == (
+        1,
+        "label",
+        "drawer",
+        False,
+    )
+    assert (new.schema_version, new.source) == (2, "labels_tab")
+    assert set(store.latest_for("job-1")) == {SQL_LINE, DEGREE_LINE}
+
+
+def test_notes_are_trimmed_and_capped(tmp_path: Path) -> None:
+    store = RequirementLabelStore(labels_path(tmp_path))
+
+    label = store.record(
+        _comparisons(), "job-1", DEGREE_LINE, "missing", note="  degree in\nEconomics  "
+    )
+    blank = store.record(_comparisons(), "job-1", SQL_LINE, "met", note="   ")
+
+    assert label.note == "degree in Economics"
+    assert blank.note is None
+    with pytest.raises(ValidationError):
+        store.record(_comparisons(), "job-1", SQL_LINE, "met", note="x" * 501)
+
+
+def test_withdraw_hides_the_line_and_relabeling_restores_it(tmp_path: Path) -> None:
+    store = RequirementLabelStore(labels_path(tmp_path))
+    store.record(_comparisons(), "job-1", DEGREE_LINE, "missing")
+
+    withdrawal = store.withdraw("job-1", DEGREE_LINE, note="misread the line")
+
+    assert withdrawal.action == "withdraw"
+    assert withdrawal.corrected_status is None and withdrawal.agrees is None
+    assert withdrawal.predicted_status == "partial"
+    assert withdrawal.kind == "degree"
+    assert withdrawal.note == "misread the line"
+    assert store.latest_for("job-1") == {}
+    with pytest.raises(LookupError):
+        store.withdraw("job-1", DEGREE_LINE)
+
+    store.record(_comparisons(), "job-1", DEGREE_LINE, "partial")
+
+    assert store.latest_for("job-1")[DEGREE_LINE].corrected_status == "partial"
+    assert [line["action"] for line in _lines(store.path)] == ["label", "withdraw", "label"]
+
+
+def test_withdraw_works_for_lines_missing_from_the_comparison(tmp_path: Path) -> None:
+    store = RequirementLabelStore(labels_path(tmp_path))
+    store.record(_comparisons(), "job-1", SQL_LINE, "met")
+
+    # The posting closed: the label can still be withdrawn from the log.
+    store.withdraw("job-1", SQL_LINE)
+
+    assert store.latest_for("job-1") == {}
+    with pytest.raises(LookupError):
+        store.withdraw("job-404", SQL_LINE)
+
+
+def test_label_entries_must_be_consistent() -> None:
+    base = {**V1_LINE, "schema_version": 2}
+    with pytest.raises(ValidationError, match="corrected_status"):
+        RequirementLabel.model_validate({**base, "corrected_status": None})
+    with pytest.raises(ValidationError, match="no verdict"):
+        RequirementLabel.model_validate({**base, "action": "withdraw"})
+    with pytest.raises(ValidationError, match="sampled"):
+        RequirementLabel.model_validate({**base, "sampled": True})
+    with pytest.raises(ValidationError, match="v1"):
+        RequirementLabel.model_validate({**V1_LINE, "source": "queue"})
+    assert RequirementLabel.model_validate({**base, "source": "queue", "sampled": True}).sampled
+
+
 @contextmanager
 def _running(server: DashboardHTTPServer) -> Iterator[str]:
     thread = Thread(target=server.serve_forever, daemon=True)
@@ -229,4 +335,42 @@ def test_dashboard_saves_labels_and_returns_them_with_the_comparison(tmp_path: P
     assert [line["requirement"] for line in _lines(labels_path(private_root))] == [
         DEGREE_LINE,
         SQL_LINE,
+    ]
+
+
+def test_dashboard_withdraws_labels_and_never_trusts_source_claims(tmp_path: Path) -> None:
+    private_root = tmp_path / "private"
+    results = results_path(private_root)
+    results.parent.mkdir(parents=True)
+    results.write_text(json.dumps(_comparisons()), encoding="utf-8")
+    server = create_server(
+        port=0, private_root=private_root, tracking_path=tmp_path / "tracking.json"
+    )
+    with _running(server) as base_url:
+        endpoint = f"{base_url}/api/requirement-labels"
+        line = {"job_id": "job-1", "requirement": DEGREE_LINE}
+        created, saved = _post(
+            endpoint,
+            {**line, "corrected_status": "missing", "source": "labels_tab", "note": "Econ"},
+        )
+        queue_claim, _ = _post(endpoint, {**line, "corrected_status": "met", "source": "queue"})
+        sampled_claim, _ = _post(endpoint, {**line, "corrected_status": "met", "sampled": True})
+        bad_action, _ = _post(endpoint, {**line, "action": "delete"})
+        bad_note, _ = _post(endpoint, {**line, "corrected_status": "met", "note": 5})
+        withdrawn, withdrawal = _post(endpoint, {**line, "action": "withdraw"})
+        again, _ = _post(endpoint, {**line, "action": "withdraw"})
+        with urlopen(f"{base_url}/api/comparisons/job-1") as response:  # noqa: S310
+            detail = json.loads(response.read())
+
+    assert created == 201
+    assert (saved["source"], saved["note"], saved["sampled"]) == ("labels_tab", "Econ", False)
+    assert (queue_claim, sampled_claim, bad_action, bad_note) == (400, 400, 400, 400)
+    assert withdrawn == 201
+    assert withdrawal["action"] == "withdraw"
+    assert withdrawal["source"] == "drawer"
+    assert again == 404
+    assert DEGREE_LINE not in detail["labels"]
+    assert [entry["action"] for entry in _lines(labels_path(private_root))] == [
+        "label",
+        "withdraw",
     ]

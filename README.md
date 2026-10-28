@@ -491,7 +491,16 @@ latest comparison:
 
 The tiles at the top count each state and filter the table. Current and stale lines can be
 re-labeled in place, which appends a new label exactly as the drawer does; earlier verdicts
-stay under "earlier". When orphaned labels pass `orphans.alert_count` or `orphans.alert_share`
+stay under "earlier". Any label, including an orphaned or closed one, can be **withdrawn**:
+a `withdraw` entry is appended (nothing is deleted), the line moves to the Withdrawn filter,
+and it is left out of every count until you label it again. An optional note is saved with
+your next change on a line, for example why you corrected it.
+
+Label lines use schema v2: `action` (`label` or `withdraw`), `source` (`drawer`,
+`labels_tab`, or `queue`), `sampled`, `sample_seed`, and `note`. Schema v1 lines still read
+as drawer labels. The server sets `source` from a short allowed list and never accepts
+`sampled` or a `queue` source from the browser: only lines the review queue draws at random
+may be marked sampled, because only those give an unbiased Phase 7 accuracy estimate. When orphaned labels pass `orphans.alert_count` or `orphans.alert_share`
 in `config/labels.yaml`, the tab shows a warning and the nav button carries a ⚠ count.
 Closed postings never raise the alert. Labels made in the drawer and labels from the
 upcoming review queue (`queue.target_per_group`) are always counted separately, because

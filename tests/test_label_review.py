@@ -123,8 +123,11 @@ def test_stale_labels_show_then_now_and_keep_their_history() -> None:
     assert degree["source"] == "drawer"
     assert degree["history"] == [
         {
+            "action": "label",
             "predicted_status": "partial",
             "corrected_status": "missing",
+            "source": "drawer",
+            "note": None,
             "model_version": "1.3.0",
             "labeled_at": "2026-10-20T12:02:00+00:00",
         }
@@ -157,6 +160,77 @@ def test_summary_counts_states_sources_and_kinds() -> None:
     assert summary["by_source"] == {"drawer": 4}
     assert summary["by_kind"] == {"skill": 3, "degree": 1}
     assert summary["queue_target_per_group"] == 10
+
+
+def test_withdrawn_lines_are_listed_but_left_out_of_every_count() -> None:
+    labels = [
+        *_labels(),
+        RequirementLabel(
+            action="withdraw",
+            source="labels_tab",
+            note="duplicate of another line",
+            job_id="job-2",
+            requirement=PYTHON_LINE,
+            predicted_status="missing",
+            kind="skill",
+            labeled_at=START + timedelta(minutes=9),
+        ),
+    ]
+
+    rows = review_labels(labels, _comparisons())
+    python = _by_requirement(rows)[PYTHON_LINE]
+    summary = summarize_labels(rows, LabelsConfig())
+
+    assert rows[0]["requirement"] == PYTHON_LINE
+    assert python["withdrawn"] is True
+    assert python["withdrawal_note"] == "duplicate of another line"
+    assert python["corrected_status"] == "met"
+    assert python["history"] == []
+    assert summary["total"] == 3
+    assert summary["withdrawn"] == 1
+    assert summary["states"]["orphaned"] == 0
+    assert summary["by_kind"] == {"skill": 2, "degree": 1}
+
+
+def test_relabel_after_withdrawal_keeps_the_withdrawal_in_history() -> None:
+    labels = [
+        _label("job-1", SQL_LINE, "met", "missing", 1),
+        RequirementLabel(
+            action="withdraw",
+            job_id="job-1",
+            requirement=SQL_LINE,
+            predicted_status="met",
+            labeled_at=START + timedelta(minutes=2),
+        ),
+        _label("job-1", SQL_LINE, "met", "met", 3),
+    ]
+
+    [row] = review_labels(labels, _comparisons())
+
+    assert row["withdrawn"] is False
+    assert row["agrees"] is True
+    assert [entry["action"] for entry in row["history"]] == ["withdraw", "label"]
+
+
+def test_sources_are_counted_separately() -> None:
+    labels = [
+        _label("job-1", SQL_LINE, "met", "met", 1),
+        RequirementLabel(
+            source="queue",
+            sampled=True,
+            job_id="job-1",
+            requirement=DEGREE_LINE,
+            predicted_status="met",
+            corrected_status="met",
+            agrees=True,
+            labeled_at=START,
+        ),
+    ]
+
+    summary = summarize_labels(review_labels(labels, _comparisons()), LabelsConfig())
+
+    assert summary["by_source"] == {"drawer": 1, "queue": 1}
+    assert summary["sampled"] == 1
 
 
 def test_orphan_alert_fires_on_count() -> None:

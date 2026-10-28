@@ -62,7 +62,7 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
    `master`. Descriptive subject + body explaining why.
 5. **Dashboard assets:** when `app.js`, `resume-review.js`, `labels.js`, or `styles.css` change, bump
    the `?v=resume-vN` asset version in `dashboard/static/index.html` **and** in
-   `tests/test_dashboard.py` (currently `resume-v13`).
+   `tests/test_dashboard.py` (currently `resume-v14`).
 6. **Config over code:** thresholds, weights, vocabularies, and taxonomies go in
    `config/*.yaml`, each validated by a Pydantic model in `utils/config.py`
    (`extra="forbid"`; add the field there when adding a YAML key). Bump the config's
@@ -108,9 +108,11 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
   alternative counts fully; "or comparable/similar" → `comparable_credit` (0.6).
   Missing named products go to `named_to_add` ("Keywords to add" in the drawer).
 - `runner.py`: compares all active Silver postings, writes results privately.
-- `labels.py`: owner agree/correct verdicts from the drawer (`POST /api/requirement-labels`),
-  appended to `data/private/labels/requirement_labels.jsonl`; the predicted status is read
-  from the stored comparison. This is the Phase 7 labeled set.
+- `labels.py`: owner agree/correct verdicts (`POST /api/requirement-labels`), appended to
+  `data/private/labels/requirement_labels.jsonl`; the predicted status is read from the
+  stored comparison. Schema v2 adds `action` (label/withdraw), `source`, `sampled`, `note`;
+  v1 lines read as drawer labels. `sampled` and the `queue` source are server-assigned only.
+  This is the Phase 7 labeled set.
 - `label_review.py`: Labels tab read model (`GET /api/labels`): newest label per line joined
   to `latest.json` as current/stale/orphaned/closed, plus the orphan alert from
   `config/labels.yaml` (kept out of `comparison.yaml` so its settings hash is unaffected).
