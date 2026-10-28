@@ -408,6 +408,9 @@ def test_dashboard_assets_reference_only_supported_features() -> None:
         assert required in javascript
     for required in ("/api/resume-reviews", "/api/candidate-profile", "renderResumeReview"):
         assert required in review_script
+    labels_script = (STATIC_DIR / "labels.js").read_text(encoding="utf-8")
+    for required in ("/api/labels", "/api/requirement-labels", "renderLabels", "orphan_alert"):
+        assert required in labels_script
     for removed in (
         "/api/benchmarks",
         "/api/model-evaluations",
@@ -416,7 +419,7 @@ def test_dashboard_assets_reference_only_supported_features() -> None:
         "/api/data-management",
         "/api/pipeline-runs",
     ):
-        assert removed not in javascript + review_script
+        assert removed not in javascript + review_script + labels_script
     for view in (
         "opportunities",
         "shortlist",
@@ -424,11 +427,14 @@ def test_dashboard_assets_reference_only_supported_features() -> None:
         "operations",
         "simulator",
         "resume-review",
+        "labels",
     ):
         assert f'data-view="{view}"' in index
     assert 'data-view="benchmarks"' not in index
-    assert "/app.js?v=resume-v12" in index
-    assert "/resume-review.js?v=resume-v12" in index
+    assert "/app.js?v=resume-v13" in index
+    assert "/resume-review.js?v=resume-v13" in index
+    assert "/labels.js?v=resume-v13" in index
+    assert "/styles.css?v=resume-v13" in index
 
 
 @pytest.mark.skipif(

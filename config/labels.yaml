@@ -1,0 +1,26 @@
+# Labels tab: review, correct, and monitor your agree/correct verdicts on Phase 6.3
+# requirement lines. These settings change what the tab shows and asks for, never how
+# postings are scored, so they live apart from comparison.yaml (whose settings hash is
+# stored with every label).
+version: 1.0.0
+
+# A label is "orphaned" when its posting is still in the latest comparison but the
+# requirement line is not, usually because a parser change reworded or merged it.
+# Labels on postings that closed are counted separately and never raise the alert.
+orphans:
+  # Warn when at least this many current labels are orphaned...
+  alert_count: 10
+  # ...or when at least this share of current labels is orphaned (null turns it off),
+  alert_share: 0.10
+  # counting the share only once you have this many labels, so 1 of 2 is not an alert.
+  share_minimum_labels: 20
+
+# Review queue (slice 3): randomly sampled, unlabeled lines grouped by kind and the
+# model's verdict. Labels from the queue give the Phase 7 accuracy estimate; labels made
+# in the drawer are always counted separately.
+queue:
+  # Labels to collect in each group (for example "degree lines marked missing").
+  # 5 kinds x 3 verdicts x 10 = about 150 labels.
+  target_per_group: 10
+  # Self-assess lines are not scored by 6.3, so there is no verdict to check.
+  exclude_kinds: [trait]

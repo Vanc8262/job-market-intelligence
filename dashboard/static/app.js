@@ -9,7 +9,7 @@ const state = { mart: null, market: null, operations: null, candidate: null, opp
 const elements = {};
 
 document.addEventListener("DOMContentLoaded", () => {
-  ["freshnessLabel", "showingMetric", "strongMetric", "shortlistMetric", "applicationMetric", "showingLabel", "strongLabel", "shortlistLabel", "applicationLabel", "searchInput", "employerFilter", "familyFilter", "seniorityFilter", "workplaceFilter", "lifecycleFilter", "applicationFilter", "salaryFilter", "sortSelect", "opportunitiesBody", "resultCount", "activeFilters", "loadingState", "emptyState", "errorState", "errorMessage", "retryButton", "resetFilters", "emptyReset", "previousPage", "nextPage", "pageLabel", "bandFilters", "detailDrawer", "drawerBackdrop", "drawerContent", "drawerRank", "closeDrawer", "filtersPanel", "filterToggle", "viewSwitch", "viewTitle", "resultsPanel", "intelligencePanel", "intelligenceTabs", "intelligenceContent", "intelligenceFreshness", "qualityBadge", "operationsPanel", "operationsTabs", "operationsContent", "operationsFreshness", "operationsBadge", "refreshOperations", "simulatorPanel", "simulatorContent", "simulatorStatus", "resumeReviewPanel", "resumeReviewContent", "resumeReviewSummary", "resumeReviewSelect", "resumeReviewShowSuperseded", "pageName"].forEach((id) => { elements[id] = document.getElementById(id); });
+  ["freshnessLabel", "showingMetric", "strongMetric", "shortlistMetric", "applicationMetric", "showingLabel", "strongLabel", "shortlistLabel", "applicationLabel", "searchInput", "employerFilter", "familyFilter", "seniorityFilter", "workplaceFilter", "lifecycleFilter", "applicationFilter", "salaryFilter", "sortSelect", "opportunitiesBody", "resultCount", "activeFilters", "loadingState", "emptyState", "errorState", "errorMessage", "retryButton", "resetFilters", "emptyReset", "previousPage", "nextPage", "pageLabel", "bandFilters", "detailDrawer", "drawerBackdrop", "drawerContent", "drawerRank", "closeDrawer", "filtersPanel", "filterToggle", "viewSwitch", "viewTitle", "resultsPanel", "intelligencePanel", "intelligenceTabs", "intelligenceContent", "intelligenceFreshness", "qualityBadge", "operationsPanel", "operationsTabs", "operationsContent", "operationsFreshness", "operationsBadge", "refreshOperations", "simulatorPanel", "simulatorContent", "simulatorStatus", "resumeReviewPanel", "resumeReviewContent", "resumeReviewSummary", "resumeReviewSelect", "resumeReviewShowSuperseded", "labelsPanel", "labelsContent", "labelsSummary", "labelsAlert", "refreshLabels", "pageName"].forEach((id) => { elements[id] = document.getElementById(id); });
   bindEvents();
   loadData();
 });
@@ -57,6 +57,7 @@ function bindEvents() {
   elements.drawerContent.addEventListener("submit", saveTracking);
   elements.drawerContent.addEventListener("click", saveRequirementLabel);
   bindResumeReview();
+  bindLabels();
   elements.drawerContent.addEventListener("change", handleTrackingFormChange);
   elements.resetFilters.addEventListener("click", resetFilters);
   elements.emptyReset.addEventListener("click", resetFilters);
@@ -74,6 +75,7 @@ async function loadData() {
   elements.errorState.hidden = true;
   elements.emptyState.hidden = true;
   refreshCandidateProfile();
+  loadLabels();
   try {
     const [martResponse, trackingResponse, marketResponse, operationsResponse] = await Promise.all([fetch("/api/opportunities", { cache: "no-store" }), fetch("/api/application-tracking", { cache: "no-store" }), fetch("/api/market-intelligence", { cache: "no-store" }), fetch("/api/pipeline-operations", { cache: "no-store" })]);
     if (!martResponse.ok) throw new Error((await martResponse.json().catch(() => ({}))).error || "Opportunity data could not be loaded");
@@ -117,20 +119,24 @@ function setDashboardView() {
   const operations = state.view === "operations";
   const simulator = state.view === "simulator";
   const resumeReview = state.view === "resume-review";
-  const panelMode = intelligence || operations || simulator || resumeReview;
+  const labels = state.view === "labels";
+  const panelMode = intelligence || operations || simulator || resumeReview || labels;
   elements.filtersPanel.hidden = panelMode;
   elements.resultsPanel.hidden = panelMode;
   elements.intelligencePanel.hidden = !intelligence;
   elements.operationsPanel.hidden = !operations;
   elements.simulatorPanel.hidden = !simulator;
   elements.resumeReviewPanel.hidden = !resumeReview;
+  elements.labelsPanel.hidden = !labels;
   const grid = document.querySelector(".content-grid");
   grid.classList.toggle("market-mode", intelligence);
   grid.classList.toggle("operations-mode", operations);
   grid.classList.toggle("simulator-mode", simulator);
   grid.classList.toggle("resume-review-mode", resumeReview);
-  elements.pageName.textContent = intelligence ? "Market intelligence" : operations ? "Pipeline operations" : simulator ? "Weight simulator" : resumeReview ? "Resume review" : "Opportunities";
+  grid.classList.toggle("labels-mode", labels);
+  elements.pageName.textContent = intelligence ? "Market intelligence" : operations ? "Pipeline operations" : simulator ? "Weight simulator" : resumeReview ? "Resume review" : labels ? "Labels" : "Opportunities";
   if (resumeReview && !state.review.list && !state.review.loading) loadResumeReviews();
+  if (labels) renderLabels();
   elements.viewTitle.textContent = state.view === "shortlist" ? "Shortlist" : "Current opportunities";
 }
 
@@ -741,6 +747,7 @@ async function saveRequirementLabel(event) {
     if (state.comparison?.jobId !== jobId) return;
     state.comparison.labels[item.text] = result;
     document.querySelectorAll(`[data-label-row="${index}"]`).forEach((row) => { row.innerHTML = labelControl(item, index, result); });
+    loadLabels();
   } catch (error) {
     container.querySelectorAll("button").forEach((control) => { control.disabled = false; });
     container.insertAdjacentHTML("beforeend", `<span class="label-note error">${escapeHtml(error.message)}</span>`);

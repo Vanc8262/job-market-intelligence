@@ -60,9 +60,9 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
    `All checks passed.` Run `ruff format .` first.
 4. **Commits:** author `Vanc8262 <86838787+Vanc8262@users.noreply.github.com>`; push to
    `master`. Descriptive subject + body explaining why.
-5. **Dashboard assets:** when `app.js`, `resume-review.js`, or `styles.css` change, bump
+5. **Dashboard assets:** when `app.js`, `resume-review.js`, `labels.js`, or `styles.css` change, bump
    the `?v=resume-vN` asset version in `dashboard/static/index.html` **and** in
-   `tests/test_dashboard.py` (currently `resume-v12`).
+   `tests/test_dashboard.py` (currently `resume-v13`).
 6. **Config over code:** thresholds, weights, vocabularies, and taxonomies go in
    `config/*.yaml`, each validated by a Pydantic model in `utils/config.py`
    (`extra="forbid"`; add the field there when adding a YAML key). Bump the config's
@@ -111,6 +111,10 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
 - `labels.py`: owner agree/correct verdicts from the drawer (`POST /api/requirement-labels`),
   appended to `data/private/labels/requirement_labels.jsonl`; the predicted status is read
   from the stored comparison. This is the Phase 7 labeled set.
+- `label_review.py`: Labels tab read model (`GET /api/labels`): newest label per line joined
+  to `latest.json` as current/stale/orphaned/closed, plus the orphan alert from
+  `config/labels.yaml` (kept out of `comparison.yaml` so its settings hash is unaffected).
+  Drawer and queue labels are always counted separately.
 - When the owner reports a wrong ✓/◐/✗, fix it in the vocabulary/config first, add a
   regression test in `tests/test_comparison.py` with the synthetic resume, and sanity
   check on real postings (counts by kind/status) before committing.
