@@ -3,7 +3,8 @@
 // Labels tab (Phase 7.1). Loaded after app.js and shares its `state`, `elements`, and
 // formatting helpers. Lists the newest owner label per requirement line across every
 // posting, flags labels that went stale or orphaned against the latest comparison, and
-// re-labels a line through the same append-only endpoint the drawer uses.
+// re-labels or withdraws a line through the same append-only endpoint the drawer uses.
+// Withdrawn lines stay findable under their own filter but are left out of every count.
 
 const LABEL_STATE_NAMES = { current: "Current", stale: "Stale", orphaned: "Orphaned", closed: "Posting closed" };
 const LABEL_STATE_HINTS = {
@@ -12,7 +13,8 @@ const LABEL_STATE_HINTS = {
   orphaned: "The posting is still compared, but this line is not (usually a parser change reworded it)",
   closed: "The posting is no longer active; the label still counts but cannot be changed",
 };
-const LABEL_FILTERS = [["all", "All labels"], ["disagree", "Disagreements"], ["stale", "Stale"], ["orphaned", "Orphaned"], ["closed", "Posting closed"], ["current", "Current"]];
+const LABEL_FILTERS = [["all", "All labels"], ["disagree", "Disagreements"], ["stale", "Stale"], ["orphaned", "Orphaned"], ["closed", "Posting closed"], ["current", "Current"], ["withdrawn", "Withdrawn"]];
+const LABEL_SOURCE_NAMES = { drawer: "Drawer", labels_tab: "Labels tab", queue: "Review queue" };
 
 state.labels = { data: null, loading: false, error: null, filter: "all", kind: "", search: "", busy: null, feedback: null };
 
@@ -89,11 +91,12 @@ function labelsTracker(summary) {
   const tile = (filter, label, value, detail, extra = "") => `<button type="button" class="intel-kpi labels-tile${extra}${state.labels.filter === filter ? " active" : ""}" data-labels-filter="${filter}"><span>${escapeHtml(label)}</span><strong>${number(value)}</strong><small>${escapeHtml(detail)}</small></button>`;
   const share = alert.share ? ` · ${(alert.share * 100).toFixed(0)}%` : "";
   return `<div class="labels-tracker">
-    ${tile("all", "Labeled lines", summary.total, `Drawer ${number(sources.drawer || 0)} · Queue ${number(sources.queue || 0)}`)}
+    ${tile("all", "Labeled lines", summary.total, `Drawer ${number(sources.drawer || 0)} · Tab ${number(sources.labels_tab || 0)} · Queue ${number(sources.queue || 0)}`)}
     ${tile("disagree", "Disagreements", summary.disagree, `${number(summary.agree)} agreed with the model`)}
     ${tile("stale", "Stale", summary.states.stale, "Model verdict changed since")}
     ${tile("orphaned", "Orphaned", summary.states.orphaned, `Alert at ${number(alert.alert_count)}${alert.alert_share ? ` or ${(alert.alert_share * 100).toFixed(0)}%` : ""}${share}`, alert.active ? " alert" : "")}
     ${tile("closed", "Posting closed", summary.states.closed, "Kept as evidence")}
+    ${tile("withdrawn", "Withdrawn", summary.withdrawn || 0, "Not counted anywhere")}
   </div>`;
 }
 
@@ -101,8 +104,9 @@ function filteredLabelRows() {
   const { filter, kind, search } = state.labels;
   const query = search.trim().toLowerCase();
   return (state.labels.data?.labels || []).filter((row) => {
+    if ((filter === "withdrawn") !== Boolean(row.withdrawn)) return false;
     if (filter === "disagree" && row.agrees) return false;
-    if (!["all", "disagree"].includes(filter) && row.state !== filter) return false;
+    if (!["all", "disagree", "withdrawn"].includes(filter) && row.state !== filter) return false;
     if (kind && (row.kind || "unknown") !== kind) return false;
     if (query && ![row.requirement, row.title, row.employer, row.job_id].some((value) => String(value || "").toLowerCase().includes(query))) return false;
     return true;
@@ -116,7 +120,8 @@ function renderLabelRows() {
   const feedback = state.labels.feedback ? `<p class="save-feedback ${state.labels.feedback.error ? "error" : "success"}">${escapeHtml(state.labels.feedback.text)}</p>` : "";
   if (!rows.length) { container.innerHTML = `${feedback}<div class="empty-state"><strong>No labels match these filters</strong></div>`; return; }
   const all = state.labels.data.labels;
-  container.innerHTML = `${feedback}<p class="job-meta wrap">Showing ${number(rows.length)} of ${number(all.length)}. "Then" is the model's verdict when you labeled; "Now" is its verdict in the latest comparison.</p>
+  const shown = all.filter((row) => (state.labels.filter === "withdrawn") === Boolean(row.withdrawn)).length;
+  container.innerHTML = `${feedback}<p class="job-meta wrap">Showing ${number(rows.length)} of ${number(shown)}${state.labels.filter === "withdrawn" ? " withdrawn" : ""}. "Then" is the model's verdict when you labeled; "Now" is its verdict in the latest comparison. A note is saved with your next change on that line.</p>
     ${marketTable(["Requirement", "Kind", "Then", "Now", "Yours", "State", "Labeled", "Change"], rows.map((row) => labelRow(row, all.indexOf(row))).join(""))}`;
 }
 
@@ -129,20 +134,25 @@ function verdictCell(status) {
 function labelRow(row, index) {
   const posting = row.title ? `${row.title}${row.employer ? ` · ${row.employer}` : ""}` : row.job_id;
   const openable = state.opportunities.some((item) => item.job_id === row.job_id);
-  const history = row.history.length ? `<details class="label-history"><summary>${row.history.length} earlier</summary><ul>${row.history.map((entry) => `<li>${formatTimestamp(entry.labeled_at)}: model ${verdictCell(entry.predicted_status)}, you ${verdictCell(entry.corrected_status)}</li>`).join("")}</ul></details>` : "";
+  const historyEntry = (entry) => `<li>${formatTimestamp(entry.labeled_at)}: ${entry.action === "withdraw" ? "withdrawn" : `model ${verdictCell(entry.predicted_status)}, you ${verdictCell(entry.corrected_status)}`} · ${escapeHtml(LABEL_SOURCE_NAMES[entry.source] || formatLabel(entry.source))}${entry.note ? ` · “${escapeHtml(entry.note)}”` : ""}</li>`;
+  const history = row.history.length ? `<details class="label-history"><summary>${row.history.length} earlier</summary><ul>${row.history.map(historyEntry).join("")}</ul></details>` : "";
   const editable = row.state === "current" || row.state === "stale";
-  const busy = state.labels.busy === index;
-  const buttons = editable ? Object.entries(VERDICT_ICONS).map(([status, glyph]) => `<button type="button" class="label-button${row.corrected_status === status ? " active" : ""}" data-relabel-index="${index}" data-label-status="${status}" aria-pressed="${row.corrected_status === status}" title="Should be ${formatLabel(status)}"${busy ? " disabled" : ""}>${glyph}</button>`).join("") : `<span class="job-meta" title="${escapeHtml(LABEL_STATE_HINTS[row.state])}">Not in the latest comparison</span>`;
-  const agreement = row.agrees ? "Agreed" : "Corrected";
-  return `<tr class="label-row ${escapeHtml(row.state)}">
+  const busy = state.labels.busy === index ? " disabled" : "";
+  const verdictButtons = editable ? Object.entries(VERDICT_ICONS).map(([status, glyph]) => `<button type="button" class="label-button${!row.withdrawn && row.corrected_status === status ? " active" : ""}" data-relabel-index="${index}" data-label-status="${status}" aria-pressed="${!row.withdrawn && row.corrected_status === status}" title="${row.withdrawn ? "Label again as" : "Should be"} ${formatLabel(status)}"${busy}>${glyph}</button>`).join("") : `<span class="job-meta" title="${escapeHtml(LABEL_STATE_HINTS[row.state])}">Not in the latest comparison</span>`;
+  // Any active label can be withdrawn, including orphaned and closed ones: the log, not
+  // the comparison, decides. Re-labeling still needs the line in the latest comparison.
+  const withdraw = row.withdrawn ? "" : `<button type="button" class="label-button withdraw" data-withdraw-index="${index}" title="Take this label back; it stays in the history"${busy}>Withdraw</button>`;
+  const noteInput = editable || !row.withdrawn ? `<input class="label-note-input" type="text" maxlength="500" data-note-index="${index}" placeholder="Note (optional)" aria-label="Note for your next change to this label">` : "";
+  const agreement = row.withdrawn ? `Withdrawn ${formatTimestamp(row.withdrawn_at)}${row.withdrawal_note ? ` · “${escapeHtml(row.withdrawal_note)}”` : ""}` : `${row.agrees ? "Agreed" : "Corrected"}${row.note ? ` · “${escapeHtml(row.note)}”` : ""}`;
+  return `<tr class="label-row ${escapeHtml(row.state)}${row.withdrawn ? " withdrawn-row" : ""}">
     <td><span class="req-text">${escapeHtml(row.requirement)}</span><span class="job-meta wrap">${openable ? `<button type="button" class="text-button" data-open-job="${escapeHtml(row.job_id)}">${escapeHtml(posting)}</button>` : escapeHtml(posting)}${row.required === false ? " · preferred" : ""}</span>${history}</td>
     <td>${escapeHtml(formatLabel(row.kind))}</td>
     <td>${verdictCell(row.predicted_status)}</td>
     <td>${verdictCell(row.current_status)}</td>
-    <td>${verdictCell(row.corrected_status)}<span class="job-meta">${agreement}</span></td>
-    <td><span class="label-state ${escapeHtml(row.state)}" title="${escapeHtml(LABEL_STATE_HINTS[row.state])}">${escapeHtml(LABEL_STATE_NAMES[row.state] || formatLabel(row.state))}</span></td>
-    <td>${escapeHtml(formatTimestamp(row.labeled_at))}<span class="job-meta">${escapeHtml(row.model_version ? `model ${row.model_version}` : "")}</span></td>
-    <td><div class="req-label">${buttons}</div></td>
+    <td>${verdictCell(row.corrected_status)}<span class="job-meta wrap">${agreement}</span></td>
+    <td><span class="label-state ${escapeHtml(row.state)}" title="${escapeHtml(LABEL_STATE_HINTS[row.state])}">${escapeHtml(LABEL_STATE_NAMES[row.state] || formatLabel(row.state))}</span>${row.withdrawn ? `<span class="label-state withdrawn">Withdrawn</span>` : ""}</td>
+    <td>${escapeHtml(formatTimestamp(row.labeled_at))}<span class="job-meta">${escapeHtml([LABEL_SOURCE_NAMES[row.source] || formatLabel(row.source), row.model_version ? `model ${row.model_version}` : ""].filter(Boolean).join(" · "))}</span></td>
+    <td><div class="req-label">${verdictButtons}${withdraw}</div>${noteInput}</td>
   </tr>`;
 }
 
@@ -156,16 +166,19 @@ async function handleLabelsClick(event) {
   if (filterButton) { state.labels.filter = filterButton.dataset.labelsFilter; renderLabels(); return; }
   const openButton = event.target.closest("[data-open-job]");
   if (openButton) { openDrawer(openButton.dataset.openJob); return; }
-  const button = event.target.closest("button[data-relabel-index]");
+  const button = event.target.closest("button[data-relabel-index], button[data-withdraw-index]");
   if (!button || state.labels.busy !== null) return;
-  const index = Number(button.dataset.relabelIndex);
+  const withdrawing = button.dataset.withdrawIndex !== undefined;
+  const index = Number(withdrawing ? button.dataset.withdrawIndex : button.dataset.relabelIndex);
   const row = state.labels.data?.labels[index];
   if (!row) return;
+  const note = elements.labelsContent.querySelector(`input[data-note-index="${index}"]`)?.value.trim() || null;
+  const body = withdrawing ? { action: "withdraw" } : { action: "label", corrected_status: button.dataset.labelStatus };
   state.labels.busy = index;
   state.labels.feedback = null;
   renderLabelRows();
   try {
-    const response = await fetch("/api/requirement-labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: row.job_id, requirement: row.requirement, corrected_status: button.dataset.labelStatus }) });
+    const response = await fetch("/api/requirement-labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: row.job_id, requirement: row.requirement, source: "labels_tab", note, ...body }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Label could not be saved");
     state.labels.busy = null;
@@ -173,7 +186,8 @@ async function handleLabelsClick(event) {
     // A new label pairs your verdict with the model's verdict today, so a stale line
     // becomes current and may leave the filtered list; say where it went.
     const saved = state.labels.data?.labels.find((item) => item.job_id === row.job_id && item.requirement === row.requirement);
-    state.labels.feedback = { text: `Saved ${formatLabel(result.corrected_status)} for "${row.requirement.slice(0, 80)}"${saved ? `. It is now listed as ${LABEL_STATE_NAMES[saved.state] || formatLabel(saved.state)}${saved.agrees ? ", agreeing with the model" : ", disagreeing with the model"}.` : "."}` };
+    const line = `"${row.requirement.slice(0, 80)}"`;
+    state.labels.feedback = withdrawing ? { text: `Withdrew the label on ${line}. It is no longer counted; find it under Withdrawn to label it again.` } : { text: `Saved ${formatLabel(result.corrected_status)} for ${line}${saved ? `. It is now listed as ${LABEL_STATE_NAMES[saved.state] || formatLabel(saved.state)}${saved.agrees ? ", agreeing with the model" : ", disagreeing with the model"}.` : "."}` };
     renderLabelRows();
   } catch (error) {
     state.labels.busy = null;

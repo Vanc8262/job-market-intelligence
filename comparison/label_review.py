@@ -11,7 +11,10 @@ results and says how each one stands today:
 - ``closed``: the posting is no longer compared (expired or removed). The label is still
   valid evidence; it just cannot be re-labeled.
 
-Nothing here writes; corrections go through ``RequirementLabelStore.record``.
+A line whose newest entry is a withdrawal is listed with ``withdrawn: true`` and left
+out of every count, so it can be found and re-labeled but never skews the numbers.
+
+Nothing here writes; corrections go through ``RequirementLabelStore``.
 """
 
 from __future__ import annotations
@@ -20,7 +23,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from enum import StrEnum
 
-from comparison.labels import RequirementLabel, find_requirement
+from comparison.labels import LabelAction, RequirementLabel, find_requirement
 from utils.config import LabelsConfig
 
 
@@ -33,16 +36,12 @@ class LabelState(StrEnum):
     CLOSED = "closed"
 
 
-# Schema v1 labels could only be made in the posting drawer.
-DEFAULT_SOURCE = "drawer"
-
-
 def review_labels(
     labels: Sequence[RequirementLabel],
     comparisons: Mapping[str, object] | None,
     postings: Mapping[str, Mapping[str, object]] | None = None,
 ) -> list[dict[str, object]]:
-    """Return the newest label per requirement line, newest first, with its state today.
+    """Return one row per labeled requirement line, newest first, with its state today.
 
     ``postings`` maps job ids to display fields (title, employer) from the opportunities
     mart; closed postings are usually missing from it and fall back to the job id.
@@ -54,7 +53,13 @@ def review_labels(
     compared = set(jobs) if isinstance(jobs, dict) else set()
     rows: list[dict[str, object]] = []
     for (job_id, requirement), entries in history.items():
-        latest = entries[-1]
+        newest = entries[-1]
+        withdrawal = newest if newest.action is LabelAction.WITHDRAW else None
+        verdicts = [entry for entry in entries if entry.action is LabelAction.LABEL]
+        if not verdicts:
+            continue
+        latest = verdicts[-1]
+        corrected = latest.corrected_status.value if latest.corrected_status else None
         item = find_requirement(comparisons, job_id, requirement)
         current_status = str(item.get("status")) if item else None
         if item is not None:
@@ -77,28 +82,37 @@ def review_labels(
                 "kind": latest.kind,
                 "required": latest.required,
                 "predicted_status": latest.predicted_status,
-                "corrected_status": latest.corrected_status.value,
+                "corrected_status": corrected,
                 "agrees": latest.agrees,
                 "current_status": current_status,
-                "agrees_now": current_status == latest.corrected_status.value
-                if current_status
-                else None,
+                "agrees_now": current_status == corrected if current_status else None,
                 "state": state.value,
-                "source": DEFAULT_SOURCE,
+                "source": latest.source.value,
+                "sampled": latest.sampled,
+                "note": latest.note,
                 "model_version": latest.model_version,
                 "labeled_at": latest.labeled_at.isoformat(),
+                "withdrawn": withdrawal is not None,
+                "withdrawn_at": withdrawal.labeled_at.isoformat() if withdrawal else None,
+                "withdrawal_note": withdrawal.note if withdrawal else None,
                 "history": [
                     {
+                        "action": entry.action.value,
                         "predicted_status": entry.predicted_status,
-                        "corrected_status": entry.corrected_status.value,
+                        "corrected_status": entry.corrected_status.value
+                        if entry.corrected_status
+                        else None,
+                        "source": entry.source.value,
+                        "note": entry.note,
                         "model_version": entry.model_version,
                         "labeled_at": entry.labeled_at.isoformat(),
                     }
-                    for entry in reversed(entries[:-1])
+                    for entry in reversed(entries)
+                    if entry is not latest and entry is not withdrawal
                 ],
             }
         )
-    rows.sort(key=lambda row: str(row["labeled_at"]), reverse=True)
+    rows.sort(key=lambda row: str(row["withdrawn_at"] or row["labeled_at"]), reverse=True)
     return rows
 
 
@@ -129,11 +143,19 @@ def orphan_alert(orphaned: int, total: int, settings: LabelsConfig) -> dict[str,
 def summarize_labels(
     rows: Sequence[Mapping[str, object]], settings: LabelsConfig
 ) -> dict[str, object]:
-    """Return counts for the tracker strip: totals, states, sources, kinds, orphan alert."""
+    """Return counts for the tracker strip: totals, states, sources, kinds, orphan alert.
+
+    Withdrawn lines are counted once, as ``withdrawn``, and nowhere else. Sources are
+    always reported separately because only sampled queue labels are unbiased.
+    """
+    withdrawn = sum(row["withdrawn"] is True for row in rows)
+    rows = [row for row in rows if row["withdrawn"] is not True]
     states = Counter(str(row["state"]) for row in rows)
     total = len(rows)
     return {
         "total": total,
+        "withdrawn": withdrawn,
+        "sampled": sum(row["sampled"] is True for row in rows),
         "agree": sum(row["agrees"] is True for row in rows),
         "disagree": sum(row["agrees"] is False for row in rows),
         "states": {state.value: states.get(state.value, 0) for state in LabelState},

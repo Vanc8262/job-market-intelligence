@@ -18,7 +18,7 @@ from urllib.parse import unquote, urlsplit
 from pydantic import BaseModel, ValidationError
 
 from comparison.label_review import review_labels, summarize_labels
-from comparison.labels import RequirementLabelStore, labels_path
+from comparison.labels import CLIENT_SOURCES, LabelSource, RequirementLabelStore, labels_path
 from comparison.runner import load_results
 from dashboard.resumes import load_candidate_profile, load_resume_review, load_resume_reviews
 from dashboard.tracking import ApplicationTrackingRepository
@@ -509,7 +509,7 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         return {
             text: label.model_dump(
                 mode="json",
-                include={"predicted_status", "corrected_status", "agrees", "labeled_at"},
+                include={"predicted_status", "corrected_status", "agrees", "note", "labeled_at"},
             )
             for text, label in latest.items()
         }
@@ -564,14 +564,33 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
                 raise ValueError("Request body must be a JSON object")
             job_id = payload.get("job_id")
             requirement = payload.get("requirement")
-            corrected = payload.get("corrected_status")
+            action = payload.get("action", "label")
+            raw_source = payload.get("source", LabelSource.DRAWER.value)
+            note = payload.get("note")
             if not isinstance(job_id, str) or _path_identifier(job_id) is None:
                 raise ValueError("job_id is required")
             if not isinstance(requirement, str) or not requirement:
                 raise ValueError("requirement is required")
-            if not isinstance(corrected, str):
-                raise ValueError("corrected_status must be met, partial, or missing")
-            label = store.record(self._comparisons(), job_id, requirement, corrected)
+            if note is not None and not isinstance(note, str):
+                raise ValueError("note must be text")
+            # Queue labels and the sampled flag are assigned by the server, never claimed
+            # by a request; only sampled labels may feed the Phase 7 accuracy estimate.
+            if raw_source not in {source.value for source in CLIENT_SOURCES}:
+                raise ValueError("source must be drawer or labels_tab")
+            if "sampled" in payload or "sample_seed" in payload:
+                raise ValueError("sampled is set by the server")
+            source = LabelSource(raw_source)
+            if action == "withdraw":
+                label = store.withdraw(job_id, requirement, source=source, note=note)
+            elif action == "label":
+                corrected = payload.get("corrected_status")
+                if not isinstance(corrected, str):
+                    raise ValueError("corrected_status must be met, partial, or missing")
+                label = store.record(
+                    self._comparisons(), job_id, requirement, corrected, source=source, note=note
+                )
+            else:
+                raise ValueError("action must be label or withdraw")
             self._send_json(label.model_dump(mode="json"), status=HTTPStatus.CREATED)
         except LookupError as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)

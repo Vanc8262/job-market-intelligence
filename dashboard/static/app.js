@@ -742,7 +742,7 @@ async function saveRequirementLabel(event) {
   const container = button.closest(".req-label");
   container.querySelectorAll("button").forEach((control) => { control.disabled = true; });
   try {
-    const response = await fetch("/api/requirement-labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: jobId, requirement: item.text, corrected_status: button.dataset.labelStatus }) });
+    const response = await fetch("/api/requirement-labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: jobId, requirement: item.text, corrected_status: button.dataset.labelStatus, source: "drawer" }) });
     const result = await response.json(); if (!response.ok) throw new Error(result.error || "Label could not be saved");
     if (state.comparison?.jobId !== jobId) return;
     state.comparison.labels[item.text] = result;
