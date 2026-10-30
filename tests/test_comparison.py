@@ -446,6 +446,12 @@ def test_years_lines_naming_a_role_count_only_roles_that_show_it(resume: ResumeV
     assert developer["evidence"]["roles"][0].startswith("Software Developer")  # type: ignore[index]
     generic = _assess("3+ years of relevant professional experience", resume)
     assert generic["status"] == "met" and "subject" not in generic
+    # Only lines that name a job have a subject; work described otherwise, or "a
+    # similar role", still compares with total years.
+    work = _assess("2+ years deploying software to edge systems in a similar role", resume)
+    assert work["status"] == "met" and "subject" not in work
+    fraud = _assess("2+ years of experience in a fraud analyst or revenue protection role", resume)
+    assert fraud["status"] == "missing"
 
 
 def test_stemming_and_synonyms_match_different_wording() -> None:

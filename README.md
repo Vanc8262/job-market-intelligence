@@ -442,9 +442,10 @@ Requirement lines are classified as:
   specific unrelated field ("Electrical Engineering") is missing; in a broad field
   ("a degree in engineering", `degree_fields.broad_fields`) it is partial.
 - **years:** minimum years of experience (also applied to "5+ years of Python"). When the
-  line names a role or field ("4+ years as a Product Manager"), only resume roles whose
-  title or highlights show that work count (`years_subject`); "6+ years of relevant
-  experience" still uses total years.
+  line names a job ("4+ years as a Product Manager", "a fraud analyst role";
+  `years_subject.role_patterns`), only resume roles whose title or highlights show that
+  job count. Other lines ("6+ years of relevant experience", "2+ years deploying software
+  to edge systems") use total years.
 - **trait (○ self-assess):** disposition or logistics a resume cannot show ("you approach
   problems with curiosity", "available to start in June"); listed for you to judge and
   left out of the score.

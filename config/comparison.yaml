@@ -22,13 +22,17 @@ max_requirements: 40
 # "Foundry, Contour, or comparable platforms": having a named product meets the line;
 # having only something comparable earns this share of it (shown as partial).
 comparable_credit: 0.6
-# Years lines that name a role or field ("4+ years as a Product Manager", "3 years of
-# data engineering experience") count only resume roles whose title or highlights share
-# at least `min_shared_terms` of the line's subject terms (all of them when it names
-# fewer). Words in `generic_terms` are not a subject, so "6+ years of relevant
-# professional experience" still compares with total years.
+# Years lines that name a job ("4+ years as a Product Manager", "2+ years in a fraud
+# analyst role", matched by `role_patterns`) count only resume roles whose title or
+# highlights share at least `min_shared_terms` of the line's subject terms (all of them
+# when it names fewer). Other years lines ("2+ years deploying software to edge systems",
+# "experience in a similar role") compare with total years. Words in `generic_terms` are
+# never subject terms.
 years_subject:
   enabled: true
+  role_patterns:
+    - '\bas an?\s+(?!(plus|bonus|minimum|whole|result|team|part|member|way)\b)[a-z]'
+    - '\b(?!(similar|related|relevant|comparable|equivalent|this|that|the|same|an?|any|such)\b)[a-z][a-z-]+\s+(role|position)s?\b'
   min_shared_terms: 2
   generic_terms: [relevant, professional, industry, work, working, post-college, college, progressive, progressively, combined, total, hands-on, full-time, related, similar, role, roles, field, fields, including, minimum, least, prior, previous, experience, experiences, experienced, years, year, demonstrated, proven, direct, required, preferred, strongly, practical, applicable, equivalent, environment, environments, setting, settings, fast-paced, organization, organizations, company, companies, team, teams, comparable, recent, overall, plus, ideally, preferably, highly, desired, demonstrable, successful, track, record, history, meaningful, time, spent, focus, focused, especially, qualification, qualifications, degree, degrees, bachelor, bachelors, "bachelor’s", "bachelor's", lieu, i.e, e.g, etc]
 # Degree lines whose level the resume meets but whose field it does not show. A specific

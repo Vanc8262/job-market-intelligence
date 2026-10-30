@@ -172,13 +172,17 @@ def _status(score: float) -> str:
 def years_subject(
     text: str, settings: ComparisonConfig, vocabulary: RequirementVocabulary
 ) -> set[str]:
-    """Return what a years line asks for experience in, as comparable terms.
+    """Return the job a years line asks for experience in, as comparable terms.
 
-    "4+ years of experience as a Product Manager" -> {"product", "manag"}; "6+ years of
-    experience" -> set(), which keeps the plain comparison with total years.
+    Only lines that name a job (a ``role_patterns`` match) have a subject: "4+ years of
+    experience as a Product Manager" -> {"product", "manag"}. "6+ years of experience"
+    and "2+ years deploying software to edge systems" -> set(), which keeps the plain
+    comparison with total years.
     """
     rules = settings.years_subject
-    if not rules.enabled:
+    if not rules.enabled or not any(
+        re.search(pattern, text, re.IGNORECASE) for pattern in rules.role_patterns
+    ):
         return set()
     generic = {word.casefold() for word in rules.generic_terms}
     rest = YEARS_PHRASE.sub(" ", text)

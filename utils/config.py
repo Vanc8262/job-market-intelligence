@@ -547,13 +547,23 @@ class ComparisonBoilerplateConfig(BaseModel):
 
 
 class ComparisonYearsSubjectConfig(BaseModel):
-    """Years lines that name a role or field count only the resume roles that show it."""
+    """Years lines that name a job count only the resume roles that show it."""
 
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
+    role_patterns: list[str] = Field(default_factory=list)
     generic_terms: list[str] = Field(default_factory=list)
     min_shared_terms: int = Field(default=2, ge=1, le=5)
+
+    @model_validator(mode="after")
+    def _patterns_compile(self) -> ComparisonYearsSubjectConfig:
+        for pattern in self.role_patterns:
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(f"invalid role pattern {pattern!r}: {exc}") from exc
+        return self
 
 
 class ComparisonDegreeFieldsConfig(BaseModel):
