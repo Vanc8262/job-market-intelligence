@@ -18,7 +18,7 @@ from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel, ValidationError
 
-from comparison.label_changes import build_changes, create_snapshot
+from comparison.label_changes import build_changes, create_snapshot, current_snapshot
 from comparison.label_review import review_labels, summarize_labels
 from comparison.labels import (
     CLIENT_SOURCES,
@@ -29,6 +29,7 @@ from comparison.labels import (
 )
 from comparison.review_queue import build_queue, is_queue_head, public_queue
 from comparison.runner import load_results
+from comparison.scorecard import build_scorecard, resume_judge
 from dashboard.resumes import load_candidate_profile, load_resume_review, load_resume_reviews
 from dashboard.tracking import ApplicationTrackingRepository
 from models.candidate import ReviewApproval, ReviewDraft
@@ -73,6 +74,7 @@ LABELS_PATH = "/api/labels"
 LABEL_QUEUE_PATH = "/api/labels/queue"
 LABEL_CHANGES_PATH = "/api/labels/changes"
 LABEL_SNAPSHOTS_PATH = "/api/labels/snapshots"
+LABEL_SCORECARD_PATH = "/api/labels/scorecard"
 OPERATIONS_FRESHNESS_HOURS = 36
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
@@ -392,6 +394,9 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         if path == LABEL_CHANGES_PATH:
             self._send_changes()
             return
+        if path == LABEL_SCORECARD_PATH:
+            self._send_scorecard()
+            return
         if path == "/api/application-tracking":
             try:
                 self._send_json(self.tracking_repository.load().model_dump(mode="json"))
@@ -611,6 +616,33 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         except (OSError, ValueError) as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
             return
+        self._send_json(payload)
+
+    def _send_scorecard(self) -> None:
+        """Send agreement estimates, confusion tables, and the replay of the current model."""
+        store = self._label_store()
+        service = self.resume_service
+        if store is None or service is None:
+            self._send_json(
+                {"error": "Resume workflow is unavailable"}, status=HTTPStatus.SERVICE_UNAVAILABLE
+            )
+            return
+        config = Config()
+        try:
+            labels = store.all()
+            snapshot = current_snapshot(store)
+        except (OSError, ValueError) as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        try:
+            judge, reason = resume_judge(config, service.private_root)
+        except (OSError, ValueError, LookupError) as exc:
+            judge, reason = None, f"The approved resume could not be read: {exc}"
+        payload = build_scorecard(
+            labels, self._comparisons(), config.labels, judge=judge, replay_unavailable=reason
+        )
+        payload["snapshot_id"] = snapshot["snapshot_id"] if snapshot else None
+        payload["current_model_version"] = config.comparison.version
         self._send_json(payload)
 
     def _save_snapshot(self) -> None:

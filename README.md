@@ -422,6 +422,14 @@ each shown with the evidence behind it:
 | Seniority fit | 15% | Posting level and minimum years against your resume's years of experience. |
 | Domain alignment | 10% | Industry vocabulary (healthcare, finance, energy, …) in the posting, outside benefits sections, that also appears on your resume. |
 
+Benefits, legal notices, diversity statements, and company blurbs are never requirement
+lines. Beyond the built-in rules, `boilerplate` in `config/comparison.yaml` lists phrases
+that are never requirements (Fair Chance notices, recruiting-fee warnings, referral
+blurbs, pay-range and location lines), lines that end a requirements section ("Our
+Approach to Flexible Work"), and `join_continuations`, which rejoins long bullets the
+source wrapped onto several lines ("with a desire to go" / "above and beyond"). Lines you
+mark ⊘ in the Labels tab are the evidence for new entries.
+
 Requirement lines are classified as:
 
 - **skill:** names taxonomy skills ("Python or Go"); met when the resume lists them.
@@ -552,6 +560,35 @@ without new labels returns the existing snapshot.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\label_snapshots.py create   # also: list, verify (exit 1 if any mismatch)
+```
+
+### Scorecard (Phase 7.2)
+
+**Labels → Scorecard** (`GET /api/labels/scorecard`, `comparison/scorecard.py`) answers
+"how often does the model's ✓/◐/✗ agree with me?" Every rate is a Beta-Binomial posterior
+(`bayesian/beta.py`, Jeffreys prior by default) shown with its 90% credible interval:
+
+- **The accuracy estimate** uses only randomly sampled review-queue labels. Each kind ×
+  verdict group gets its own posterior, and the overall rate weights groups by how many
+  lines they have in the latest comparison (the queue samples every group to the same
+  size), drawing from each group's posterior to get one interval. Coverage says what share
+  of lines the estimate stands for.
+- **Parser mistakes:** the share of sampled lines you marked ⊘, with its own interval.
+  These lines are left out of agreement.
+- **Confusion tables** (model's verdict by yours) for queue labels and, separately, for
+  postings you chose. Drawer labels are never mixed into the estimate.
+- **By model version:** agreement when each label was made.
+- **Replay:** every labeled line, including lines from closed postings, is judged again
+  with the current vocabulary and your approved resume, so a config change can be measured
+  on all labels at once ("then" vs "now" on the same lines), with the lines it fixed or
+  regressed. It returns verdicts only, never resume evidence.
+
+The page names the snapshot that covers the current labels, so a number can be cited and
+reproduced. Settings (interval width, prior, minimum labels per group, Monte Carlo draws
+and seed) are under `scorecard` in `config/labels.yaml`.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\label_scorecard.py                 # also: --snapshot ID, --no-replay
 ```
 
 ## Engineering Commands

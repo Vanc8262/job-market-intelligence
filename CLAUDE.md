@@ -62,7 +62,7 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
    `master`. Descriptive subject + body explaining why.
 5. **Dashboard assets:** when `app.js`, `resume-review.js`, `labels.js`, or `styles.css` change, bump
    the `?v=resume-vN` asset version in `dashboard/static/index.html` **and** in
-   `tests/test_dashboard.py` (currently `resume-v17`).
+   `tests/test_dashboard.py` (currently `resume-v18`).
 6. **Config over code:** thresholds, weights, vocabularies, and taxonomies go in
    `config/*.yaml`, each validated by a Pydantic model in `utils/config.py`
    (`extra="forbid"`; add the field there when adding a YAML key). Bump the config's
@@ -95,7 +95,8 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
 
 - `requirements.py`: finds requirement lines (Lever qualifications → heading sections →
   cue-sentence fallback), tags required/preferred, filters boilerplate (EEO,
-  accommodation, perks, scam warnings), and classifies each line: `skill`, `concept`,
+  accommodation, perks, scam warnings, plus `boilerplate` phrases/section breaks in
+  `comparison.yaml`), rejoins wrapped continuation lines, and classifies each line: `skill`, `concept`,
   `degree` (incl. field-of-study lines), `years`, `trait` (self-assess, not scored),
   `text`. `named_items()` extracts products before "or comparable / or another …".
 - `vocabulary.py`: compiles `config/comparison.yaml` concepts, fields of study (grouped
@@ -122,6 +123,11 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
 - `review_queue.py`: seeded, stratified (kind × verdict) random sample of comparison lines
   for unbiased labels (`GET/POST /api/labels/queue`). A queue label is accepted only for the
   line currently first in its group, then stored with `source=queue`, `sampled=True`.
+- `scorecard.py`: Phase 7.2 Scorecard (`GET /api/labels/scorecard`,
+  `scripts/label_scorecard.py`): Beta-Binomial agreement per kind × verdict group from
+  sampled labels, population-weighted overall interval, ⊘ share, confusion tables, by
+  model version, and a replay of the current classifier/matcher over every labeled line.
+  Labels marked ⊘ whose line a boilerplate rule now filters read as state `removed`.
 - `label_changes.py`: change log derived from the label log, snapshots (manifest of the
   log's first N lines + SHA-256 in `data/private/labels/snapshots/`, verified on read;
   `scripts/label_snapshots.py`), and tracking-label progress toward simulator/B3 thresholds.
@@ -135,7 +141,7 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
 | --- | --- |
 | 1–5 Foundation → Dashboard | Complete |
 | 6 Candidate workflow (6.1 ingest, 6.2 review/revise, 6.3 comparison) | Complete; 6.3 being tuned from owner feedback |
-| 7 Bayesian evaluation (labeled sets, credible intervals, calibration, PSIS-LOO) | Planned |
+| 7 Bayesian evaluation (labeled sets, credible intervals, calibration, PSIS-LOO) | 7.1 Labels tab and 7.2 Scorecard complete; calibration and PSIS-LOO planned |
 | 8 Bayesian analytics B0–B1 | Complete |
 | 8 B2 salary, B3 relevance/fit probability, B4 survival, B5 trends | When data allows (see README thresholds) |
 | 9 Deep learning (JobBERT/ModernBERT embeddings feeding Bayesian models) | Future |

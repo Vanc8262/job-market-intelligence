@@ -133,6 +133,10 @@ ANY_OF = re.compile(r"\bor\b|/|\bone of\b|\bsuch as\b|\be\.g\.|\bsimilar\b|\bequ
 # Perk lines often start with an emoji ("🏝 Generous vacation policy").
 _DECORATED = re.compile(r"[^\w\s\"'(“‘]")
 _BULLET = re.compile(r"^\s*(?:[-•·*▪◦–]|\d+[.)])\s*")
+# A soft-wrapped line continues the one before it: it starts in lowercase, and the line
+# before it did not end a sentence or introduce a list.
+CONTINUATION = re.compile(r"^[a-z]")
+SENTENCE_END = re.compile(r"[.!?;:]\s*$")
 _MAX_HEADING_WORDS = 9
 
 
@@ -208,17 +212,56 @@ def _lines(text: str) -> list[str]:
     return [line.strip() for line in text.splitlines() if line.strip()]
 
 
-def requirement_lines(posting: JobPosting) -> list[tuple[str, bool]]:
-    """Return (line, required) pairs for the posting's requirement sections."""
+def requirement_lines(
+    posting: JobPosting, vocabulary: RequirementVocabulary | None = None
+) -> list[tuple[str, bool]]:
+    """Return (line, required) pairs for the posting's requirement sections.
+
+    ``vocabulary`` adds the configured boilerplate rules (``boilerplate`` in
+    ``config/comparison.yaml``): phrases that are never requirements, lines that end a
+    requirements section, and joining soft-wrapped continuation lines.
+    """
     description = posting.description
+
+    def boilerplate(item: str) -> bool:
+        return vocabulary is not None and vocabulary.is_boilerplate(item)
+
     if description.qualifications:
-        return [(item, not PREFERRED_ITEM.search(item)) for item in description.qualifications]
+        return [
+            (item, not PREFERRED_ITEM.search(item))
+            for item in description.qualifications
+            if not boilerplate(item)
+        ]
     text = description.clean_text or description.raw_text or ""
     lines = _lines(text)
     found: list[tuple[str, bool]] = []
     section: str | None = None  # None, "required", "preferred"
+    join = vocabulary is not None and vocabulary.join_continuations
+    # A line that starts in lowercase right after a line that stopped mid-sentence is the
+    # rest of that line, wrapped by the source ("with a desire to go" / "above and
+    # beyond"). It joins a kept line and is dropped with a skipped one, so the tail of a
+    # filtered accommodation notice ("as far in advance as possible.") never stands alone.
+    open_sentence = False
+    kept = False
     for line in lines:
+        continuation = join and open_sentence and CONTINUATION.match(line) is not None
+        open_sentence = not SENTENCE_END.search(line)
+        if continuation:
+            if kept and section is not None:
+                merged = f"{found[-1][0]} {line}"
+                if NOT_REQUIREMENTS.search(merged) or boilerplate(merged):
+                    found.pop()
+                    kept = False
+                else:
+                    required = section == "required" and not PREFERRED_ITEM.search(merged)
+                    found[-1] = (merged, required)
+            continue
+        kept = False
+        if vocabulary is not None and vocabulary.is_section_break(line):
+            section = None
+            continue
         if _is_heading(line):
+            open_sentence = False
             if DUTY_HEADINGS.search(line) or EXCLUDED_SECTIONS.search(line):
                 section = None
             elif PREFERRED_HEADINGS.search(line):
@@ -231,9 +274,15 @@ def requirement_lines(posting: JobPosting) -> list[tuple[str, bool]]:
         if section is None:
             continue
         item = _BULLET.sub("", line).strip().lstrip(":;,. ")
-        if len(item.split()) < 3 or NOT_REQUIREMENTS.search(item) or _DECORATED.match(item):
+        if (
+            len(item.split()) < 3
+            or NOT_REQUIREMENTS.search(item)
+            or _DECORATED.match(item)
+            or boilerplate(item)
+        ):
             continue
         found.append((item, section == "required" and not PREFERRED_ITEM.search(item)))
+        kept = True
     if found:
         return found
     # No recognizable sections (some sources flatten the text): fall back to sentences
@@ -245,6 +294,7 @@ def requirement_lines(posting: JobPosting) -> list[tuple[str, bool]]:
         if 4 <= len(sentence.split()) <= 60
         and REQUIREMENT_CUES.search(sentence)
         and not NOT_REQUIREMENTS.search(sentence.strip())
+        and not boilerplate(sentence)
     ]
 
 
@@ -355,7 +405,7 @@ def extract_requirements(
     """Return the posting's classified requirements (at most ``limit``)."""
     seen: set[str] = set()
     requirements: list[Requirement] = []
-    for text, required in requirement_lines(posting):
+    for text, required in requirement_lines(posting, vocabulary):
         key = " ".join(text.casefold().split())
         if key in seen:
             continue

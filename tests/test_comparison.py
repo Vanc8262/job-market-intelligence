@@ -33,7 +33,7 @@ from profiles import ResumeIngestionService
 from profiles.parser import ResumeParser, SkillVocabulary
 from storage import SilverStorage
 from tests.support.resumes import SAMPLE_RESUME, make_pdf
-from utils.config import Config
+from utils.config import ComparisonBoilerplateConfig, Config
 
 POSTING_TEXT = """About the Role
 We build data products for healthcare clinics and patients.
@@ -242,6 +242,83 @@ def test_extract_requirements_dedupes_and_limits() -> None:
     requirements = extract_requirements(repeated, skills_in_text, limit=10)
     assert len(requirements) == 10
     assert [item.text for item in requirements].count("Python and SQL") == 1
+
+
+WORKDAY_TAIL = """What You'll Bring
+3+ years of experience with SQL
+Primary Location Base Pay Range: $100,000 USD - $150,000 USD
+Customer service obsession, with a desire to go
+above and beyond
+to satisfy customer needs.
+If you need an accommodation during the hiring process, please let us know
+as far in advance as possible.
+Our Approach to Flexible Work
+With Flex Work, we spend at least half of our time each quarter in the office
+with our customers, prospects, and partners (depending on role).
+Pursuant to applicable Fair Chance law, we consider applicants with arrest and conviction records.
+Are you being referred to one of our roles? Ask about our Employee Referral process!
+In addition, Example Health will never ask candidates to pay a recruiting fee.
+"""
+
+
+def test_configured_boilerplate_and_wrapped_lines() -> None:
+    """Lines the owner marked "not a requirement" (⊘) in the Labels tab stay out."""
+    vocabulary = RequirementVocabulary(Config().comparison)
+
+    lines = requirement_lines(posting(WORKDAY_TAIL), vocabulary)
+
+    assert lines == [
+        ("3+ years of experience with SQL", True),
+        (
+            "Customer service obsession, with a desire to go above and beyond to satisfy "
+            "customer needs.",
+            True,
+        ),
+    ]
+    # Without the vocabulary only the built-in rules apply, so the fragments survive.
+    bare = [text for text, _ in requirement_lines(posting(WORKDAY_TAIL))]
+    assert "as far in advance as possible." in bare
+    assert "to satisfy customer needs." in bare
+
+
+def test_boilerplate_phrases_apply_to_lever_and_flat_text() -> None:
+    vocabulary = RequirementVocabulary(Config().comparison)
+    lever = posting(
+        qualifications=["Python and SQL", "We will never ask applicants to pay a recruiting fee"]
+    )
+    flat = posting(
+        "Candidates need 3+ years of experience with Python. "
+        "Applicants with arrest and conviction records will be considered under Fair Chance law."
+    )
+
+    assert requirement_lines(lever, vocabulary) == [("Python and SQL", True)]
+    assert [text for text, _ in requirement_lines(flat, vocabulary)] == [
+        "Candidates need 3+ years of experience with Python."
+    ]
+
+
+def test_a_continuation_starts_only_after_an_unfinished_line() -> None:
+    vocabulary = RequirementVocabulary(Config().comparison)
+    text = (
+        "Requirements:\n"
+        "experience with dbt and Airflow\n"
+        "Strong SQL skills.\n"
+        "familiarity with Looker or Tableau\n"
+    )
+
+    lines = [line for line, _ in requirement_lines(posting(text), vocabulary)]
+
+    # A lowercase line after a heading or a finished sentence is its own requirement.
+    assert lines == [
+        "experience with dbt and Airflow",
+        "Strong SQL skills.",
+        "familiarity with Looker or Tableau",
+    ]
+
+
+def test_boilerplate_patterns_are_validated() -> None:
+    with pytest.raises(ValueError, match="invalid boilerplate pattern"):
+        ComparisonBoilerplateConfig(phrases=["(unclosed"])
 
 
 def test_years_on_skills_boilerplate_and_keyword_only_postings(resume: ResumeView) -> None:

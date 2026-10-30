@@ -214,6 +214,22 @@ def list_snapshots(store: RequirementLabelStore) -> list[dict[str, object]]:
     return manifests
 
 
+def current_snapshot(store: RequirementLabelStore) -> dict[str, object] | None:
+    """Return the verified snapshot that covers the whole log as it is now, if any.
+
+    A number computed now can cite this id; with no match, save a snapshot first.
+    """
+    count = len(_complete_lines(store))
+    return next(
+        (
+            item
+            for item in list_snapshots(store)
+            if item["verified"] is True and item.get("log_lines") == count
+        ),
+        None,
+    )
+
+
 def snapshot_labels(
     store: RequirementLabelStore, manifest: Mapping[str, object]
 ) -> list[RequirementLabel]:
@@ -255,6 +271,7 @@ def _write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
 __all__ = [
     "build_changes",
     "create_snapshot",
+    "current_snapshot",
     "daily_counts",
     "label_events",
     "list_snapshots",

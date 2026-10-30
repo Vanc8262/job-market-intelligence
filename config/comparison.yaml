@@ -6,7 +6,7 @@
 #   domain       - industries the posting works in that the resume also shows
 # The fit score is a transparent weighted average; Phase 8 stage B3 will later turn these
 # signals into a calibrated probability using your application outcomes.
-version: 1.3.0
+version: 1.4.0
 weights:
   requirements: 0.45
   keywords: 0.30
@@ -170,6 +170,36 @@ concepts:
     label: Automation
     posting: [automation, automate, automating, workflow automation, scripting]
     resume: [automation, automated, automate, automating, scripts, scripted, scheduled, GitHub Actions, cron]
+# Posting text that is never a requirement, beyond the built-in rules for diversity
+# statements, accommodation notices, and perks (comparison/requirements.py). Each entry is
+# a case-insensitive regular expression. Add one when the Labels tab shows lines you marked
+# "not a requirement" (⊘), and add a regression test in tests/test_comparison.py.
+boilerplate:
+  # A line matching any of these is dropped wherever it appears.
+  phrases:
+    - "fair chance (law|ordinance|act)"
+    - "arrest (and|or) conviction records"
+    - "never ask (candidates|applicants|you) to pay"
+    - "recruiting fee"
+    - "employee referral"
+    - "being referred to one of our roles"
+    - "as far in advance as possible"
+    # Application-page furniture that wrapped lines used to split into fragments.
+    - "^primary location\\b"
+    - "^posting end date\\b"
+    - "\\bpay range\\b"
+    - "\\bclick here\\b"
+    - "privacy policy"
+    - "pay transparency statement"
+    - "application deadline for this role"
+  # A line matching any of these ends the requirements section, even when it does not look
+  # like a heading (Workday's "Our Approach to Flexible Work" paragraph and legal notices).
+  section_breaks:
+    - "^our approach to flexible work\\b"
+  # Join a line that starts in lowercase onto the line before it when that line stopped
+  # mid-sentence: sources wrap long bullets ("with a desire to go" / "above and beyond" /
+  # "to satisfy customer needs."). A continuation of a dropped line is dropped too.
+  join_continuations: true
 # Lines about disposition or logistics rather than experience ("You approach challenges
 # with curiosity", "Available to start in June") cannot be checked against a resume. They are shown as "self-assess" and
 # left out of the coverage score.
