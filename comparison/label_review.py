@@ -13,6 +13,8 @@ results and says how each one stands today:
 
 A line whose newest entry is a withdrawal is listed with ``withdrawn: true`` and left
 out of every count, so it can be found and re-labeled but never skews the numbers.
+A line labeled ``not_requirement`` was picked up by the parser by mistake; it is counted
+on its own (``not_requirement``) and never as an agreement or a disagreement.
 
 Nothing here writes; corrections go through ``RequirementLabelStore``.
 """
@@ -84,6 +86,7 @@ def review_labels(
                 "predicted_status": latest.predicted_status,
                 "corrected_status": corrected,
                 "agrees": latest.agrees,
+                "not_requirement": latest.not_requirement,
                 "current_status": current_status,
                 "agrees_now": current_status == corrected if current_status else None,
                 "state": state.value,
@@ -145,19 +148,22 @@ def summarize_labels(
 ) -> dict[str, object]:
     """Return counts for the tracker strip: totals, states, sources, kinds, orphan alert.
 
-    Withdrawn lines are counted once, as ``withdrawn``, and nowhere else. Sources are
-    always reported separately because only sampled queue labels are unbiased.
+    Withdrawn lines are counted once, as ``withdrawn``, and nowhere else. Lines marked
+    not a requirement count in ``total`` and ``not_requirement`` but not in agree or
+    disagree. Sources are always reported separately: only sampled queue labels are unbiased.
     """
     withdrawn = sum(row["withdrawn"] is True for row in rows)
     rows = [row for row in rows if row["withdrawn"] is not True]
     states = Counter(str(row["state"]) for row in rows)
     total = len(rows)
+    matched = [row for row in rows if row["not_requirement"] is not True]
     return {
         "total": total,
         "withdrawn": withdrawn,
         "sampled": sum(row["sampled"] is True for row in rows),
-        "agree": sum(row["agrees"] is True for row in rows),
-        "disagree": sum(row["agrees"] is False for row in rows),
+        "agree": sum(row["agrees"] is True for row in matched),
+        "disagree": sum(row["agrees"] is False for row in matched),
+        "not_requirement": total - len(matched),
         "states": {state.value: states.get(state.value, 0) for state in LabelState},
         "by_source": dict(Counter(str(row["source"]) for row in rows)),
         "by_kind": dict(Counter(str(row["kind"] or "unknown") for row in rows)),

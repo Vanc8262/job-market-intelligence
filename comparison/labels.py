@@ -11,6 +11,11 @@ Schema v2 adds where a label came from (``source``) and whether the line was dra
 random by the review queue (``sampled``). Only sampled labels may feed an unbiased
 accuracy estimate; drawer labels come from postings the owner chose to open. Both are
 set by the server, never taken from the browser. Schema v1 lines read as drawer labels.
+
+Besides ✓/◐/✗, the owner can say a line is ``not_requirement``: the parser picked up
+text that is not a requirement at all (benefits, a company blurb). That is a verdict on
+extraction, not on matching, so read models count it apart from agree/disagree, and it
+points at a boilerplate or heading rule to fix in ``config/comparison.yaml``.
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 LABELS_FILE = Path("labels") / "requirement_labels.jsonl"
 MAX_REQUIREMENT_CHARS = 2000
 MAX_NOTE_CHARS = 500
+VERDICT_ERROR = "corrected_status must be met, partial, missing, or not_requirement"
 
 
 class RequirementVerdict(StrEnum):
@@ -36,6 +42,7 @@ class RequirementVerdict(StrEnum):
     MET = "met"
     PARTIAL = "partial"
     MISSING = "missing"
+    NOT_REQUIREMENT = "not_requirement"
 
 
 class LabelAction(StrEnum):
@@ -104,6 +111,11 @@ class RequirementLabel(BaseModel):
         """True when this entry takes the line's label back."""
         return self.action is LabelAction.WITHDRAW
 
+    @property
+    def not_requirement(self) -> bool:
+        """True when the owner says the parser should not have picked this line up."""
+        return self.corrected_status is RequirementVerdict.NOT_REQUIREMENT
+
 
 def labels_path(private_root: Path) -> Path:
     """Return where requirement labels are appended."""
@@ -161,7 +173,7 @@ class RequirementLabelStore:
         try:
             verdict = RequirementVerdict(corrected_status)
         except ValueError as exc:
-            raise ValueError("corrected_status must be met, partial, or missing") from exc
+            raise ValueError(VERDICT_ERROR) from exc
         item = find_requirement(comparisons, job_id, requirement)
         if item is None:
             raise LookupError("This requirement is not in the latest comparison for the posting")
@@ -293,6 +305,7 @@ __all__ = [
     "RequirementLabel",
     "RequirementLabelStore",
     "RequirementVerdict",
+    "VERDICT_ERROR",
     "find_requirement",
     "labels_path",
 ]

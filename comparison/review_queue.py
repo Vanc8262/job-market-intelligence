@@ -12,6 +12,10 @@ comparison is re-run every day. The server serves the first unlabeled line in a 
 and accepts a queue label only for a line that is currently first in its group: that
 check, not anything the browser sends, is what marks a label as sampled.
 
+A sampled line the owner marks ``not_requirement`` still counts toward its group: it was
+drawn at random, so the share of such lines estimates how often the parser picks up
+non-requirements in that group.
+
 Phase 7 should weight each group by its ``population`` when combining group accuracies
 into one number, because groups are sampled to equal size, not in proportion.
 """

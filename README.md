@@ -496,6 +496,15 @@ a `withdraw` entry is appended (nothing is deleted), the line moves to the Withd
 and it is left out of every count until you label it again. An optional note is saved with
 your next change on a line, for example why you corrected it.
 
+When the parser picked up a line that is not a requirement at all (benefits, a company
+blurb, an application instruction), mark it **⊘ Not a requirement** in the drawer, the review
+queue, or the table. That is a verdict on extraction rather than on matching: the line gets
+its own tile and filter, is never counted as an agreement or a disagreement, and stays in the
+log as evidence for a boilerplate or heading fix in `config/comparison.yaml`. It does not
+change the posting's fit score until that config fix lands. In the review queue it still
+counts as a sampled label, so Phase 7 can estimate how often each group holds such lines.
+Withdraw the mark to make the line unlabeled again.
+
 Label lines use schema v2: `action` (`label` or `withdraw`), `source` (`drawer`,
 `labels_tab`, or `queue`), `sampled`, `sample_seed`, and `note`. Schema v1 lines still read
 as drawer labels. The server sets `source` from a short allowed list and never accepts

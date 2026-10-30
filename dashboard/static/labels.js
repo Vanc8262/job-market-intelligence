@@ -15,7 +15,7 @@ const LABEL_STATE_HINTS = {
   orphaned: "The posting is still compared, but this line is not (usually a parser change reworded it)",
   closed: "The posting is no longer active; the label still counts but cannot be changed",
 };
-const LABEL_FILTERS = [["all", "All labels"], ["disagree", "Disagreements"], ["stale", "Stale"], ["orphaned", "Orphaned"], ["closed", "Posting closed"], ["current", "Current"], ["withdrawn", "Withdrawn"]];
+const LABEL_FILTERS = [["all", "All labels"], ["disagree", "Disagreements"], ["not_requirement", "Not a requirement"], ["stale", "Stale"], ["orphaned", "Orphaned"], ["closed", "Posting closed"], ["current", "Current"], ["withdrawn", "Withdrawn"]];
 const LABEL_SOURCE_NAMES = { drawer: "Drawer", labels_tab: "Labels tab", queue: "Review queue" };
 
 state.labels = { data: null, loading: false, error: null, filter: "all", kind: "", search: "", busy: null, feedback: null, view: "all" };
@@ -108,6 +108,7 @@ function labelsTracker(summary) {
   return `<div class="labels-tracker">
     ${tile("all", "Labeled lines", summary.total, `Drawer ${number(sources.drawer || 0)} · Tab ${number(sources.labels_tab || 0)} · Queue ${number(sources.queue || 0)}`)}
     ${tile("disagree", "Disagreements", summary.disagree, `${number(summary.agree)} agreed with the model`)}
+    ${tile("not_requirement", "Not a requirement", summary.not_requirement || 0, "Parser picked these up by mistake")}
     ${tile("stale", "Stale", summary.states.stale, "Model verdict changed since")}
     ${tile("orphaned", "Orphaned", summary.states.orphaned, `Alert at ${number(alert.alert_count)}${alert.alert_share ? ` or ${(alert.alert_share * 100).toFixed(0)}%` : ""}${share}`, alert.active ? " alert" : "")}
     ${tile("closed", "Posting closed", summary.states.closed, "Kept as evidence")}
@@ -120,8 +121,9 @@ function filteredLabelRows() {
   const query = search.trim().toLowerCase();
   return (state.labels.data?.labels || []).filter((row) => {
     if ((filter === "withdrawn") !== Boolean(row.withdrawn)) return false;
-    if (filter === "disagree" && row.agrees) return false;
-    if (!["all", "disagree", "withdrawn"].includes(filter) && row.state !== filter) return false;
+    if (filter === "disagree" && (row.agrees || row.not_requirement)) return false;
+    if (filter === "not_requirement" && !row.not_requirement) return false;
+    if (!["all", "disagree", "not_requirement", "withdrawn"].includes(filter) && row.state !== filter) return false;
     if (kind && (row.kind || "unknown") !== kind) return false;
     if (query && ![row.requirement, row.title, row.employer, row.job_id].some((value) => String(value || "").toLowerCase().includes(query))) return false;
     return true;
@@ -143,8 +145,10 @@ function renderLabelRows() {
 function verdictCell(status) {
   if (!status) return `<span class="job-meta">—</span>`;
   const glyph = VERDICT_ICONS[status] || "○";
-  return `<span class="label-verdict ${escapeHtml(status)}" title="${escapeHtml(formatLabel(status))}">${glyph} ${escapeHtml(formatLabel(status))}</span>`;
+  return `<span class="label-verdict ${escapeHtml(status)}" title="${escapeHtml(verdictName(status))}">${glyph} ${escapeHtml(verdictName(status))}</span>`;
 }
+
+function verdictName(status) { return status === "not_requirement" ? "Not a requirement" : formatLabel(status); }
 
 function labelRow(row, index) {
   const posting = row.title ? `${row.title}${row.employer ? ` · ${row.employer}` : ""}` : row.job_id;
@@ -153,12 +157,12 @@ function labelRow(row, index) {
   const history = row.history.length ? `<details class="label-history"><summary>${row.history.length} earlier</summary><ul>${row.history.map(historyEntry).join("")}</ul></details>` : "";
   const editable = row.state === "current" || row.state === "stale";
   const busy = state.labels.busy === index ? " disabled" : "";
-  const verdictButtons = editable ? Object.entries(VERDICT_ICONS).map(([status, glyph]) => `<button type="button" class="label-button${!row.withdrawn && row.corrected_status === status ? " active" : ""}" data-relabel-index="${index}" data-label-status="${status}" aria-pressed="${!row.withdrawn && row.corrected_status === status}" title="${row.withdrawn ? "Label again as" : "Should be"} ${formatLabel(status)}"${busy}>${glyph}</button>`).join("") : `<span class="job-meta" title="${escapeHtml(LABEL_STATE_HINTS[row.state])}">Not in the latest comparison</span>`;
+  const verdictButtons = editable ? Object.entries(VERDICT_ICONS).map(([status, glyph]) => `<button type="button" class="label-button${!row.withdrawn && row.corrected_status === status ? " active" : ""}" data-relabel-index="${index}" data-label-status="${status}" aria-pressed="${!row.withdrawn && row.corrected_status === status}" title="${escapeHtml(row.withdrawn ? `Label again as ${verdictName(status)}` : verdictTitle(status))}"${busy}>${glyph}</button>`).join("") : `<span class="job-meta" title="${escapeHtml(LABEL_STATE_HINTS[row.state])}">Not in the latest comparison</span>`;
   // Any active label can be withdrawn, including orphaned and closed ones: the log, not
   // the comparison, decides. Re-labeling still needs the line in the latest comparison.
   const withdraw = row.withdrawn ? "" : `<button type="button" class="label-button withdraw" data-withdraw-index="${index}" title="Take this label back; it stays in the history"${busy}>Withdraw</button>`;
   const noteInput = editable || !row.withdrawn ? `<input class="label-note-input" type="text" maxlength="500" data-note-index="${index}" placeholder="Note (optional)" aria-label="Note for your next change to this label">` : "";
-  const agreement = row.withdrawn ? `Withdrawn ${formatTimestamp(row.withdrawn_at)}${row.withdrawal_note ? ` · “${escapeHtml(row.withdrawal_note)}”` : ""}` : `${row.agrees ? "Agreed" : "Corrected"}${row.note ? ` · “${escapeHtml(row.note)}”` : ""}`;
+  const agreement = row.withdrawn ? `Withdrawn ${formatTimestamp(row.withdrawn_at)}${row.withdrawal_note ? ` · “${escapeHtml(row.withdrawal_note)}”` : ""}` : `${row.not_requirement ? "Parser mistake" : row.agrees ? "Agreed" : "Corrected"}${row.note ? ` · “${escapeHtml(row.note)}”` : ""}`;
   return `<tr class="label-row ${escapeHtml(row.state)}${row.withdrawn ? " withdrawn-row" : ""}">
     <td><span class="req-text">${escapeHtml(row.requirement)}</span><span class="job-meta wrap">${openable ? `<button type="button" class="text-button" data-open-job="${escapeHtml(row.job_id)}">${escapeHtml(posting)}</button>` : escapeHtml(posting)}${row.required === false ? " · preferred" : ""}</span>${history}</td>
     <td>${escapeHtml(formatLabel(row.kind))}</td>
@@ -205,7 +209,7 @@ async function handleLabelsClick(event) {
     // becomes current and may leave the filtered list; say where it went.
     const saved = state.labels.data?.labels.find((item) => item.job_id === row.job_id && item.requirement === row.requirement);
     const line = `"${row.requirement.slice(0, 80)}"`;
-    state.labels.feedback = withdrawing ? { text: `Withdrew the label on ${line}. It is no longer counted; find it under Withdrawn to label it again.` } : { text: `Saved ${formatLabel(result.corrected_status)} for ${line}${saved ? `. It is now listed as ${LABEL_STATE_NAMES[saved.state] || formatLabel(saved.state)}${saved.agrees ? ", agreeing with the model" : ", disagreeing with the model"}.` : "."}` };
+    state.labels.feedback = withdrawing ? { text: `Withdrew the label on ${line}. It is no longer counted; find it under Withdrawn to label it again.` } : { text: `Saved ${verdictName(result.corrected_status)} for ${line}${saved ? `. It is now listed as ${LABEL_STATE_NAMES[saved.state] || formatLabel(saved.state)}${saved.not_requirement ? ", counted as a parser mistake" : saved.agrees ? ", agreeing with the model" : ", disagreeing with the model"}.` : "."}` };
     renderLabelRows();
   } catch (error) {
     state.labels.busy = null;
@@ -253,7 +257,7 @@ function queueCard(next) {
   const openable = state.opportunities.some((item) => item.job_id === next.job_id);
   const predicted = next.status;
   const button = (status, text, title) => `<button type="button" class="label-button" data-queue-status="${status}" title="${escapeHtml(title)}"${busy}>${text}</button>`;
-  const others = Object.entries(VERDICT_ICONS).filter(([status]) => status !== predicted).map(([status, glyph]) => button(status, glyph, `Should be ${formatLabel(status)}`)).join("");
+  const others = Object.entries(VERDICT_ICONS).filter(([status]) => status !== predicted).map(([status, glyph]) => button(status, glyph, verdictTitle(status))).join("");
   return `<article class="queue-card ${escapeHtml(predicted)}">
     <span class="drawer-eyebrow">${escapeHtml(formatLabel(next.kind))} · model says ${escapeHtml(formatLabel(predicted))}${next.item.required === false ? " · preferred" : ""}</span>
     <p class="queue-requirement"><span class="req-icon">${VERDICT_ICONS[predicted] || "–"}</span> ${escapeHtml(next.requirement)}</p>
@@ -261,7 +265,7 @@ function queueCard(next) {
     <div class="req-evidence">${requirementEvidence(next.item)}</div>
     <div class="req-label">${button(predicted, "Agree", `Agree: ${formatLabel(predicted)}`)}<span class="label-prompt">should be</span>${others}</div>
     <input class="label-note-input" id="queueNote" type="text" maxlength="500" placeholder="Note (optional)" aria-label="Note for this label">
-    <p class="job-meta wrap">Please label every line the queue shows, even easy ones. Lines are drawn at random so the accuracy estimate is fair; skipping would bias it.</p>
+    <p class="job-meta wrap">Use ⊘ when the line is not a requirement at all (benefits, a company blurb); it still counts as a sampled label. Please label every line the queue shows, even easy ones. Lines are drawn at random so the accuracy estimate is fair; skipping would bias it.</p>
   </article>`;
 }
 
@@ -289,7 +293,7 @@ async function saveQueueLabel(status) {
     const response = await fetch("/api/labels/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: next.job_id, requirement: next.requirement, corrected_status: status, note }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Label could not be saved");
-    queue.feedback = { text: `Saved ${formatLabel(result.corrected_status)} for "${next.requirement.slice(0, 80)}".` };
+    queue.feedback = { text: `Saved ${verdictName(result.corrected_status)} for "${next.requirement.slice(0, 80)}".` };
   } catch (error) {
     queue.feedback = { text: error.message, error: true };
   }
