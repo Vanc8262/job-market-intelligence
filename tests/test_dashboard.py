@@ -414,7 +414,9 @@ def test_dashboard_assets_reference_only_supported_features() -> None:
         "/api/labels/queue",
         "/api/labels/changes",
         "/api/labels/snapshots",
+        "/api/labels/scorecard",
         "renderChanges",
+        "renderScorecard",
         "/api/requirement-labels",
         "renderLabels",
         "renderQueue",
@@ -441,10 +443,10 @@ def test_dashboard_assets_reference_only_supported_features() -> None:
     ):
         assert f'data-view="{view}"' in index
     assert 'data-view="benchmarks"' not in index
-    assert "/app.js?v=resume-v17" in index
-    assert "/resume-review.js?v=resume-v17" in index
-    assert "/labels.js?v=resume-v17" in index
-    assert "/styles.css?v=resume-v17" in index
+    assert "/app.js?v=resume-v18" in index
+    assert "/resume-review.js?v=resume-v18" in index
+    assert "/labels.js?v=resume-v18" in index
+    assert "/styles.css?v=resume-v18" in index
 
 
 @pytest.mark.skipif(

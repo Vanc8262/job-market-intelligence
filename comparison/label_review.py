@@ -8,6 +8,8 @@ results and says how each one stands today:
 - ``stale``: the line is there, but the model's verdict changed since it was labeled.
 - ``orphaned``: the posting is still compared but the line is not, usually because a
   parser change reworded or merged it. These raise an alert past a configured count.
+- ``removed``: a line you marked not a requirement is gone from a posting that is still
+  compared, so a boilerplate rule now filters it. This is the fix working, not an orphan.
 - ``closed``: the posting is no longer compared (expired or removed). The label is still
   valid evidence; it just cannot be re-labeled.
 
@@ -35,6 +37,7 @@ class LabelState(StrEnum):
     CURRENT = "current"
     STALE = "stale"
     ORPHANED = "orphaned"
+    REMOVED = "removed"
     CLOSED = "closed"
 
 
@@ -71,7 +74,7 @@ def review_labels(
                 else LabelState.STALE
             )
         elif job_id in compared:
-            state = LabelState.ORPHANED
+            state = LabelState.REMOVED if latest.not_requirement else LabelState.ORPHANED
         else:
             state = LabelState.CLOSED
         posting = (postings or {}).get(job_id) or {}

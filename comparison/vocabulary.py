@@ -117,6 +117,11 @@ class ConceptHit:
     line: str
 
 
+def _any_of(patterns: list[str]) -> re.Pattern[str] | None:
+    """Compile configured regular expressions into one case-insensitive pattern."""
+    return re.compile("|".join(f"(?:{p})" for p in patterns), re.IGNORECASE) if patterns else None
+
+
 class RequirementVocabulary:
     """Concept, field-of-study, and trait matchers built from the comparison settings."""
 
@@ -155,6 +160,10 @@ class RequirementVocabulary:
                 self._synonyms.setdefault(word.casefold(), head)
                 self._synonyms.setdefault(stem(word), head)
         self._index_cache: dict[int, dict[str, str]] = {}
+        boilerplate = settings.boilerplate
+        self._boilerplate = _any_of(boilerplate.phrases)
+        self._section_break = _any_of(boilerplate.section_breaks)
+        self.join_continuations = boilerplate.join_continuations
 
     def canonical(self, word: str) -> str:
         """Return the comparable form of one word (synonyms folded, then stemmed)."""
@@ -198,6 +207,14 @@ class RequirementVocabulary:
             if match:
                 found.append((match.start(), name))
         return [name for _, name in sorted(found)]
+
+    def is_boilerplate(self, text: str) -> bool:
+        """Return whether a line matches a configured never-a-requirement phrase."""
+        return bool(self._boilerplate and self._boilerplate.search(text))
+
+    def is_section_break(self, text: str) -> bool:
+        """Return whether a line ends the requirements section it appears in."""
+        return bool(self._section_break and self._section_break.search(text))
 
     def is_trait(self, text: str) -> bool:
         """Return whether a line describes disposition rather than experience."""

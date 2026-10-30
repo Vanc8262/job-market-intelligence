@@ -8,22 +8,24 @@
 // The Review queue view serves lines drawn at random by the server; only labels saved
 // there are marked sampled, which is what Phase 7 accuracy estimates use.
 
-const LABEL_STATE_NAMES = { current: "Current", stale: "Stale", orphaned: "Orphaned", closed: "Posting closed" };
+const LABEL_STATE_NAMES = { current: "Current", stale: "Stale", orphaned: "Orphaned", removed: "Removed by parser fix", closed: "Posting closed" };
 const LABEL_STATE_HINTS = {
   current: "The model still gives the verdict you labeled",
   stale: "The model's verdict changed after you labeled this line",
   orphaned: "The posting is still compared, but this line is not (usually a parser change reworded it)",
+  removed: "You marked this line not a requirement, and a boilerplate rule now keeps it out of the comparison",
   closed: "The posting is no longer active; the label still counts but cannot be changed",
 };
-const LABEL_FILTERS = [["all", "All labels"], ["disagree", "Disagreements"], ["not_requirement", "Not a requirement"], ["stale", "Stale"], ["orphaned", "Orphaned"], ["closed", "Posting closed"], ["current", "Current"], ["withdrawn", "Withdrawn"]];
+const LABEL_FILTERS = [["all", "All labels"], ["disagree", "Disagreements"], ["not_requirement", "Not a requirement"], ["stale", "Stale"], ["orphaned", "Orphaned"], ["removed", "Removed by parser fix"], ["closed", "Posting closed"], ["current", "Current"], ["withdrawn", "Withdrawn"]];
 const LABEL_SOURCE_NAMES = { drawer: "Drawer", labels_tab: "Labels tab", queue: "Review queue" };
 
 state.labels = { data: null, loading: false, error: null, filter: "all", kind: "", search: "", busy: null, feedback: null, view: "all" };
 state.queue = { data: null, loading: false, error: null, busy: false, feedback: null };
 state.changes = { data: null, loading: false, error: null, busy: false, feedback: null };
+state.scorecard = { data: null, loading: false, error: null };
 
 function bindLabels() {
-  elements.refreshLabels.addEventListener("click", () => { loadLabels(); if (state.labels.view === "queue") loadQueue(); if (state.labels.view === "changes") loadChanges(); });
+  elements.refreshLabels.addEventListener("click", () => { loadLabels(); if (state.labels.view === "queue") loadQueue(); if (state.labels.view === "changes") loadChanges(); if (state.labels.view === "scorecard") loadScorecard(); });
   elements.labelsTabs.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-labels-view]");
     if (!button) return;
@@ -31,6 +33,7 @@ function bindLabels() {
     elements.labelsTabs.querySelectorAll("button").forEach((item) => item.classList.toggle("active", item === button));
     if (state.labels.view === "queue" && !state.queue.data && !state.queue.loading) loadQueue();
     if (state.labels.view === "changes" && !state.changes.loading) loadChanges();
+    if (state.labels.view === "scorecard" && !state.scorecard.loading) loadScorecard();
     renderLabels();
   });
   elements.labelsContent.addEventListener("click", handleLabelsClick);
@@ -74,6 +77,7 @@ function updateLabelsAlert() {
 function renderLabels() {
   if (state.labels.view === "queue") { renderQueue(); return; }
   if (state.labels.view === "changes") { renderChanges(); return; }
+  if (state.labels.view === "scorecard") { renderScorecard(); return; }
   const labels = state.labels;
   const summary = labels.data?.summary;
   if (labels.loading && !labels.data) { elements.labelsSummary.textContent = "Loading labels"; elements.labelsContent.innerHTML = `<div class="loading-state"><span>Loading labels</span></div>`; return; }
@@ -108,7 +112,7 @@ function labelsTracker(summary) {
   return `<div class="labels-tracker">
     ${tile("all", "Labeled lines", summary.total, `Drawer ${number(sources.drawer || 0)} · Tab ${number(sources.labels_tab || 0)} · Queue ${number(sources.queue || 0)}`)}
     ${tile("disagree", "Disagreements", summary.disagree, `${number(summary.agree)} agreed with the model`)}
-    ${tile("not_requirement", "Not a requirement", summary.not_requirement || 0, "Parser picked these up by mistake")}
+    ${tile("not_requirement", "Not a requirement", summary.not_requirement || 0, `Parser picked these up by mistake${summary.states.removed ? ` · ${number(summary.states.removed)} now filtered` : ""}`)}
     ${tile("stale", "Stale", summary.states.stale, "Model verdict changed since")}
     ${tile("orphaned", "Orphaned", summary.states.orphaned, `Alert at ${number(alert.alert_count)}${alert.alert_share ? ` or ${(alert.alert_share * 100).toFixed(0)}%` : ""}${share}`, alert.active ? " alert" : "")}
     ${tile("closed", "Posting closed", summary.states.closed, "Kept as evidence")}
@@ -380,4 +384,86 @@ async function saveSnapshot() {
   }
   changes.busy = false;
   await loadChanges();
+}
+
+// Scorecard (Phase 7.2): how often the model's ✓/◐/✗ agrees with your labels, as
+// Beta-Binomial posteriors with credible intervals. Only randomly sampled queue labels
+// estimate accuracy; labels from postings you chose are shown on their own.
+async function loadScorecard() {
+  const card = state.scorecard;
+  card.loading = true;
+  card.error = null;
+  if (state.view === "labels" && state.labels.view === "scorecard") renderScorecard();
+  try {
+    const response = await fetch("/api/labels/scorecard", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "The scorecard could not be loaded");
+    card.data = payload;
+  } catch (error) {
+    card.error = error.message;
+  }
+  card.loading = false;
+  if (state.view === "labels" && state.labels.view === "scorecard") renderScorecard();
+}
+
+const pct = (value) => `${(Number(value) * 100).toFixed(0)}%`;
+
+// A rate with its interval: "81% (74–87%)" plus a bar, or counts alone below the minimum.
+function rateCell(rate, countKey = "agree") {
+  if (!rate || !rate.total) return `<span class="job-meta">No labels</span>`;
+  const counts = `${number(rate[countKey])} of ${number(rate.total)}`;
+  if (rate.mean === undefined) return `<span class="job-meta" title="Too few labels for an interval">${counts}</span>`;
+  return `<span class="rate-cell"><strong>${pct(rate.mean)}</strong> <span class="job-meta">${pct(rate.low)}–${pct(rate.high)} · ${counts}</span><span class="interval-bar" aria-hidden="true"><span style="--low:${rate.low * 100}%;--high:${rate.high * 100}%"></span><i style="--mean:${rate.mean * 100}%"></i></span></span>`;
+}
+
+function renderScorecard() {
+  const card = state.scorecard;
+  if (card.loading && !card.data) { elements.labelsContent.innerHTML = `<div class="loading-state"><span>Computing the scorecard</span></div>`; return; }
+  if (card.error) { elements.labelsContent.innerHTML = `<div class="error-state"><strong>The scorecard could not be loaded</strong><span>${escapeHtml(card.error)}</span></div>`; return; }
+  const data = card.data;
+  if (!data) return;
+  const level = pct(data.credible_level);
+  const sampled = data.sampled;
+  const overall = sampled.overall;
+  const citation = data.snapshot_id ? `These numbers come from snapshot <code>${escapeHtml(data.snapshot_id)}</code>.` : `No snapshot covers the current labels; save one under Changes to cite these numbers.`;
+  const headline = overall.mean === undefined
+    ? `<div class="empty-state"><strong>Not enough sampled labels yet</strong><span>The estimate needs at least ${number(data.minimum_labels)} labels from the review queue.</span></div>`
+    : `<div class="scorecard-headline"><div><span class="drawer-eyebrow">Model agrees with you</span><strong>${pct(overall.mean)}</strong><span>${level} credible interval ${pct(overall.low)}–${pct(overall.high)}</span></div>
+      <p class="job-meta wrap">From ${number(overall.total)} randomly sampled labels in ${number(overall.groups_used)} of ${number(overall.groups)} groups, each group weighted by how many lines it has in the latest comparison (${pct(overall.coverage)} of lines covered). Lines you marked not a requirement are counted below, not here.</p></div>`;
+  elements.labelsContent.innerHTML = `${headline}
+    <p class="job-meta wrap">${citation} Prior Beta(${data.prior.map(number).join(", ")}); a group shows an interval once it has ${number(data.minimum_labels)} labels.</p>
+    <section class="intel-block wide"><div class="intel-heading"><h2>By kind</h2><span>Random review queue · ${level} intervals</span></div>
+      ${marketTable(["Kind", "Agreement"], Object.entries(sampled.by_kind).map(([kind, rate]) => `<tr><td>${escapeHtml(formatLabel(kind))}</td><td>${rateCell(rate)}</td></tr>`).join(""))}
+    </section>
+    <section class="intel-block wide"><div class="intel-heading"><h2>By group</h2><span>Kind and the model's verdict when you labeled</span></div>
+      ${marketTable(["Kind", "Model said", "Agreement", "⊘ Not a requirement", "Lines now"], sampled.groups.map((group) => `<tr><td>${escapeHtml(formatLabel(group.kind))}</td><td>${verdictCell(group.status)}</td><td>${rateCell(group)}</td><td class="number-cell">${number(group.not_requirement)}</td><td class="number-cell">${number(group.population)}</td></tr>`).join(""))}
+    </section>
+    <section class="intel-block wide"><div class="intel-heading"><h2>Parser mistakes</h2><span>Sampled lines you marked ⊘</span></div>
+      <p class="job-meta wrap">Share of randomly drawn lines that were not requirements at all: ${rateCell(sampled.not_requirement, "count")}</p>
+    </section>
+    <section class="intel-block wide"><div class="intel-heading"><h2>Model verdict vs yours</h2><span>Random review queue</span></div>${confusionTable(sampled.confusion)}</section>
+    ${replayBlock(data.replay, data.current_model_version)}
+    <section class="intel-block wide"><div class="intel-heading"><h2>Postings you chose</h2><span>Drawer and table labels · not an accuracy estimate</span></div>
+      <p class="job-meta wrap">These come from postings you opened, which lean toward strong matches, so they are shown apart. Agreement: ${rateCell(data.chosen.overall)}</p>
+      ${data.chosen.labels ? confusionTable(data.chosen.confusion) : ""}
+    </section>
+    <section class="intel-block wide"><div class="intel-heading"><h2>By model version</h2><span>Agreement when each label was made</span></div>
+      ${marketTable(["Model version", "Random queue", "Postings you chose"], data.by_model_version.map((row) => `<tr><td>${escapeHtml(row.model_version)}</td><td>${rateCell(row.sampled)}</td><td>${rateCell(row.chosen)}</td></tr>`).join(""))}
+    </section>`;
+}
+
+function confusionTable(confusion) {
+  const columns = ["met", "partial", "missing", "not_requirement"];
+  return marketTable(["Model said ↓ · You said →", ...columns.map((status) => `${VERDICT_ICONS[status]} ${verdictName(status)}`)], Object.entries(confusion).map(([predicted, row]) => `<tr><td>${verdictCell(predicted)}</td>${columns.map((status) => `<td class="number-cell${status === predicted ? " confusion-agree" : ""}">${number(row[status])}</td>`).join("")}</tr>`).join(""));
+}
+
+function replayBlock(replay, version) {
+  if (!replay.available) return `<section class="intel-block wide"><div class="intel-heading"><h2>Replay</h2></div><p class="job-meta wrap">${escapeHtml(replay.reason)}.</p></section>`;
+  const change = (row) => `<li>${verdictCell(row.then_status)} → ${verdictCell(row.now_status)} · you ${verdictCell(row.your_status)} · ${escapeHtml(row.requirement)}${row.sampled ? ` <span class="job-meta">(sampled)</span>` : ""}</li>`;
+  return `<section class="intel-block wide"><div class="intel-heading"><h2>Replay of the current model</h2><span>Model ${escapeHtml(version)} on ${number(replay.lines)} labeled lines</span></div>
+    <p class="job-meta wrap">Every labeled line is judged again with today's vocabulary and your approved resume, including lines from postings that have closed. "Then" is agreement when you labeled; "Now" is the current model on the same lines.${replay.dropped ? ` ${number(replay.dropped)} lines the model now leaves to self-assess are left out of both.` : ""}</p>
+    ${marketTable(["Labels", "Then", "Now"], [["Random queue", replay.sampled], ["Postings you chose", replay.chosen], ["All", replay.all]].map(([name, pair]) => `<tr><td>${name}</td><td>${rateCell(pair.then)}</td><td>${rateCell(pair.now)}</td></tr>`).join(""))}
+    <div class="replay-changes"><div><h3>Fixed (${number(replay.fixed_count)})</h3>${replay.fixed.length ? `<ul class="change-log">${replay.fixed.map(change).join("")}</ul>` : `<p class="job-meta">None</p>`}</div>
+    <div><h3>Regressed (${number(replay.regressed_count)})</h3>${replay.regressed.length ? `<ul class="change-log">${replay.regressed.map(change).join("")}</ul>` : `<p class="job-meta">None</p>`}</div></div>
+  </section>`;
 }

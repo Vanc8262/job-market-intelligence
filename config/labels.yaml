@@ -2,7 +2,7 @@
 # requirement lines. These settings change what the tab shows and asks for, never how
 # postings are scored, so they live apart from comparison.yaml (whose settings hash is
 # stored with every label).
-version: 1.0.0
+version: 1.1.0
 
 # A label is "orphaned" when its posting is still in the latest comparison but the
 # requirement line is not, usually because a parser change reworded or merged it.
@@ -40,6 +40,23 @@ tracking:
   # B3 starts at b3_minimum labels and is comfortable at b3_target (README Phase 8 table).
   b3_minimum: 30
   b3_target: 50
+
+# Scorecard (Phase 7.2): agreement between the model's verdict and yours, as Beta-Binomial
+# posteriors. Only randomly sampled queue labels feed the accuracy estimate; labels from
+# postings you chose are reported on their own. Lines marked "not a requirement" are a
+# parser mistake, counted as extraction errors rather than agreement or disagreement.
+scorecard:
+  # Width of the credible intervals (0.9 = the 90% interval).
+  credible_level: 0.9
+  # Beta(a, b) prior on every agreement rate; (0.5, 0.5) is the Jeffreys prior.
+  prior: [0.5, 0.5]
+  # A group's posterior is shown once it has this many labels; below that, counts only.
+  minimum_labels: 5
+  # Monte Carlo draws for the population-weighted overall estimate, and their seed.
+  draws: 20000
+  seed: 20261030
+  # Most lines listed as fixed or regressed by the replay of the current model.
+  replay_changes_limit: 50
 
 # How many of the newest label events the Changes view lists.
 recent_events: 200

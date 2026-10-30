@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, ClassVar, Literal, Self, TypeVar, cast
@@ -526,6 +527,25 @@ class ComparisonConcept(BaseModel):
     fields: list[str] = Field(default_factory=list)
 
 
+class ComparisonBoilerplateConfig(BaseModel):
+    """Posting text that is never a requirement, beyond the built-in legal and perk rules."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    phrases: list[str] = Field(default_factory=list)
+    section_breaks: list[str] = Field(default_factory=list)
+    join_continuations: bool = False
+
+    @model_validator(mode="after")
+    def _patterns_compile(self) -> ComparisonBoilerplateConfig:
+        for pattern in [*self.phrases, *self.section_breaks]:
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(f"invalid boilerplate pattern {pattern!r}: {exc}") from exc
+        return self
+
+
 class ComparisonConfig(BaseModel):
     """Validated contents of comparison.yaml (Phase 6.3 application comparison)."""
 
@@ -559,6 +579,7 @@ class ComparisonConfig(BaseModel):
     traits: list[str] = Field(default_factory=list)
     synonyms: list[list[str]] = Field(default_factory=list)
     comparable_credit: float = Field(default=0.6, ge=0, le=1)
+    boilerplate: ComparisonBoilerplateConfig = Field(default_factory=ComparisonBoilerplateConfig)
 
     @model_validator(mode="after")
     def _concept_fields_exist(self) -> ComparisonConfig:
@@ -612,6 +633,25 @@ class LabelTrackingProgressConfig(BaseModel):
         return self
 
 
+class LabelScorecardConfig(BaseModel):
+    """How the Scorecard turns labels into agreement estimates (Phase 7.2)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    credible_level: float = Field(default=0.9, gt=0.5, lt=1)
+    prior: tuple[float, float] = (0.5, 0.5)
+    minimum_labels: int = Field(default=5, ge=1)
+    draws: int = Field(default=20000, ge=1000, le=200000)
+    seed: int = Field(default=1, ge=0)
+    replay_changes_limit: int = Field(default=50, ge=0, le=1000)
+
+    @model_validator(mode="after")
+    def _positive_prior(self) -> LabelScorecardConfig:
+        if min(self.prior) <= 0:
+            raise ValueError("Beta prior parameters must be positive")
+        return self
+
+
 class LabelsConfig(BaseModel):
     """Validated contents of labels.yaml (Labels tab: review and monitor owner labels)."""
 
@@ -621,6 +661,7 @@ class LabelsConfig(BaseModel):
     orphans: LabelOrphanAlertConfig = Field(default_factory=LabelOrphanAlertConfig)
     queue: LabelQueueConfig = Field(default_factory=LabelQueueConfig)
     tracking: LabelTrackingProgressConfig = Field(default_factory=LabelTrackingProgressConfig)
+    scorecard: LabelScorecardConfig = Field(default_factory=LabelScorecardConfig)
     recent_events: int = Field(default=200, ge=10, le=5000)
 
 

@@ -157,7 +157,13 @@ def test_summary_counts_states_sources_and_kinds() -> None:
     assert summary["agree"] == 2
     assert summary["disagree"] == 2
     assert summary["not_requirement"] == 0
-    assert summary["states"] == {"current": 1, "stale": 1, "orphaned": 1, "closed": 1}
+    assert summary["states"] == {
+        "current": 1,
+        "stale": 1,
+        "orphaned": 1,
+        "removed": 0,
+        "closed": 1,
+    }
     assert summary["by_source"] == {"drawer": 4}
     assert summary["by_kind"] == {"skill": 3, "degree": 1}
     assert summary["queue_target_per_group"] == 10
@@ -209,6 +215,21 @@ def test_not_a_requirement_is_counted_apart_from_agree_and_disagree() -> None:
     # Before the mark: 2 agreed (SQL, Tableau) and 2 disagreed. SQL leaves agree only.
     assert summary["agree"] == 1
     assert summary["disagree"] == 2
+
+
+def test_a_filtered_not_a_requirement_line_is_removed_not_orphaned() -> None:
+    labels = [
+        *_labels(),
+        _label("job-2", "as far in advance as possible.", "partial", "not_requirement", 8),
+    ]
+
+    rows = review_labels(labels, _comparisons())
+    summary = summarize_labels(rows, LabelsConfig())
+
+    assert _by_requirement(rows)["as far in advance as possible."]["state"] == LabelState.REMOVED
+    assert summary["states"]["removed"] == 1
+    assert summary["states"]["orphaned"] == 1
+    assert summary["orphan_alert"]["orphaned"] == 1
 
 
 def test_relabel_after_withdrawal_keeps_the_withdrawal_in_history() -> None:
