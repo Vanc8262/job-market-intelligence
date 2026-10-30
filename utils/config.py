@@ -586,6 +586,30 @@ class LabelQueueConfig(BaseModel):
 
     target_per_group: int = Field(default=10, ge=1, le=500)
     exclude_kinds: list[str] = Field(default_factory=lambda: ["trait"])
+    seed: int = Field(default=1, ge=0)
+
+
+class LabelTrackingProgressConfig(BaseModel):
+    """Which tracking decisions count as preference labels, and how many each model needs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    positive_statuses: list[str] = Field(
+        default_factory=lambda: ["reviewing", "saved", "applied", "interviewing", "offer"]
+    )
+    negative_statuses: list[str] = Field(default_factory=lambda: ["archived"])
+    simulator_minimum: int = Field(default=10, ge=1)
+    simulator_minimum_each: int = Field(default=3, ge=1)
+    b3_minimum: int = Field(default=30, ge=1)
+    b3_target: int = Field(default=50, ge=1)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> LabelTrackingProgressConfig:
+        if self.b3_target < self.b3_minimum:
+            raise ValueError("b3_target must be at least b3_minimum")
+        if set(self.positive_statuses) & set(self.negative_statuses):
+            raise ValueError("a status cannot be both positive and negative")
+        return self
 
 
 class LabelsConfig(BaseModel):
@@ -596,6 +620,8 @@ class LabelsConfig(BaseModel):
     version: str = Field(default="1.0.0", min_length=1)
     orphans: LabelOrphanAlertConfig = Field(default_factory=LabelOrphanAlertConfig)
     queue: LabelQueueConfig = Field(default_factory=LabelQueueConfig)
+    tracking: LabelTrackingProgressConfig = Field(default_factory=LabelTrackingProgressConfig)
+    recent_events: int = Field(default=200, ge=10, le=5000)
 
 
 class BayesianConfig(BaseModel):

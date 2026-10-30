@@ -500,11 +500,50 @@ Label lines use schema v2: `action` (`label` or `withdraw`), `source` (`drawer`,
 `labels_tab`, or `queue`), `sampled`, `sample_seed`, and `note`. Schema v1 lines still read
 as drawer labels. The server sets `source` from a short allowed list and never accepts
 `sampled` or a `queue` source from the browser: only lines the review queue draws at random
-may be marked sampled, because only those give an unbiased Phase 7 accuracy estimate. When orphaned labels pass `orphans.alert_count` or `orphans.alert_share`
-in `config/labels.yaml`, the tab shows a warning and the nav button carries a ⚠ count.
-Closed postings never raise the alert. Labels made in the drawer and labels from the
-upcoming review queue (`queue.target_per_group`) are always counted separately, because
-only randomly sampled lines give an unbiased accuracy estimate.
+may be marked sampled, because only those give an unbiased Phase 7 accuracy estimate.
+
+When orphaned labels pass `orphans.alert_count` or `orphans.alert_share` in
+`config/labels.yaml`, the tab shows a warning and the nav button carries a ⚠ count.
+Closed postings never raise the alert. Labels made in the drawer, in the Labels tab, and in
+the review queue are always counted separately, because only randomly sampled lines give
+an unbiased accuracy estimate.
+
+### Review queue
+
+**Labels → Review queue** shows one requirement line at a time, drawn at random from the
+latest comparison (`GET /api/labels/queue`, sampler in `comparison/review_queue.py`). Lines
+are grouped by kind and the model's verdict, for example "degree lines marked missing", and
+the queue fills the emptiest group first until each holds `queue.target_per_group` sampled
+labels (10 by default; a group with fewer lines asks for all of them). Self-assess lines are
+left out (`queue.exclude_kinds`).
+
+Each line's place in its group is a hash of `queue.seed`, the posting id, and the line, so
+the order is reproducible and new postings land in random positions as the comparison is
+re-run. The server accepts a queue label (`POST /api/labels/queue`) only for a line that is
+currently first in its group, then saves it with `source: queue`, `sampled: true`, and the
+seed. There is no skip button, because skipping hard or dull lines would bias the sample.
+Groups are sampled to equal size, so Phase 7 weights each group by its `population` when it
+combines group accuracies into one number. Withdrawing a queue label puts its line back.
+
+### Changes and snapshots
+
+**Labels → Changes** (`GET /api/labels/changes`, `comparison/label_changes.py`) reads the
+append-only log as a change log: each entry is an event (labeled, changed, confirmed,
+withdrawn, restored), and the first label made under a new comparison model version is
+marked. It shows activity by day, the latest `recent_events` events, and progress of the
+application-tracking decisions that train the weight simulator (10, with at least 3 of
+each kind) and Phase 8 B3 (30 to 50). Which statuses count, and the thresholds, live under
+`tracking` in `config/labels.yaml`.
+
+A **snapshot** freezes the labeled set so a Phase 7 number can cite it. Because the log only
+grows, a snapshot is its first N complete lines: the manifest in
+`data/private/labels/snapshots/` stores N, their SHA-256, and counts (never requirement or
+resume text). A snapshot whose prefix no longer matches is shown as not verified. Saving
+without new labels returns the existing snapshot.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\label_snapshots.py create   # also: list, verify (exit 1 if any mismatch)
+```
 
 ## Engineering Commands
 
