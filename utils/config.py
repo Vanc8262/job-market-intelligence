@@ -546,6 +546,26 @@ class ComparisonBoilerplateConfig(BaseModel):
         return self
 
 
+class ComparisonYearsSubjectConfig(BaseModel):
+    """Years lines that name a role or field count only the resume roles that show it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    generic_terms: list[str] = Field(default_factory=list)
+    min_shared_terms: int = Field(default=2, ge=1, le=5)
+
+
+class ComparisonDegreeFieldsConfig(BaseModel):
+    """Credit for a degree at the right level in a field the resume does not show."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    unrelated_credit: float = Field(default=0.5, ge=0, le=1)
+    broad_fields: list[str] = Field(default_factory=list)
+    broad_credit: float = Field(default=0.5, ge=0, le=1)
+
+
 class ComparisonConfig(BaseModel):
     """Validated contents of comparison.yaml (Phase 6.3 application comparison)."""
 
@@ -580,6 +600,12 @@ class ComparisonConfig(BaseModel):
     synonyms: list[list[str]] = Field(default_factory=list)
     comparable_credit: float = Field(default=0.6, ge=0, le=1)
     boilerplate: ComparisonBoilerplateConfig = Field(default_factory=ComparisonBoilerplateConfig)
+    years_subject: ComparisonYearsSubjectConfig = Field(
+        default_factory=ComparisonYearsSubjectConfig
+    )
+    degree_fields: ComparisonDegreeFieldsConfig = Field(
+        default_factory=ComparisonDegreeFieldsConfig
+    )
 
     @model_validator(mode="after")
     def _concept_fields_exist(self) -> ComparisonConfig:

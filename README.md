@@ -437,8 +437,14 @@ Requirement lines are classified as:
   infrastructure"). Each concept is met by any of its resume terms (REST for APIs, AWS for
   cloud) or, for academic concepts like data structures, by a degree in a related field.
 - **degree / field of study:** level and field; fields are compared by group, so a data
-  science degree meets "fields such as Computer Science or Mathematics".
-- **years:** minimum years of experience (also applied to "5+ years of Python").
+  science degree meets "fields such as Computer Science or Mathematics". A line naming
+  several levels ("B.S., M.S., or Ph.D.") needs the lowest one. The right level in a
+  specific unrelated field ("Electrical Engineering") is missing; in a broad field
+  ("a degree in engineering", `degree_fields.broad_fields`) it is partial.
+- **years:** minimum years of experience (also applied to "5+ years of Python"). When the
+  line names a role or field ("4+ years as a Product Manager"), only resume roles whose
+  title or highlights show that work count (`years_subject`); "6+ years of relevant
+  experience" still uses total years.
 - **trait (○ self-assess):** disposition or logistics a resume cannot show ("you approach
   problems with curiosity", "available to start in June"); listed for you to judge and
   left out of the score.
