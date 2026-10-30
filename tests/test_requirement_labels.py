@@ -142,9 +142,23 @@ def test_unknown_requirements_and_statuses_are_rejected(tmp_path: Path) -> None:
         store.record(_comparisons(), "job-404", SQL_LINE, "met")
     with pytest.raises(LookupError):
         store.record(None, "job-1", SQL_LINE, "met")
-    with pytest.raises(ValueError, match="met, partial, or missing"):
+    with pytest.raises(ValueError, match="met, partial, missing, or not_requirement"):
         store.record(_comparisons(), "job-1", SQL_LINE, "self_assess")
     assert not store.path.exists()
+
+
+def test_lines_the_parser_should_not_have_picked_up_can_be_marked(tmp_path: Path) -> None:
+    store = RequirementLabelStore(labels_path(tmp_path))
+
+    label = store.record(_comparisons(), "job-1", SQL_LINE, "not_requirement", note="perks")
+
+    assert label.corrected_status == "not_requirement"
+    assert label.not_requirement is True
+    assert label.agrees is False
+    assert store.latest_for("job-1")[SQL_LINE].not_requirement is True
+    # Withdrawing the mark puts the line back to unlabeled, like any other label.
+    store.withdraw("job-1", SQL_LINE)
+    assert store.latest_for("job-1") == {}
 
 
 def test_a_torn_final_line_is_skipped_but_other_damage_is_reported(tmp_path: Path) -> None:
@@ -374,3 +388,26 @@ def test_dashboard_withdraws_labels_and_never_trusts_source_claims(tmp_path: Pat
         "label",
         "withdraw",
     ]
+
+
+def test_dashboard_accepts_not_a_requirement_from_the_drawer(tmp_path: Path) -> None:
+    private_root = tmp_path / "private"
+    results = results_path(private_root)
+    results.parent.mkdir(parents=True)
+    results.write_text(json.dumps(_comparisons()), encoding="utf-8")
+    server = create_server(
+        port=0, private_root=private_root, tracking_path=tmp_path / "tracking.json"
+    )
+    with _running(server) as base_url:
+        created, saved = _post(
+            f"{base_url}/api/requirement-labels",
+            {"job_id": "job-1", "requirement": SQL_LINE, "corrected_status": "not_requirement"},
+        )
+        with urlopen(f"{base_url}/api/labels") as response:  # noqa: S310
+            labels = json.loads(response.read())
+
+    assert created == 201
+    assert saved["corrected_status"] == "not_requirement"
+    assert labels["summary"]["not_requirement"] == 1
+    assert labels["summary"]["disagree"] == 0
+    assert labels["labels"][0]["not_requirement"] is True

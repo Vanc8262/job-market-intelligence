@@ -62,7 +62,7 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
    `master`. Descriptive subject + body explaining why.
 5. **Dashboard assets:** when `app.js`, `resume-review.js`, `labels.js`, or `styles.css` change, bump
    the `?v=resume-vN` asset version in `dashboard/static/index.html` **and** in
-   `tests/test_dashboard.py` (currently `resume-v16`).
+   `tests/test_dashboard.py` (currently `resume-v17`).
 6. **Config over code:** thresholds, weights, vocabularies, and taxonomies go in
    `config/*.yaml`, each validated by a Pydantic model in `utils/config.py`
    (`extra="forbid"`; add the field there when adding a YAML key). Bump the config's
@@ -112,6 +112,8 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
   `data/private/labels/requirement_labels.jsonl`; the predicted status is read from the
   stored comparison. Schema v2 adds `action` (label/withdraw), `source`, `sampled`, `note`;
   v1 lines read as drawer labels. `sampled` and the `queue` source are server-assigned only.
+  Verdict `not_requirement` (⊘) marks a line the parser should not have picked up; read
+  models count it apart from agree/disagree, and it points at a `comparison.yaml` fix.
   This is the Phase 7 labeled set.
 - `label_review.py`: Labels tab read model (`GET /api/labels`): newest label per line joined
   to `latest.json` as current/stale/orphaned/closed, plus the orphan alert from

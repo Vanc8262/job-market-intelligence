@@ -113,6 +113,30 @@ def test_queue_serves_the_least_filled_group_and_stops_at_target(tmp_path: Path)
     }
 
 
+def test_sampled_not_a_requirement_labels_count_toward_their_group(tmp_path: Path) -> None:
+    store = RequirementLabelStore(labels_path(tmp_path))
+    comparisons = _comparisons()
+    settings = _settings(target=2)
+    nxt = build_queue(comparisons, store.all(), settings)["next"]
+    assert isinstance(nxt, dict)
+
+    store.record(
+        comparisons,
+        str(nxt["job_id"]),
+        str(nxt["requirement"]),
+        "not_requirement",
+        source=LabelSource.QUEUE,
+        sample_seed=settings.queue.seed,
+    )
+    queue = build_queue(comparisons, store.all(), settings)
+
+    group = next(
+        g for g in queue["groups"] if (g["kind"], g["status"]) == (nxt["kind"], nxt["status"])
+    )
+    assert group["labeled"] == 1
+    assert queue["next"] != nxt
+
+
 def test_drawer_labels_do_not_fill_the_queue(tmp_path: Path) -> None:
     store = RequirementLabelStore(labels_path(tmp_path))
     comparisons = _comparisons()

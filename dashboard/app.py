@@ -20,7 +20,13 @@ from pydantic import BaseModel, ValidationError
 
 from comparison.label_changes import build_changes, create_snapshot
 from comparison.label_review import review_labels, summarize_labels
-from comparison.labels import CLIENT_SOURCES, LabelSource, RequirementLabelStore, labels_path
+from comparison.labels import (
+    CLIENT_SOURCES,
+    VERDICT_ERROR,
+    LabelSource,
+    RequirementLabelStore,
+    labels_path,
+)
 from comparison.review_queue import build_queue, is_queue_head, public_queue
 from comparison.runner import load_results
 from dashboard.resumes import load_candidate_profile, load_resume_review, load_resume_reviews
@@ -658,7 +664,7 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
             if not isinstance(requirement, str) or not requirement:
                 raise ValueError("requirement is required")
             if not isinstance(corrected, str):
-                raise ValueError("corrected_status must be met, partial, or missing")
+                raise ValueError(VERDICT_ERROR)
             if note is not None and not isinstance(note, str):
                 raise ValueError("note must be text")
             settings = Config().labels
@@ -724,7 +730,7 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
             elif action == "label":
                 corrected = payload.get("corrected_status")
                 if not isinstance(corrected, str):
-                    raise ValueError("corrected_status must be met, partial, or missing")
+                    raise ValueError(VERDICT_ERROR)
                 label = store.record(
                     self._comparisons(), job_id, requirement, corrected, source=source, note=note
                 )

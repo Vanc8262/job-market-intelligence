@@ -726,15 +726,17 @@ function comparisonMarkup(payload) {
     <p class="job-meta wrap">Compared ${escapeHtml(formatTimestamp(payload.generated_at))}. Evidence comes from your approved resume; hover a green chip to see the line. ○ marks lines a resume cannot show. Agree or correct a verdict to save a private label.</p>`;
 }
 
-// Owner corrections of ✓/◐/✗ verdicts, stored privately as Phase 7 labels.
-const VERDICT_ICONS = { met: "✓", partial: "◐", missing: "✗" };
+// Owner corrections of ✓/◐/✗ verdicts, stored privately as Phase 7 labels. ⊘ says the
+// parser should not have picked the line up at all; it is counted apart from ✓/◐/✗.
+const VERDICT_ICONS = { met: "✓", partial: "◐", missing: "✗", not_requirement: "⊘" };
+function verdictTitle(status) { return status === "not_requirement" ? "Not a requirement: the parser should not have picked this line up" : `Should be ${formatLabel(status)}`; }
 function labelControl(item, index, label) {
   const predicted = item.status;
   const chosen = label?.corrected_status;
   const button = (status, text, title) => `<button type="button" class="label-button${chosen === status ? " active" : ""}" data-label-index="${index}" data-label-status="${status}" aria-pressed="${chosen === status}" title="${escapeHtml(title)}">${text}</button>`;
   const agree = VERDICT_ICONS[predicted] ? button(predicted, "Agree", `Agree: ${formatLabel(predicted)}`) : "";
-  const others = Object.entries(VERDICT_ICONS).filter(([status]) => status !== predicted).map(([status, glyph]) => button(status, glyph, `Should be ${formatLabel(status)}`)).join("");
-  const note = !label ? "" : label.agrees ? `<span class="label-note">Agreed</span>` : `<span class="label-note">You: ${VERDICT_ICONS[label.corrected_status] || ""}${label.predicted_status !== predicted ? ` (labeled when it was ${escapeHtml(formatLabel(label.predicted_status))})` : ""}</span>`;
+  const others = Object.entries(VERDICT_ICONS).filter(([status]) => status !== predicted).map(([status, glyph]) => button(status, glyph, verdictTitle(status))).join("");
+  const note = !label ? "" : label.agrees ? `<span class="label-note">Agreed</span>` : `<span class="label-note">You: ${VERDICT_ICONS[label.corrected_status] || ""}${label.corrected_status === "not_requirement" ? " not a requirement" : ""}${label.predicted_status !== predicted ? ` (labeled when it was ${escapeHtml(formatLabel(label.predicted_status))})` : ""}</span>`;
   return `<span class="label-prompt">${agree ? "" : "Your call:"}</span>${agree}${agree ? `<span class="label-prompt">should be</span>` : ""}${others}${note}`;
 }
 

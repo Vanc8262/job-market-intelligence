@@ -957,6 +957,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .label-verdict.partial { color: #86580e; }
 .label-verdict.missing { color: var(--red); }
 .label-verdict.self_assess { color: #6b747b; }
+.label-verdict.not_requirement { color: #6b747b; text-decoration: line-through; }
 .label-state { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.64rem; font-weight: 750; white-space: nowrap; background: var(--soft); color: #4a545c; }
 .label-state.current { color: #09664f; background: var(--green-soft); }
 .label-state.stale { color: #24558f; background: var(--blue-soft); }
