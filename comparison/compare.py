@@ -226,6 +226,38 @@ def _unrelated_credit(requirement: Requirement, settings: ComparisonConfig) -> f
     return rules.unrelated_credit
 
 
+def _line_years_factor(
+    requirement: Requirement,
+    resume: ResumeView,
+    settings: ComparisonConfig,
+    vocabulary: RequirementVocabulary,
+    result: dict[str, object],
+) -> float:
+    """Scale a skill or concept line's score by the years it asks for.
+
+    "5+ years of Python": having the skill without all the years is half a match. Far
+    short ("10+ years of software development" against three) is no match: below
+    ``line_years.missing_below_share`` of the asked years, or no years at all in the job
+    the line names ("5+ years in a leadership role"), the line is missing.
+    """
+    needed = requirement.min_years
+    if not needed:
+        return 1.0
+    subject = years_subject(requirement.text, settings, vocabulary)
+    if subject:
+        relevant = _roles_showing(subject, resume, settings, vocabulary)
+        have = experience_years(list(relevant))
+        result["subject"] = sorted(subject)
+    else:
+        have = resume.years
+    if have >= needed:
+        return 1.0
+    result.update(needed_years=needed, resume_years=have)
+    if have <= 0 or have < needed * settings.line_years.missing_below_share:
+        return 0.0
+    return 0.5
+
+
 def assess_requirement(
     requirement: Requirement,
     resume: ResumeView,
@@ -249,9 +281,7 @@ def assess_requirement(
     if requirement.kind == "concept":
         score = concepts_met / len(concepts) if concepts else 0.0
         result["concepts"] = concepts
-        if requirement.min_years and resume.years < requirement.min_years:
-            score *= 0.5
-            result.update(needed_years=requirement.min_years, resume_years=resume.years)
+        score *= _line_years_factor(requirement, resume, settings, vocabulary, result)
     elif requirement.kind == "skill":
         matched = [
             {"skill": skill, "evidence": _evidence(fact)}
@@ -268,10 +298,7 @@ def assess_requirement(
         result.update(any_of=requirement.any_of, matched=matched, missing=missing)
         if concepts:
             result["concepts"] = concepts
-        if requirement.min_years and resume.years < requirement.min_years:
-            # "5+ years of Python": having the skill without the years is half a match.
-            score *= 0.5
-            result.update(needed_years=requirement.min_years, resume_years=resume.years)
+        score *= _line_years_factor(requirement, resume, settings, vocabulary, result)
     elif requirement.kind == "years":
         needed = requirement.min_years or 0.0
         subject = years_subject(requirement.text, settings, vocabulary)
