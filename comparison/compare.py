@@ -210,6 +210,43 @@ def _roles_showing(
     return relevant
 
 
+def leadership_roles(
+    text: str, resume: ResumeView, settings: ComparisonConfig
+) -> list[ExperienceFact] | None:
+    """Return the resume roles that show leadership, when ``text`` asks for leadership.
+
+    ``None`` means the line is not a leadership line. "5+ years in a leadership role" or
+    "3+ years managing engineering teams" count roles whose title or highlights show
+    leading people (``evidence_patterns``); "2+ years managing managers" counts only
+    roles with a manager title (``manager_title_patterns``).
+    """
+    rules = settings.leadership
+    if not rules.enabled or not any(
+        re.search(pattern, text, re.IGNORECASE) for pattern in rules.line_patterns
+    ):
+        return None
+    managers = any(re.search(p, text, re.IGNORECASE) for p in rules.manager_line_patterns)
+    roles: list[ExperienceFact] = []
+    for role in resume.experience:
+        if managers:
+            shown = any(
+                re.search(p, role.title, re.IGNORECASE) for p in rules.manager_title_patterns
+            )
+        else:
+            role_text = " ".join([role.title, *role.highlights])
+            shown = any(re.search(p, role_text, re.IGNORECASE) for p in rules.evidence_patterns)
+        if shown:
+            roles.append(role)
+    return roles
+
+
+def _leadership_score(have: float, needed: float) -> float:
+    """Years in leading roles against the years asked: met, within a year, or missing."""
+    if have >= needed:
+        return 1.0
+    return 0.5 if have > 0 and have >= needed - 1 else 0.0
+
+
 def _role_label(role: ExperienceFact) -> str:
     return (
         f"{role.title}{f', {role.employer}' if role.employer else ''}"
@@ -238,11 +275,19 @@ def _line_years_factor(
     "5+ years of Python": having the skill without all the years is half a match. Far
     short ("10+ years of software development" against three) is no match: below
     ``line_years.missing_below_share`` of the asked years, or no years at all in the job
-    the line names ("5+ years in a leadership role"), the line is missing.
+    the line names ("5+ years as a front-end engineer"), the line is missing. Leadership
+    lines count only roles that lead people (``leadership_roles``).
     """
     needed = requirement.min_years
     if not needed:
         return 1.0
+    leading = leadership_roles(requirement.text, resume, settings)
+    if leading is not None:
+        have = experience_years(leading)
+        result.update(leadership=True, leadership_roles=[_role_label(r) for r in leading])
+        if have < needed:
+            result.update(needed_years=needed, resume_years=have)
+        return _leadership_score(have, needed)
     subject = years_subject(requirement.text, settings, vocabulary)
     if subject:
         relevant = _roles_showing(subject, resume, settings, vocabulary)
@@ -302,7 +347,13 @@ def assess_requirement(
     elif requirement.kind == "years":
         needed = requirement.min_years or 0.0
         subject = years_subject(requirement.text, settings, vocabulary)
-        if subject:
+        leading = leadership_roles(requirement.text, resume, settings)
+        if leading is not None:
+            # "5+ years in a leadership role" counts only roles that show leading people.
+            relevant_years = experience_years(leading)
+            roles = [_role_label(role) for role in leading]
+            result["leadership"] = True
+        elif subject:
             # "4+ years as a Product Manager" counts only roles that show that work.
             relevant = _roles_showing(subject, resume, settings, vocabulary)
             relevant_years = experience_years(list(relevant))
@@ -310,7 +361,9 @@ def assess_requirement(
             result["subject"] = sorted(subject)
         else:
             relevant_years, roles = resume.years, resume.roles
-        if relevant_years >= needed:
+        if leading is not None:
+            score = _leadership_score(relevant_years, needed)
+        elif relevant_years >= needed:
             score = 1.0
         elif relevant_years >= needed - 1 and (relevant_years > 0 or not subject):
             score = 0.5
