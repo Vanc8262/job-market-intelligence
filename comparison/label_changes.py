@@ -122,16 +122,17 @@ def snapshot_dir(store: RequirementLabelStore) -> Path:
     return store.path.parent / SNAPSHOT_DIR
 
 
-def _complete_lines(store: RequirementLabelStore) -> list[bytes]:
-    """Return the log's complete lines (a torn final line is not part of any snapshot)."""
-    if not store.path.exists():
+def complete_lines(path: Path) -> list[bytes]:
+    """Return a log's complete lines (a torn final line is not part of any snapshot)."""
+    if not path.exists():
         return []
-    data = store.path.read_bytes()
+    data = path.read_bytes()
     end = data.rfind(b"\n")
     return data[: end + 1].splitlines(keepends=True) if end >= 0 else []
 
 
-def _prefix_hash(lines: Sequence[bytes], count: int) -> str:
+def prefix_hash(lines: Sequence[bytes], count: int) -> str:
+    """Return the SHA-256 of a log's first ``count`` lines."""
     digest = hashlib.sha256()
     for line in lines[:count]:
         digest.update(line)
@@ -150,9 +151,9 @@ def create_snapshot(
     Saving twice without new labels returns the existing snapshot instead of a copy.
     """
     with store.lock:
-        lines = _complete_lines(store)
+        lines = complete_lines(store.path)
         labels = store.all()
-        digest = _prefix_hash(lines, len(lines))
+        digest = prefix_hash(lines, len(lines))
         existing = next(
             (item for item in list_snapshots(store) if item["log_sha256"] == digest), None
         )
@@ -186,16 +187,19 @@ def create_snapshot(
         }
         folder = snapshot_dir(store)
         folder.mkdir(parents=True, exist_ok=True)
-        _write_json_atomic(folder / f"{manifest['snapshot_id']}.json", manifest)
+        write_json_atomic(folder / f"{manifest['snapshot_id']}.json", manifest)
     return manifest, True
 
 
 def list_snapshots(store: RequirementLabelStore) -> list[dict[str, object]]:
     """Return saved snapshot manifests, newest first, each checked against the log."""
-    folder = snapshot_dir(store)
+    return read_manifests(snapshot_dir(store), complete_lines(store.path))
+
+
+def read_manifests(folder: Path, lines: Sequence[bytes]) -> list[dict[str, object]]:
+    """Return the snapshot manifests in ``folder``, newest first, checked against ``lines``."""
     if not folder.is_dir():
         return []
-    lines = _complete_lines(store)
     manifests: list[dict[str, object]] = []
     for path in sorted(folder.glob("*.json"), reverse=True):
         try:
@@ -208,7 +212,7 @@ def list_snapshots(store: RequirementLabelStore) -> list[dict[str, object]]:
         manifest["verified"] = (
             isinstance(count, int)
             and count <= len(lines)
-            and _prefix_hash(lines, count) == manifest.get("log_sha256")
+            and prefix_hash(lines, count) == manifest.get("log_sha256")
         )
         manifests.append(manifest)
     return manifests
@@ -219,7 +223,7 @@ def current_snapshot(store: RequirementLabelStore) -> dict[str, object] | None:
 
     A number computed now can cite this id; with no match, save a snapshot first.
     """
-    count = len(_complete_lines(store))
+    count = len(complete_lines(store.path))
     return next(
         (
             item
@@ -235,8 +239,8 @@ def snapshot_labels(
 ) -> list[RequirementLabel]:
     """Return the labels a verified snapshot froze, for reproducing a Phase 7 number."""
     count = manifest.get("log_lines")
-    lines = _complete_lines(store)
-    if not isinstance(count, int) or _prefix_hash(lines, count) != manifest.get("log_sha256"):
+    lines = complete_lines(store.path)
+    if not isinstance(count, int) or prefix_hash(lines, count) != manifest.get("log_sha256"):
         raise ValueError("The label log no longer matches this snapshot")
     return [RequirementLabel.model_validate_json(line) for line in lines[:count] if line.strip()]
 
@@ -257,7 +261,8 @@ def build_changes(
     }
 
 
-def _write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
+def write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
+    """Write a JSON document by replacing the file, so readers never see half of it."""
     handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=".tmp-")
     try:
         with os.fdopen(handle, "w", encoding="utf-8") as stream:
@@ -270,12 +275,16 @@ def _write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
 
 __all__ = [
     "build_changes",
+    "complete_lines",
     "create_snapshot",
     "current_snapshot",
     "daily_counts",
     "label_events",
     "list_snapshots",
+    "prefix_hash",
+    "read_manifests",
     "snapshot_dir",
     "snapshot_labels",
     "tracking_progress",
+    "write_json_atomic",
 ]
