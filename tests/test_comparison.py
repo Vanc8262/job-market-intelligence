@@ -619,6 +619,9 @@ def test_ab_testing_is_experimentation_not_software_testing() -> None:
     )
     ab_view = ResumeView.from_facts(parser.parse(ran).facts, ran)
     assert _assess("Experience running A/B tests", ab_view)["status"] == "met"
+    # Plain "experimentation" stays with statistics, which a statistics resume shows.
+    mindset = _assess("A strong bias toward experimentation, iteration, and measuring impact", view)
+    assert [item["concept"] for item in mindset["concepts"]] == ["statistics"]  # type: ignore[index]
 
 
 def test_graduation_windows_compare_with_the_expected_graduation(resume: ResumeView) -> None:

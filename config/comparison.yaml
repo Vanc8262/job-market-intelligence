@@ -6,7 +6,7 @@
 #   domain       - industries the posting works in that the resume also shows
 # The fit score is a transparent weighted average; Phase 8 stage B3 will later turn these
 # signals into a calibrated probability using your application outcomes.
-version: 1.5.6
+version: 1.5.7
 weights:
   requirements: 0.45
   keywords: 0.30
@@ -200,12 +200,12 @@ concepts:
     resume: [machine learning, scikit-learn, TensorFlow, PyTorch, Keras, regression, classification, predictive, random forest, XGBoost, clustering, neural network, neural networks, deep learning]
   statistics:
     label: Statistics
-    posting: [statistics, statistical analysis, statistical methods, hypothesis testing, inference]
+    posting: [statistics, statistical analysis, statistical methods, hypothesis testing, experimentation, experimental design, inference]
     resume: [statistics, statistical, regression, hypothesis, Bayesian, inference, A/B, probability]
     fields: [mathematics_and_statistics]
   experimentation:
     label: A/B testing and experimentation
-    posting: [A/B testing, A/B tests, A/B test, A/B, multivariate testing, split testing, experimentation, experimental design, controlled experiments]
+    posting: [A/B testing, A/B tests, A/B test, A/B, multivariate testing, split testing]
     resume: [A/B test, A/B tests, A/B testing, multivariate test, multivariate testing, split test, split testing, controlled experiment, controlled experiments, experimentation]
   data_analysis:
     label: Data analysis
