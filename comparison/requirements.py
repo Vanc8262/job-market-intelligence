@@ -75,12 +75,27 @@ YEARS = re.compile(
 )
 DEGREES = (
     (5, re.compile(r"(?<![A-Za-z])(ph\.?\s?d|doctorate|doctoral)(?![A-Za-z])", re.I)),
-    (4, re.compile(r"(?<![A-Za-z])(master'?s?|m\.s\.?|ms degree|mba)(?![A-Za-z])", re.I)),
+    # "master" alone is a verb ("master your craft"); the degree is "Master's", "masters",
+    # "master of/degree", or the abbreviations.
+    (
+        4,
+        re.compile(
+            r"(?<![A-Za-z])(master(?:'|’)s|masters|master (?:of|degree)|m\.s\.?|ms degree|mba)"
+            r"(?![A-Za-z])|"
+            # Bare "MS" names a degree only next to another one ("BS/MS", "MS or PhD"),
+            # never "MS Excel".
+            r"(?-i:(?<![A-Za-z])MS(?=\s*/|\s+or\b|\s+in\b|\s*,\s*(?:PhD|Ph\.D))|(?<=/)MS\b)",
+            re.I,
+        ),
+    ),
     (
         3,
         re.compile(
-            r"(?<![A-Za-z])(bachelor'?s?|b\.s\.?|b\.a\.?|bs degree|undergraduate degree)"
-            r"(?![A-Za-z])",
+            r"(?<![A-Za-z])(bachelor'?s?|bachelor’s|b\.s\.?|b\.a\.?|bs degree|undergraduate degree)"
+            r"(?![A-Za-z])|"
+            # Uppercase "BS"/"BA" as written in "BA/BS", "BS/MS/PhD", "BS in ...".
+            # Never a bare "BA" ("work with the BA team").
+            r"(?-i:(?<![A-Za-z])(?:BS|BA)(?=\s*/|\s+(?:in|or|degree)\b)|(?<=/)(?:BS|BA)\b)",
             re.I,
         ),
     ),
@@ -96,8 +111,16 @@ BARE_DEGREE = re.compile(
 )
 # A line asking for a field of study without saying "degree".
 FIELD_CUE = re.compile(
-    r"\b(fields? (such as|like|of study)|disciplines? (such as|like)|background\b|"
+    r"\b(fields? (such as|like|of study|include)|disciplines? (such as|like)|background\b|"
     r"major(ing)? in|studying|coursework in|related field)",
+    re.IGNORECASE,
+)
+# "or equivalent experience (5+ years in lieu of degree)": the years are the alternative
+# to the degree, so the line stays a degree line.
+DEGREE_ALTERNATIVE = re.compile(r"equivalent|in lieu of|or related experience", re.IGNORECASE)
+# The clause that lists fields of study in a degree line; "in lieu of a degree" is not one.
+FIELD_LIST = re.compile(
+    r"\b(?:in(?!\s+lieu\b)|fields? include(?: but (?:are )?not limited to)?|such as)\s+[^.;()]+",
     re.IGNORECASE,
 )
 COMPARABLE = re.compile(
@@ -344,7 +367,7 @@ def classify(
     # In a degree line, "in Computer Science, Statistics, ..." names fields of study, not
     # skills: look for skills and concepts only outside that clause.
     degree_like = degree_level is not None or field_line
-    skill_text = re.sub(r"\bin\s+[^.;()]+", " ", text) if degree_like else text
+    skill_text = FIELD_LIST.sub(" ", text) if degree_like else text
     skills = skills_in_text(skill_text)
     concepts = vocabulary.concepts_in(skill_text) if vocabulary and not degree_like else []
     named = [] if degree_like else named_items(text, skills_in_text, vocabulary)
@@ -356,14 +379,14 @@ def classify(
         if EQUIVALENT.match(comparable.group(0))
         else "comparable"
     )
-    if degree_like and not skills and not years:
+    if degree_like and not skills and (not years or DEGREE_ALTERNATIVE.search(text)):
         return Requirement(
             text=text,
             required=required,
             kind="degree",
             degree_level=degree_level,
             fields=fields,
-            degree_or_equivalent=bool(re.search(r"equivalent|or related experience", text, re.I)),
+            degree_or_equivalent=bool(DEGREE_ALTERNATIVE.search(text)),
         )
     if years and not skills and not concepts:
         return Requirement(
