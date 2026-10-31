@@ -554,6 +554,25 @@ class ComparisonLineYearsConfig(BaseModel):
     missing_below_share: float = Field(default=0.0, ge=0, le=1)
 
 
+class ComparisonLeadershipConfig(BaseModel):
+    """Years of leadership count only roles whose title shows leadership."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    line_patterns: list[str] = Field(default_factory=list)
+    title_terms: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _patterns_compile(self) -> ComparisonLeadershipConfig:
+        for pattern in self.line_patterns:
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(f"invalid leadership pattern {pattern!r}: {exc}") from exc
+        return self
+
+
 class ComparisonYearsSubjectConfig(BaseModel):
     """Years lines that name a job count only the resume roles that show it."""
 
@@ -622,6 +641,7 @@ class ComparisonConfig(BaseModel):
         default_factory=ComparisonYearsSubjectConfig
     )
     line_years: ComparisonLineYearsConfig = Field(default_factory=ComparisonLineYearsConfig)
+    leadership: ComparisonLeadershipConfig = Field(default_factory=ComparisonLeadershipConfig)
     degree_fields: ComparisonDegreeFieldsConfig = Field(
         default_factory=ComparisonDegreeFieldsConfig
     )

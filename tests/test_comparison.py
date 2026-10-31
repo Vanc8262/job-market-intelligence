@@ -534,6 +534,32 @@ def test_skill_and_concept_lines_far_short_of_their_years_are_missing(
     assert enough["status"] == "met" and "needed_years" not in enough
 
 
+def test_leadership_years_count_only_roles_with_a_leadership_title(resume: ResumeView) -> None:
+    # The synthetic resume has no lead or manager title, so mentoring or team work in
+    # its developer role does not count as leadership.
+    for line in (
+        "5+ years of experience in a leadership role, managing and mentoring software "
+        "engineering teams.",
+        "3+ years managing engineering teams",
+        "2+ years of people management experience",
+        "3+ years of experience leading data teams with Python",
+    ):
+        assessed = _assess(line, resume)
+        assert assessed["status"] == "missing", line
+        assert assessed["leadership"] is True, line
+    # A resume whose title shows leadership gets credit for those years.
+    led = SAMPLE_RESUME.replace("Software Developer    Jan 2023", "Software Team Lead    Jan 2023")
+    config = Config()
+    parser = ResumeParser(SkillVocabulary(config.skills, config.resume_profile.skills))
+    lead_view = ResumeView.from_facts(parser.parse(led).facts, led)
+    managing = _assess("3+ years managing engineering teams", lead_view)
+    assert managing["status"] == "met"
+    assert managing["evidence"]["roles"][0].startswith("Software Team Lead")  # type: ignore[index]
+    # Lines that do not ask for leadership keep their usual rule.
+    assert "leadership" not in _assess("3+ years of experience as a software developer", resume)
+    assert "leadership" not in _assess("4+ years as a Product Manager", resume)
+
+
 def test_stemming_and_synonyms_match_different_wording() -> None:
     vocabulary = RequirementVocabulary(Config().comparison)
     assert stem("pipelines") == stem("pipeline")

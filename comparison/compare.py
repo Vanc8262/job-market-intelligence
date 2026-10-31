@@ -226,6 +226,38 @@ def _unrelated_credit(requirement: Requirement, settings: ComparisonConfig) -> f
     return rules.unrelated_credit
 
 
+def _scoped_years(
+    text: str,
+    resume: ResumeView,
+    settings: ComparisonConfig,
+    vocabulary: RequirementVocabulary,
+    result: dict[str, object],
+) -> tuple[float, list[str], bool]:
+    """Return the resume years a years requirement can count, their roles, and if scoped.
+
+    Leadership lines ("5+ years in a leadership role", "managing engineering teams")
+    count only roles whose title shows leadership (``leadership.title_terms``). Lines
+    that name another job ("4+ years as a Product Manager") count only roles that show
+    that work. Anything else counts total years.
+    """
+    rules = settings.leadership
+    if rules.enabled and any(re.search(p, text, re.IGNORECASE) for p in rules.line_patterns):
+        titles = [term.casefold() for term in rules.title_terms]
+        leading = [
+            role
+            for role in resume.experience
+            if any(re.search(rf"\b{re.escape(term)}\b", role.title.casefold()) for term in titles)
+        ]
+        result["leadership"] = True
+        return experience_years(list(leading)), [_role_label(role) for role in leading], True
+    subject = years_subject(text, settings, vocabulary)
+    if subject:
+        relevant = _roles_showing(subject, resume, settings, vocabulary)
+        result["subject"] = sorted(subject)
+        return experience_years(list(relevant)), [_role_label(role) for role in relevant], True
+    return resume.years, resume.roles, False
+
+
 def _line_years_factor(
     requirement: Requirement,
     resume: ResumeView,
@@ -243,13 +275,7 @@ def _line_years_factor(
     needed = requirement.min_years
     if not needed:
         return 1.0
-    subject = years_subject(requirement.text, settings, vocabulary)
-    if subject:
-        relevant = _roles_showing(subject, resume, settings, vocabulary)
-        have = experience_years(list(relevant))
-        result["subject"] = sorted(subject)
-    else:
-        have = resume.years
+    have, _, _ = _scoped_years(requirement.text, resume, settings, vocabulary, result)
     if have >= needed:
         return 1.0
     result.update(needed_years=needed, resume_years=have)
@@ -301,18 +327,14 @@ def assess_requirement(
         score *= _line_years_factor(requirement, resume, settings, vocabulary, result)
     elif requirement.kind == "years":
         needed = requirement.min_years or 0.0
-        subject = years_subject(requirement.text, settings, vocabulary)
-        if subject:
-            # "4+ years as a Product Manager" counts only roles that show that work.
-            relevant = _roles_showing(subject, resume, settings, vocabulary)
-            relevant_years = experience_years(list(relevant))
-            roles = [_role_label(role) for role in relevant]
-            result["subject"] = sorted(subject)
-        else:
-            relevant_years, roles = resume.years, resume.roles
+        # "4+ years as a Product Manager" or "in a leadership role" counts only the
+        # roles that show that work.
+        relevant_years, roles, scoped = _scoped_years(
+            requirement.text, resume, settings, vocabulary, result
+        )
         if relevant_years >= needed:
             score = 1.0
-        elif relevant_years >= needed - 1 and (relevant_years > 0 or not subject):
+        elif relevant_years >= needed - 1 and (relevant_years > 0 or not scoped):
             score = 0.5
         else:
             score = 0.0

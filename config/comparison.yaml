@@ -6,7 +6,7 @@
 #   domain       - industries the posting works in that the resume also shows
 # The fit score is a transparent weighted average; Phase 8 stage B3 will later turn these
 # signals into a calibrated probability using your application outcomes.
-version: 1.5.3
+version: 1.5.4
 weights:
   requirements: 0.45
   keywords: 0.30
@@ -28,6 +28,21 @@ comparable_credit: 0.6
 # leadership role", see `years_subject`), does not meet the line (missing).
 line_years:
   missing_below_share: 0.34
+# Years of leadership ("5+ years in a leadership role", "3+ years managing engineering
+# teams", "2+ years of people management") count only resume roles whose job title
+# contains one of `title_terms`. Mentoring or coordinating inside an individual
+# contributor role does not count; with no such role the line is missing. This applies
+# to years lines and to skill or concept lines that ask for years, and takes precedence
+# over `years_subject`.
+leadership:
+  enabled: true
+  line_patterns:
+    - '\bleadership (role|position|experience)s?\b'
+    - '\b(people|personnel|team|engineering|line) management\b'
+    - '\b(managing|leading|led|managed|supervising|supervised)\s+(and\s+\w+\s+)?(a\s+|the\s+)?([\w-]+\s+){0,2}(teams?|engineers|people|staff|direct reports|groups?)\b'
+    - '\bdirect reports\b'
+    - '\bas an?\s+(team\s+|tech(nical)?\s+|engineering\s+)?(lead|manager|supervisor|director|head)\b'
+  title_terms: [lead, leader, manager, head, director, supervisor, chief, vp, vice president, president, founder, co-founder]
 # Years lines that name a job ("4+ years as a Product Manager", "2+ years in a fraud
 # analyst role", matched by `role_patterns`) count only resume roles whose title or
 # highlights share at least `min_shared_terms` of the line's subject terms (all of them
