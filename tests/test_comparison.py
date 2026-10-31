@@ -534,6 +534,33 @@ def test_skill_and_concept_lines_far_short_of_their_years_are_missing(
     assert enough["status"] == "met" and "needed_years" not in enough
 
 
+def test_leadership_years_count_only_roles_that_show_leading_people(
+    resume: ResumeView,
+) -> None:
+    # About 4 years in total but no role shows leading people.
+    lead = _assess("3+ years of experience in a leadership role", resume)
+    assert lead["kind"] == "years" and lead["leadership"] is True
+    assert lead["status"] == "missing" and lead["resume_years"] == 0
+    teams = _assess("3+ years of experience managing engineering teams", resume)
+    assert teams["status"] == "missing"
+    plain = _assess("3+ years of professional experience", resume)
+    assert plain["status"] == "met" and "leadership" not in plain
+
+    config = Config()
+    parser = ResumeParser(SkillVocabulary(config.skills, config.resume_profile.skills))
+    text = SAMPLE_RESUME.replace(
+        "Maintained REST APIs", "Led a team of 3 engineers maintaining REST APIs"
+    )
+    leader = ResumeView.from_facts(parser.parse(text).facts, text)
+    # The developer role (Jan 2023 to today) now shows leadership.
+    assert _assess("3+ years of experience managing engineering teams", leader)["status"] == "met"
+    far = _assess("8+ years of experience in a leadership role, mentoring teams", leader)
+    assert far["status"] == "missing"
+    # Managing managers needs a manager title; leading a team is not enough.
+    managers = _assess("2+ years of experience managing managers", leader)
+    assert managers["status"] == "missing"
+
+
 def test_stemming_and_synonyms_match_different_wording() -> None:
     vocabulary = RequirementVocabulary(Config().comparison)
     assert stem("pipelines") == stem("pipeline")

@@ -546,6 +546,32 @@ class ComparisonBoilerplateConfig(BaseModel):
         return self
 
 
+class ComparisonLeadershipConfig(BaseModel):
+    """Years lines that ask for leadership count only the resume roles that show it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    line_patterns: list[str] = Field(default_factory=list)
+    evidence_patterns: list[str] = Field(default_factory=list)
+    manager_line_patterns: list[str] = Field(default_factory=list)
+    manager_title_patterns: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _patterns_compile(self) -> ComparisonLeadershipConfig:
+        for pattern in [
+            *self.line_patterns,
+            *self.evidence_patterns,
+            *self.manager_line_patterns,
+            *self.manager_title_patterns,
+        ]:
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(f"invalid leadership pattern {pattern!r}: {exc}") from exc
+        return self
+
+
 class ComparisonLineYearsConfig(BaseModel):
     """How far short of a skill or concept line's years the resume may fall."""
 
@@ -622,6 +648,7 @@ class ComparisonConfig(BaseModel):
         default_factory=ComparisonYearsSubjectConfig
     )
     line_years: ComparisonLineYearsConfig = Field(default_factory=ComparisonLineYearsConfig)
+    leadership: ComparisonLeadershipConfig = Field(default_factory=ComparisonLeadershipConfig)
     degree_fields: ComparisonDegreeFieldsConfig = Field(
         default_factory=ComparisonDegreeFieldsConfig
     )
