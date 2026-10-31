@@ -333,7 +333,10 @@ def classify(
 ) -> Requirement:
     """Decide what a requirement line asks for."""
     years = YEARS.search(text)
-    degree_level = next((level for level, pattern in DEGREES if pattern.search(text)), None)
+    # "BS/MS/PhD" or "Bachelor's or Master's" asks for the lowest level it names; a
+    # higher one listed as a plus does not raise the bar.
+    named_levels = [level for level, pattern in DEGREES if pattern.search(text)]
+    degree_level = min(named_levels) if named_levels else None
     if degree_level is None and BARE_DEGREE.search(text):
         degree_level = 3
     fields = vocabulary.fields_in(text) if vocabulary else []

@@ -11,7 +11,7 @@ from urllib.request import urlopen
 import pytest
 
 from comparison import RequirementVocabulary, ResumeView, compare_posting, extract_requirements
-from comparison.compare import assess_requirement
+from comparison.compare import DEGREE_NAMES, assess_requirement
 from comparison.requirements import classify, content_text, requirement_lines
 from comparison.runner import ApplicationComparisonRunner, load_results
 from comparison.vocabulary import stem
@@ -419,8 +419,39 @@ def test_related_fields_of_study_count(resume: ResumeView) -> None:
     )
     assert background["kind"] == "degree" and background["status"] == "met"
     assert background["field_match"] == "related"  # B.S. Data Science and Analytics
+    # A specific unrelated field is missing; a broad one ("engineering") stays partial.
     other = _assess("Bachelor's degree in Electrical Engineering", resume)
-    assert other["status"] == "partial" and other["field_match"] == "none"
+    assert other["status"] == "missing" and other["field_match"] == "none"
+    broad = _assess("Bachelor's degree in engineering", resume)
+    assert broad["status"] == "partial" and broad["field_match"] == "none"
+
+
+def test_multi_level_degree_lines_need_the_lowest_level_named(resume: ResumeView) -> None:
+    line = _assess("B.S., M.S., or Ph.D. in Data Science, Statistics, or a related field", resume)
+    assert line["kind"] == "degree" and line["status"] == "met"
+    assert line["needed_degree"] == DEGREE_NAMES[3]
+    masters = _assess("Master's or PhD in Statistics", resume)
+    assert masters["status"] == "missing"
+
+
+def test_years_lines_naming_a_role_count_only_roles_that_show_it(resume: ResumeView) -> None:
+    # About 4 years in total, none of it as a product manager ("3 product teams" alone
+    # is one shared term, below min_shared_terms).
+    product = _assess("4+ years of experience as a Product Manager", resume)
+    assert product["kind"] == "years" and product["status"] == "missing"
+    assert product["resume_years"] == 0
+    assert product["evidence"] == {"roles": []}
+    developer = _assess("3+ years of experience as a software developer", resume)
+    assert developer["status"] == "met"
+    assert developer["evidence"]["roles"][0].startswith("Software Developer")  # type: ignore[index]
+    generic = _assess("3+ years of relevant professional experience", resume)
+    assert generic["status"] == "met" and "subject" not in generic
+    # Only lines that name a job have a subject; work described otherwise, or "a
+    # similar role", still compares with total years.
+    work = _assess("2+ years deploying software to edge systems in a similar role", resume)
+    assert work["status"] == "met" and "subject" not in work
+    fraud = _assess("2+ years of experience in a fraud analyst or revenue protection role", resume)
+    assert fraud["status"] == "missing"
 
 
 def test_stemming_and_synonyms_match_different_wording() -> None:

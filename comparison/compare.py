@@ -23,7 +23,7 @@ from dataclasses import dataclass
 
 from comparison.requirements import Requirement, content_text, extract_requirements
 from comparison.vocabulary import STOPWORDS, TOKEN, RequirementVocabulary, phrase_pattern, stem
-from models.candidate import EducationFact, ExtractedFacts, SkillFact
+from models.candidate import EducationFact, ExperienceFact, ExtractedFacts, SkillFact
 from models.job_posting import JobPosting
 from profiles.profile_source import experience_years
 from utils.config import ComparisonConfig
@@ -35,6 +35,18 @@ DEGREE_LEVELS = (
     (2, re.compile(r"associate|a\.a\.|a\.s\.", re.IGNORECASE)),
 )
 DEGREE_NAMES = {2: "associate degree", 3: "bachelor's degree", 4: "master's degree", 5: "PhD"}
+# "Minimum of 4+ years of experience" around the number in a years line; what is left
+# names the work the years must be in.
+YEARS_PHRASE = re.compile(
+    r"\b(minimum( of)?|at least|over|more than)?\s*\d{1,2}\s*\+?\s*"
+    r"((-|–|to)\s*\d{1,2}\s*\+?\s*)?years?('|’)?( of)?( experience)?",
+    re.IGNORECASE,
+)
+_FUNCTION_WORDS = frozenset(
+    """with that this have from your their into within such including other others more
+    must will able also both each than them they what when where which while been being
+    some like about over under across through using""".split()
+)
 
 
 @dataclass(frozen=True)
@@ -50,6 +62,7 @@ class ResumeView:
     terms: frozenset[str]
     roles: list[str]
     lines: tuple[str, ...] = ()
+    experience: tuple[ExperienceFact, ...] = ()
 
     @classmethod
     def from_facts(cls, facts: ExtractedFacts, text: str) -> ResumeView:
@@ -80,6 +93,7 @@ class ResumeView:
             terms=frozenset(_terms(text)),
             roles=roles,
             lines=tuple(line.strip() for line in text.splitlines() if line.strip()),
+            experience=tuple(facts.experience),
         )
 
     def has_skill(self, skill: str) -> SkillFact | None:
@@ -155,6 +169,63 @@ def _status(score: float) -> str:
     return "missing"
 
 
+def years_subject(
+    text: str, settings: ComparisonConfig, vocabulary: RequirementVocabulary
+) -> set[str]:
+    """Return the job a years line asks for experience in, as comparable terms.
+
+    Only lines that name a job (a ``role_patterns`` match) have a subject: "4+ years of
+    experience as a Product Manager" -> {"product", "manag"}. "6+ years of experience"
+    and "2+ years deploying software to edge systems" -> set(), which keeps the plain
+    comparison with total years.
+    """
+    rules = settings.years_subject
+    if not rules.enabled or not any(
+        re.search(pattern, text, re.IGNORECASE) for pattern in rules.role_patterns
+    ):
+        return set()
+    generic = {word.casefold() for word in rules.generic_terms}
+    rest = YEARS_PHRASE.sub(" ", text)
+    return {
+        vocabulary.canonical(token)
+        for raw in TOKEN.findall(rest.casefold())
+        if (token := raw.strip(".-")) and token not in generic and token not in _FUNCTION_WORDS
+    }
+
+
+def _roles_showing(
+    subject: set[str],
+    resume: ResumeView,
+    settings: ComparisonConfig,
+    vocabulary: RequirementVocabulary,
+) -> list[ExperienceFact]:
+    """Return the resume roles whose title or highlights share enough subject terms."""
+    needed = min(settings.years_subject.min_shared_terms, len(subject))
+    relevant: list[ExperienceFact] = []
+    for role in resume.experience:
+        text = " ".join([role.title, *role.highlights])
+        terms = {vocabulary.canonical(raw.strip(".-")) for raw in TOKEN.findall(text.casefold())}
+        if len(subject & terms) >= needed:
+            relevant.append(role)
+    return relevant
+
+
+def _role_label(role: ExperienceFact) -> str:
+    return (
+        f"{role.title}{f', {role.employer}' if role.employer else ''}"
+        f"{_span(role.start, role.end, role.current)}"
+    )
+
+
+def _unrelated_credit(requirement: Requirement, settings: ComparisonConfig) -> float:
+    rules = settings.degree_fields
+    broad = {name.casefold() for name in rules.broad_fields}
+    named = {name.casefold() for name in requirement.fields}
+    if not named or named <= broad:
+        return rules.broad_credit
+    return rules.unrelated_credit
+
+
 def assess_requirement(
     requirement: Requirement,
     resume: ResumeView,
@@ -203,17 +274,22 @@ def assess_requirement(
             result.update(needed_years=requirement.min_years, resume_years=resume.years)
     elif requirement.kind == "years":
         needed = requirement.min_years or 0.0
-        if resume.years >= needed:
+        subject = years_subject(requirement.text, settings, vocabulary)
+        if subject:
+            # "4+ years as a Product Manager" counts only roles that show that work.
+            relevant = _roles_showing(subject, resume, settings, vocabulary)
+            relevant_years = experience_years(list(relevant))
+            roles = [_role_label(role) for role in relevant]
+            result["subject"] = sorted(subject)
+        else:
+            relevant_years, roles = resume.years, resume.roles
+        if relevant_years >= needed:
             score = 1.0
-        elif resume.years >= needed - 1:
+        elif relevant_years >= needed - 1 and (relevant_years > 0 or not subject):
             score = 0.5
         else:
             score = 0.0
-        result.update(
-            needed_years=needed,
-            resume_years=resume.years,
-            evidence={"roles": resume.roles},
-        )
+        result.update(needed_years=needed, resume_years=relevant_years, evidence={"roles": roles})
     elif requirement.kind == "degree":
         needed_level = requirement.degree_level
         level = resume.degree_level or 0
@@ -243,9 +319,11 @@ def assess_requirement(
             )
         level_ok = bool(resume.education) if needed_level is None else level >= needed_level
         if level_ok:
-            # Right level; a named field the resume does not show counts half
-            # ("Bachelor's in Electrical Engineering" vs a data science degree).
-            score = 1.0 if field_match != "none" else 0.5
+            # Right level in a field the resume does not show: a specific named field
+            # ("Bachelor's in Electrical Engineering" vs a data science degree) earns
+            # ``degree_fields.unrelated_credit``; a broad one ("a degree in engineering"),
+            # or a field this vocabulary does not know, earns ``broad_credit``.
+            score = 1.0 if field_match != "none" else _unrelated_credit(requirement, settings)
         elif equivalent:
             score = 1.0
         else:
