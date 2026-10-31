@@ -419,9 +419,12 @@ def test_related_fields_of_study_count(resume: ResumeView) -> None:
     )
     assert background["kind"] == "degree" and background["status"] == "met"
     assert background["field_match"] == "related"  # B.S. Data Science and Analytics
-    # A specific unrelated field is missing; a broad one ("engineering") stays partial.
-    other = _assess("Bachelor's degree in Electrical Engineering", resume)
+    # A specific unrelated field is missing; a broad one ("engineering", or electrical
+    # engineering, listed in broad_fields) stays partial.
+    other = _assess("Bachelor's degree in Chemistry", resume)
     assert other["status"] == "missing" and other["field_match"] == "none"
+    electrical = _assess("Bachelor's degree in Electrical Engineering", resume)
+    assert electrical["status"] == "partial" and electrical["field_match"] == "none"
     broad = _assess("Bachelor's degree in engineering", resume)
     assert broad["status"] == "partial" and broad["field_match"] == "none"
 

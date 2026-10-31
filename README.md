@@ -439,8 +439,8 @@ Requirement lines are classified as:
 - **degree / field of study:** level and field; fields are compared by group, so a data
   science degree meets "fields such as Computer Science or Mathematics". A line naming
   several levels ("B.S., M.S., or Ph.D.") needs the lowest one. The right level in a
-  specific unrelated field ("Electrical Engineering") is missing; in a broad field
-  ("a degree in engineering", `degree_fields.broad_fields`) it is partial.
+  specific unrelated field ("Chemistry") is missing; in a broad field ("a degree in
+  engineering", or electrical engineering; `degree_fields.broad_fields`) it is partial.
 - **years:** minimum years of experience (also applied to "5+ years of Python"). When the
   line names a job ("4+ years as a Product Manager", "a fraud analyst role";
   `years_subject.role_patterns`), only resume roles whose title or highlights show that
