@@ -643,6 +643,39 @@ def test_graduation_windows_compare_with_the_expected_graduation(resume: ResumeV
     assert _assess("Graduating in Spring 2027", view)["status"] == "self_assess"
 
 
+def test_graduation_ranges_open_ends_and_start_dates(resume: ResumeView) -> None:
+    # The synthetic resume expects to graduate in May 2027.
+    between = _assess("Graduation date between June 2026 and December 2027.", resume)
+    assert between["status"] == "met"
+    assert between["needed_graduation"] == ["2026-06 to 2027-12"]
+    assert (
+        _assess("Graduation date between June 2027 and September 2028", resume)["status"]
+        == "missing"
+    )
+    assert _assess("Graduating Fall 2026 - Spring 2027", resume)["status"] == "met"
+    later = _assess("Pursuing a B.S. in CS, graduating December 2027 or later", resume)
+    assert later["status"] == "missing" and later["needed_graduation"] == ["2027-12 or later"]
+    assert _assess("Graduating December 2026 or later", resume)["status"] == "met"
+    assert _assess("Must graduate by August 2027", resume)["status"] == "met"
+    assert _assess("Graduating May 2027 or earlier", resume)["status"] == "met"
+    assert _assess("Must graduate by March 2027", resume)["status"] == "missing"
+    start = _assess("Can start full-time Graduate position on the 6th of September 2027", resume)
+    assert start["status"] == "met" and start["needed_graduation"] == ["by 2027-09"]
+    assert _assess("Graduates able to start in January 2027", resume)["status"] == "missing"
+
+
+def test_named_engineering_field_is_specific_even_with_similar_fields(
+    resume: ResumeView,
+) -> None:
+    line = _assess(
+        "Pursuing an undergraduate degree in Chemical Engineering or similar fields", resume
+    )
+    assert line["kind"] == "degree" and line["needed_fields"] == ["chemical engineering"]
+    assert line["status"] == "missing" and line["field_match"] == "none"
+    # A bare "engineering" degree stays broad.
+    assert _assess("Bachelor's in Engineering", resume)["status"] == "partial"
+
+
 def test_degree_with_years_as_the_alternative_stays_a_degree_line(resume: ResumeView) -> None:
     line = _assess(
         "Associate degree in Drafting & Design, CAD, Engineering Technology, or a related "

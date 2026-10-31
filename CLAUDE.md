@@ -116,7 +116,9 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
   highlights show leading people; "managing managers" needs a manager title. Leadership
   lines without years (`skill_line_patterns`) are met when any role shows leading people.
   Graduation-window lines ("graduating in December 2027 or Spring 2028", kind `graduation`)
-  compare the resume's expected graduation with the named months/seasons (`graduation`). Multi-level degree lines use
+  compare the resume's expected graduation with the named months/seasons (`graduation`): "between X and Y"
+  and "X - Y" are one window, `later_phrases`/`earlier_phrases`/`by_phrases` open an end, and a
+  start date (`start_phrases`) is met by graduating before it. Multi-level degree lines use
   the lowest level; an unrelated specific field earns `degree_fields.unrelated_credit`
   (0, missing), a broad or unknown one `broad_credit` (0.5).
 - `runner.py`: compares all active Silver postings, writes results privately.
