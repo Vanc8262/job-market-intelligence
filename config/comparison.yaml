@@ -6,7 +6,7 @@
 #   domain       - industries the posting works in that the resume also shows
 # The fit score is a transparent weighted average; Phase 8 stage B3 will later turn these
 # signals into a calibrated probability using your application outcomes.
-version: 1.5.4
+version: 1.5.5
 weights:
   requirements: 0.45
   keywords: 0.30
@@ -34,7 +34,7 @@ line_years:
 # title or highlights show leading people (`evidence_patterns`); lines asking to manage
 # managers count only roles with a manager title (`manager_title_patterns`). Those years
 # meet the line, fall within a year of it (partial), or are missing. Leadership lines
-# without years keep the usual matching.
+# without years follow `skill_line_patterns` below.
 leadership:
   enabled: true
   line_patterns:
@@ -48,6 +48,13 @@ leadership:
     - '\bmanagers?\s+of\s+managers\b'
   manager_title_patterns:
     - '\b(manager|director|head|vp|vice president)\b'
+  # Leadership lines that do not ask for years ("Proven leadership skills to guide teams",
+  # "Ability to lead and motivate a team", "technical leadership experience") are met
+  # when any role shows leading people (`evidence_patterns`, quoted as evidence) and
+  # missing otherwise. The owner judges these met on his resume.
+  skill_line_patterns:
+    - '\bleadership\b'
+    - '\b(lead|leading|guide|guiding|motivate|motivating|mentor|mentoring|manage|managing)\b[^.;]{0,40}?\b(teams?|others|people|engineers|developers|staff|reports)\b'
 # Years lines that name a job ("4+ years as a Product Manager", "2+ years in a fraud
 # analyst role", matched by `role_patterns`) count only resume roles whose title or
 # highlights share at least `min_shared_terms` of the line's subject terms (all of them

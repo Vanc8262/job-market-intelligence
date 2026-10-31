@@ -556,11 +556,13 @@ class ComparisonLeadershipConfig(BaseModel):
     evidence_patterns: list[str] = Field(default_factory=list)
     manager_line_patterns: list[str] = Field(default_factory=list)
     manager_title_patterns: list[str] = Field(default_factory=list)
+    skill_line_patterns: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _patterns_compile(self) -> ComparisonLeadershipConfig:
         for pattern in [
             *self.line_patterns,
+            *self.skill_line_patterns,
             *self.evidence_patterns,
             *self.manager_line_patterns,
             *self.manager_title_patterns,

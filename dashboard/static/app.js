@@ -675,6 +675,7 @@ function requirementEvidence(item) {
     return chips + note;
   };
   const baseEvidence = (item) => {
+    if (item.leadership && !item.needed_years) return (item.evidence?.roles || []).length ? `<span class="job-meta wrap">Leading people shown in: ${escapeHtml(item.evidence.roles.join("; "))}</span>` : `<span class="job-meta wrap">No role on the resume shows leading people (led, managed, mentored…)</span>`;
     if (item.kind === "trait") return `<span class="job-meta wrap">Not something a resume can show; judge this yourself</span>`;
     if (item.kind === "concept") return conceptChips(item) + yearsNote(item);
     if (item.kind === "skill") return conceptChips(item) + [...(item.matched || []).map((match) => `<span class="evidence-chip met" title="${escapeHtml(match.evidence ? `${formatLabel(match.evidence.section)}: ${match.evidence.text}` : "On your approved resume")}">${escapeHtml(match.skill)}</span>`), ...(item.missing || []).map((skill) => `<span class="evidence-chip missing">${escapeHtml(skill)}</span>`)].join("") + (item.any_of ? `<span class="job-meta">any one of these</span>` : "") + yearsNote(item);
