@@ -596,6 +596,54 @@ def test_leadership_lines_without_years_need_a_role_that_leads(resume: ResumeVie
         assert "leadership" not in _assess(line, leader), line
 
 
+def test_ab_testing_is_experimentation_not_software_testing() -> None:
+    config = Config()
+    parser = ResumeParser(SkillVocabulary(config.skills, config.resume_profile.skills))
+    tested = SAMPLE_RESUME.replace("Maintained REST APIs", "Wrote pytest unit tests for REST APIs")
+    view = ResumeView.from_facts(parser.parse(tested).facts, tested)
+    line = _assess("Exposure to A/B and multivariate creative testing methodologies.", view)
+    assert [item["concept"] for item in line["concepts"]] == ["experimentation"]  # type: ignore[index]
+    assert line["status"] == "missing"
+    unit = _assess("Experience writing unit tests", view)
+    assert [item["concept"] for item in unit["concepts"]] == ["testing"]  # type: ignore[index]
+    assert unit["status"] == "met"
+    ran = SAMPLE_RESUME.replace(
+        "Trained scikit-learn churn models", "Ran A/B tests on churn models"
+    )
+    ab_view = ResumeView.from_facts(parser.parse(ran).facts, ran)
+    assert _assess("Experience running A/B tests", ab_view)["status"] == "met"
+
+
+def test_graduation_windows_compare_with_the_expected_graduation(resume: ResumeView) -> None:
+    # The synthetic resume expects to graduate in May 2027.
+    later = _assess("Must be graduating in December 2027 or Spring 2028.", resume)
+    assert later["kind"] == "graduation" and later["status"] == "missing"
+    assert later["needed_graduation"] == ["2027-12", "2028-01 to 2028-05"]
+    assert later["evidence"]["graduation"] == "2027-05"  # type: ignore[index]
+    spring = _assess("Graduating in Spring 2027", resume)
+    assert spring["status"] == "met"
+    winter = _assess("Expected graduation: Winter 2027", resume)
+    assert winter["status"] == "missing"  # December 2026 to February 2027
+    other = classify("Graduates of accredited programs encouraged to apply", True, skills_in_text)
+    assert other.kind != "graduation"
+    graduated = SAMPLE_RESUME.replace("Expected May 2027", "May 2022")
+    config = Config()
+    parser = ResumeParser(SkillVocabulary(config.skills, config.resume_profile.skills))
+    view = ResumeView.from_facts(parser.parse(graduated).facts, graduated)
+    assert _assess("Graduating in Spring 2027", view)["status"] == "self_assess"
+
+
+def test_degree_with_years_as_the_alternative_stays_a_degree_line(resume: ResumeView) -> None:
+    line = _assess(
+        "Associate degree in Drafting & Design, CAD, Engineering Technology, or a related "
+        "field with 3-5 years of industrial electrical design experience, or 10+ years of "
+        "relevant industrial drafting/design experience",
+        resume,
+    )
+    assert line["kind"] == "degree" and line["needed_degree"] == DEGREE_NAMES[2]
+    assert line["status"] == "missing" and line["field_match"] == "none"
+
+
 def test_stemming_and_synonyms_match_different_wording() -> None:
     vocabulary = RequirementVocabulary(Config().comparison)
     assert stem("pipelines") == stem("pipeline")

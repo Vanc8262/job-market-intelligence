@@ -128,6 +128,10 @@ def _terms(text: str) -> set[str]:
     return {stem(token) for token in TOKEN.findall(text.casefold()) if token not in STOPWORDS}
 
 
+def _month_label(index: int) -> str:
+    return f"{index // 12}-{index % 12 + 1:02d}"
+
+
 def _education_label(education: EducationFact) -> str:
     return " ".join(part for part in (education.degree, education.field_of_study) if part)
 
@@ -406,6 +410,40 @@ def assess_requirement(
         else:
             score = 0.0
         result.update(needed_years=needed, resume_years=relevant_years, evidence={"roles": roles})
+    elif requirement.kind == "graduation":
+        expected = [
+            education
+            for education in resume.education
+            if education.expected and education.graduation and education.graduation.month
+        ]
+        if not expected:
+            # Without an expected graduation date the resume cannot answer this.
+            result.update(score=0.0, status="self_assess", weight=0.0)
+            return result
+        inside = [
+            education
+            for education in expected
+            if education.graduation
+            and education.graduation.month
+            and any(
+                first <= education.graduation.year * 12 + education.graduation.month - 1 <= last
+                for first, last in requirement.graduation_windows
+            )
+        ]
+        score = 1.0 if inside else 0.0
+        shown = (inside or expected)[0]
+        result.update(
+            needed_graduation=[
+                f"{_month_label(first)} to {_month_label(last)}"
+                if first != last
+                else _month_label(first)
+                for first, last in requirement.graduation_windows
+            ],
+            evidence={
+                "degree": _education_label(shown),
+                "graduation": shown.graduation.label() if shown.graduation else None,
+            },
+        )
     elif requirement.kind == "degree":
         needed_level = requirement.degree_level
         level = resume.degree_level or 0

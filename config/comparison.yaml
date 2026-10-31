@@ -6,7 +6,7 @@
 #   domain       - industries the posting works in that the resume also shows
 # The fit score is a transparent weighted average; Phase 8 stage B3 will later turn these
 # signals into a calibrated probability using your application outcomes.
-version: 1.5.5
+version: 1.5.6
 weights:
   requirements: 0.45
   keywords: 0.30
@@ -86,6 +86,18 @@ degree_fields:
   unrelated_credit: 0.0
   broad_fields: [engineering, business, electrical engineering]
   broad_credit: 0.5
+# Lines asking when you graduate ("Must be graduating in December 2027 or Spring 2028")
+# are met when an expected graduation on the resume falls in a named month or season
+# (`seasons`: [first month, last month]; winter runs from the December before). With no
+# expected graduation on the resume, they are left to self-assess.
+graduation:
+  enabled: true
+  seasons:
+    spring: [1, 5]
+    summer: [6, 8]
+    fall: [9, 12]
+    autumn: [9, 12]
+    winter: [12, 2]
 # Requirements and keyword scores start from a neutral 50% worth this many requirement
 # lines (or rarity-weighted keywords), so a posting with one or two assessable lines
 # cannot score 0% or 100% on its own.
@@ -128,6 +140,7 @@ fields_of_study:
   engineering_and_physical_sciences: [engineering, electrical engineering, mechanical engineering, industrial engineering, systems engineering, computer engineering, physics, chemistry]
   business_and_economics: [economics, finance, business, business administration, accounting, management information systems]
   life_sciences: [biology, bioinformatics, neuroscience, public health, biomedical engineering]
+  design_and_drafting: [drafting, drafting and design, drafting & design, CAD, engineering technology, architecture, industrial design]
 # Broad abilities postings name in plain words ("APIs, data pipelines, and cloud
 # infrastructure"). A concept is met when the resume shows any of its `resume` terms, or
 # a degree in one of its `fields` groups. Matching ignores case, except terms of one or
@@ -182,9 +195,13 @@ concepts:
     resume: [machine learning, scikit-learn, TensorFlow, PyTorch, Keras, regression, classification, predictive, random forest, XGBoost, clustering, neural network, neural networks, deep learning]
   statistics:
     label: Statistics
-    posting: [statistics, statistical analysis, statistical methods, hypothesis testing, experimentation, A/B testing, experimental design, inference]
+    posting: [statistics, statistical analysis, statistical methods, hypothesis testing, inference]
     resume: [statistics, statistical, regression, hypothesis, Bayesian, inference, A/B, probability]
     fields: [mathematics_and_statistics]
+  experimentation:
+    label: A/B testing and experimentation
+    posting: [A/B testing, A/B tests, A/B test, A/B, multivariate testing, split testing, experimentation, experimental design, controlled experiments]
+    resume: [A/B test, A/B tests, A/B testing, multivariate test, multivariate testing, split test, split testing, controlled experiment, controlled experiments, experimentation]
   data_analysis:
     label: Data analysis
     posting: [data analysis, analyzing data, analytical, analytics, data-driven, quantitative analysis]
@@ -201,6 +218,7 @@ concepts:
   testing:
     label: Testing
     posting: [testing, unit tests, unit testing, automated testing, test automation, test coverage, QA, quality assurance]
+    not_with: [A/B, multivariate, split testing, hypothesis testing]
     resume: [testing, tests, pytest, unit tests, unittest, JUnit, Selenium, Playwright, QA, quality assurance, test]
   ci_cd_devops:
     label: CI/CD and DevOps

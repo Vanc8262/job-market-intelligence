@@ -117,7 +117,36 @@ FIELD_CUE = re.compile(
 )
 # "or equivalent experience (5+ years in lieu of degree)": the years are the alternative
 # to the degree, so the line stays a degree line.
-DEGREE_ALTERNATIVE = re.compile(r"equivalent|in lieu of|or related experience", re.IGNORECASE)
+DEGREE_ALTERNATIVE = re.compile(
+    r"equivalent|in lieu of|or related experience|\bor\s+\d{1,2}\s*\+?\s*years", re.IGNORECASE
+)
+# "Must be graduating in December 2027 or Spring 2028": a graduation window, judged
+# against the resume's expected graduation, not by word overlap.
+GRADUATION = re.compile(r"\bgraduat(e|es|ed|ing|ion)\b", re.IGNORECASE)
+_MONTHS = {
+    name: number
+    for number, names in enumerate(
+        (
+            ("january", "jan"),
+            ("february", "feb"),
+            ("march", "mar"),
+            ("april", "apr"),
+            ("may",),
+            ("june", "jun"),
+            ("july", "jul"),
+            ("august", "aug"),
+            ("september", "sep", "sept"),
+            ("october", "oct"),
+            ("november", "nov"),
+            ("december", "dec"),
+        ),
+        start=1,
+    )
+    for name in names
+}
+_TERM_DATE = re.compile(
+    r"\b(?P<when>[a-z]+)\.?\s*(?:of\s+|'|’)?(?P<year>(?:19|20)\d{2}|\d{2})\b", re.IGNORECASE
+)
 # The clause that lists fields of study in a degree line; "in lieu of a degree" is not one.
 FIELD_LIST = re.compile(
     r"\b(?:in(?!\s+lieu\b)|fields? include(?: but (?:are )?not limited to)?|such as)\s+[^.;()]+",
@@ -169,7 +198,7 @@ class Requirement:
 
     text: str
     required: bool
-    kind: str  # "skill" | "years" | "degree" | "concept" | "trait" | "text"
+    kind: str  # "skill" | "years" | "degree" | "graduation" | "concept" | "trait" | "text"
     skills: list[str] = field(default_factory=list)
     concepts: list[str] = field(default_factory=list)
     fields: list[str] = field(default_factory=list)
@@ -182,6 +211,8 @@ class Requirement:
     min_years: float | None = None
     degree_level: int | None = None
     degree_or_equivalent: bool = False
+    # Graduation windows as (first, last) month indexes (year * 12 + month - 1).
+    graduation_windows: list[tuple[int, int]] = field(default_factory=list)
 
 
 # Headings written as phrases rather than titles ("To thrive in this role, you have").
@@ -348,6 +379,28 @@ def named_items(
     return list(dict.fromkeys(names))
 
 
+def graduation_windows(text: str, seasons: dict[str, tuple[int, int]]) -> list[tuple[int, int]]:
+    """Return the graduation terms a line names as month-index windows.
+
+    "December 2027 or Spring 2028" -> [Dec 2027, Jan-May 2028] with the configured
+    season months. A season whose first month is after its last ("winter": 12 to 2)
+    starts in the year before.
+    """
+    windows: list[tuple[int, int]] = []
+    for match in _TERM_DATE.finditer(text):
+        word = match["when"].casefold()
+        year = int(match["year"])
+        year = year + 2000 if year < 100 else year
+        if word in _MONTHS:
+            month = _MONTHS[word]
+            windows.append((year * 12 + month - 1, year * 12 + month - 1))
+        elif word in seasons:
+            first, last = seasons[word]
+            start_year = year - 1 if first > last else year
+            windows.append((start_year * 12 + first - 1, year * 12 + last - 1))
+    return windows
+
+
 def classify(
     text: str,
     required: bool,
@@ -355,6 +408,13 @@ def classify(
     vocabulary: RequirementVocabulary | None = None,
 ) -> Requirement:
     """Decide what a requirement line asks for."""
+    if vocabulary is not None and GRADUATION.search(text):
+        rules = vocabulary.settings.graduation
+        windows = graduation_windows(text, rules.season_windows()) if rules.enabled else []
+        if windows:
+            return Requirement(
+                text=text, required=required, kind="graduation", graduation_windows=windows
+            )
     years = YEARS.search(text)
     # "BS/MS/PhD" or "Bachelor's or Master's" asks for the lowest level it names; a
     # higher one listed as a plus does not raise the bar.

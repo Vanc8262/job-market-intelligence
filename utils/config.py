@@ -525,6 +525,27 @@ class ComparisonConcept(BaseModel):
     posting: list[str] = Field(min_length=1)
     resume: list[str] = Field(default_factory=list)
     fields: list[str] = Field(default_factory=list)
+    not_with: list[str] = Field(default_factory=list)
+
+
+class ComparisonGraduationConfig(BaseModel):
+    """Graduation-window lines: season names and the months each covers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    seasons: dict[str, list[int]] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _seasons_are_month_pairs(self) -> ComparisonGraduationConfig:
+        for name, months in self.seasons.items():
+            if len(months) != 2 or not all(1 <= month <= 12 for month in months):
+                raise ValueError(f"season {name!r} needs [first_month, last_month] in 1-12")
+        return self
+
+    def season_windows(self) -> dict[str, tuple[int, int]]:
+        """Return each season (lower-cased) as (first month, last month)."""
+        return {name.casefold(): (months[0], months[1]) for name, months in self.seasons.items()}
 
 
 class ComparisonBoilerplateConfig(BaseModel):
@@ -651,6 +672,7 @@ class ComparisonConfig(BaseModel):
     )
     line_years: ComparisonLineYearsConfig = Field(default_factory=ComparisonLineYearsConfig)
     leadership: ComparisonLeadershipConfig = Field(default_factory=ComparisonLeadershipConfig)
+    graduation: ComparisonGraduationConfig = Field(default_factory=ComparisonGraduationConfig)
     degree_fields: ComparisonDegreeFieldsConfig = Field(
         default_factory=ComparisonDegreeFieldsConfig
     )

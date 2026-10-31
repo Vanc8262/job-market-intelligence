@@ -62,7 +62,7 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
    `master`. Descriptive subject + body explaining why.
 5. **Dashboard assets:** when `app.js`, `resume-review.js`, `labels.js`, or `styles.css` change, bump
    the `?v=resume-vN` asset version in `dashboard/static/index.html` **and** in
-   `tests/test_dashboard.py` (currently `resume-v21`).
+   `tests/test_dashboard.py` (currently `resume-v22`).
 6. **Config over code:** thresholds, weights, vocabularies, and taxonomies go in
    `config/*.yaml`, each validated by a Pydantic model in `utils/config.py`
    (`extra="forbid"`; add the field there when adding a YAML key). Bump the config's
@@ -97,7 +97,7 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
   cue-sentence fallback), tags required/preferred, filters boilerplate (EEO,
   accommodation, perks, scam warnings, plus `boilerplate` phrases/section breaks in
   `comparison.yaml`), rejoins wrapped continuation lines, and classifies each line: `skill`, `concept`,
-  `degree` (incl. field-of-study lines), `years`, `trait` (self-assess, not scored),
+  `degree` (incl. field-of-study lines), `years`, `graduation`, `trait` (self-assess, not scored),
   `text`. `named_items()` extracts products before "or comparable / or another …".
 - `vocabulary.py`: compiles `config/comparison.yaml` concepts, fields of study (grouped
   for "related field"), traits, synonym groups; light stemmer `stem()`.
@@ -114,7 +114,9 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
   `line_years.missing_below_share` of the years (or with none in a job the line names). Lines asking
   for years of leadership (`leadership.line_patterns`) count only roles whose title or
   highlights show leading people; "managing managers" needs a manager title. Leadership
-  lines without years (`skill_line_patterns`) are met when any role shows leading people. Multi-level degree lines use
+  lines without years (`skill_line_patterns`) are met when any role shows leading people.
+  Graduation-window lines ("graduating in December 2027 or Spring 2028", kind `graduation`)
+  compare the resume's expected graduation with the named months/seasons (`graduation`). Multi-level degree lines use
   the lowest level; an unrelated specific field earns `degree_fields.unrelated_credit`
   (0, missing), a broad or unknown one `broad_credit` (0.5).
 - `runner.py`: compares all active Silver postings, writes results privately.
