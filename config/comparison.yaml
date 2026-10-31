@@ -6,7 +6,7 @@
 #   domain       - industries the posting works in that the resume also shows
 # The fit score is a transparent weighted average; Phase 8 stage B3 will later turn these
 # signals into a calibrated probability using your application outcomes.
-version: 1.5.7
+version: 1.5.8
 weights:
   requirements: 0.45
   keywords: 0.30
@@ -93,8 +93,12 @@ degree_fields:
   technical_groups: [computing_and_data, mathematics_and_statistics, engineering_and_physical_sciences, life_sciences]
 # Lines asking when you graduate ("Must be graduating in December 2027 or Spring 2028")
 # are met when an expected graduation on the resume falls in a named month or season
-# (`seasons`: [first month, last month]; winter runs from the December before). With no
-# expected graduation on the resume, they are left to self-assess.
+# (`seasons`: [first month, last month]; winter runs from the December before). Two dates
+# joined by "to", "through", "-" or "between ... and" are one window. `later_phrases`
+# after a date leave the window open-ended ("December 2027 or later"); `earlier_phrases`
+# after it or `by_phrases` before it mean any earlier graduation counts; a date after one
+# of `start_phrases` is a start date, met by graduating before it. With no expected
+# graduation on the resume, they are left to self-assess.
 graduation:
   enabled: true
   seasons:
@@ -103,6 +107,10 @@ graduation:
     fall: [9, 12]
     autumn: [9, 12]
     winter: [12, 2]
+  later_phrases: [or later, or after, and later, and after, onward, onwards, or beyond]
+  earlier_phrases: [or earlier, or before, and earlier]
+  by_phrases: [by, no later than, before, prior to, by the end of, on or before]
+  start_phrases: [start, starting, begin, available, join]
 # Requirements and keyword scores start from a neutral 50% worth this many requirement
 # lines (or rarity-weighted keywords), so a posting with one or two assessable lines
 # cannot score 0% or 100% on its own.
@@ -142,7 +150,7 @@ domains:
 fields_of_study:
   computing_and_data: [computer science, data science, software engineering, computer engineering, information technology, information systems, computer information systems, data analytics, analytics, informatics, computer programming, programming, computing]
   mathematics_and_statistics: [mathematics, applied mathematics, math, statistics, applied statistics, data science, operations research, actuarial science, quantitative finance]
-  engineering_and_physical_sciences: [engineering, electrical engineering, mechanical engineering, industrial engineering, systems engineering, computer engineering, physics, chemistry]
+  engineering_and_physical_sciences: [engineering, electrical engineering, mechanical engineering, industrial engineering, systems engineering, computer engineering, chemical engineering, civil engineering, aerospace engineering, environmental engineering, materials science, materials engineering, nuclear engineering, petroleum engineering, physics, chemistry]
   business_and_economics: [economics, finance, business, business administration, accounting, management information systems]
   life_sciences: [biology, bioinformatics, neuroscience, public health, biomedical engineering]
   design_and_drafting: [drafting, drafting and design, drafting & design, CAD, engineering technology, architecture, industrial design]
