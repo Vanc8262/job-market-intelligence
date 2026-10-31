@@ -431,7 +431,7 @@ def assess_requirement(
             )
         ]
         score = 1.0 if inside else 0.0
-        shown = (inside or expected)[0]
+        degree_shown = (inside or expected)[0]
         result.update(
             needed_graduation=[
                 f"{_month_label(first)} to {_month_label(last)}"
@@ -440,8 +440,10 @@ def assess_requirement(
                 for first, last in requirement.graduation_windows
             ],
             evidence={
-                "degree": _education_label(shown),
-                "graduation": shown.graduation.label() if shown.graduation else None,
+                "degree": _education_label(degree_shown),
+                "graduation": (
+                    degree_shown.graduation.label() if degree_shown.graduation else None
+                ),
             },
         )
     elif requirement.kind == "degree":
