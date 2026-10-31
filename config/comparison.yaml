@@ -86,6 +86,11 @@ degree_fields:
   unrelated_credit: 0.0
   broad_fields: [engineering, business, electrical engineering]
   broad_credit: 0.5
+  # A degree line that accepts any technical field ("in a technical or scientific
+  # discipline", "a quantitative, technical, or business field") is met by a degree in one
+  # of `technical_groups` (fields_of_study groups). The owner chose this on 2026-10-31.
+  technical_terms: [technical, scientific, science, quantitative, STEM]
+  technical_groups: [computing_and_data, mathematics_and_statistics, engineering_and_physical_sciences, life_sciences]
 # Lines asking when you graduate ("Must be graduating in December 2027 or Spring 2028")
 # are met when an expected graduation on the resume falls in a named month or season
 # (`seasons`: [first month, last month]; winter runs from the December before). With no

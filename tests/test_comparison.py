@@ -465,12 +465,19 @@ def test_uppercase_degree_abbreviations_name_their_levels(resume: ResumeView) ->
         assessed = _assess(line, resume)
         assert assessed["needed_degree"] == DEGREE_NAMES[3], line
         assert assessed["status"] == "met", line
-    # "business" is a broad field, so a data science degree earns broad credit.
+    # A line accepting any technical field is met by a data science degree.
     business = _assess("BA/BS in a quantitative, technical, or business field", resume)
-    assert business["needed_degree"] == DEGREE_NAMES[3] and business["status"] == "partial"
+    assert business["needed_degree"] == DEGREE_NAMES[3] and business["status"] == "met"
     assert _assess("MS in Statistics", resume)["needed_degree"] == DEGREE_NAMES[4]
-    # An unknown broad field ("scientific") earns broad credit.
-    assert _assess("BS/MS/PhD in a scientific field", resume)["status"] == "partial"
+    assert _assess("BS/MS/PhD in a scientific field", resume)["status"] == "met"
+    discipline = _assess(
+        "A Bachelor's degree, specializing in a technical or scientific discipline is "
+        "preferred or equivalent experience.",
+        resume,
+    )
+    assert discipline["status"] == "met" and discipline["field_match"] == "related"
+    # An unknown specific field is still only broad credit.
+    assert _assess("BS in Forestry", resume)["status"] == "partial"
     for line in ("Proficiency with MS Excel and MS Office", "Partner with the BA team"):
         assert classify(line, True, skills_in_text).kind != "degree", line
 

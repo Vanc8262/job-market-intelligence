@@ -128,6 +128,26 @@ def _terms(text: str) -> set[str]:
     return {stem(token) for token in TOKEN.findall(text.casefold()) if token not in STOPWORDS}
 
 
+def _technical_degree(
+    text: str,
+    resume: ResumeView,
+    settings: ComparisonConfig,
+    vocabulary: RequirementVocabulary,
+) -> bool:
+    """Whether a line accepting any technical field is met by the resume's degree field."""
+    rules = settings.degree_fields
+    terms = phrase_pattern(rules.technical_terms)
+    match = _FIELD_CLAUSE.search(text)
+    if terms is None or not match or not terms.search(match["fields"]):
+        return False
+    groups = {
+        group
+        for education in resume.education
+        for group in vocabulary.field_groups(vocabulary.fields_in(_education_label(education)))
+    }
+    return bool(groups & set(rules.technical_groups))
+
+
 def _month_label(index: int) -> str:
     return f"{index // 12}-{index % 12 + 1:02d}"
 
@@ -473,6 +493,12 @@ def assess_requirement(
             field_match = (
                 "exact" if not fields or fields & _terms(" ".join(resume_labels)) else "none"
             )
+        if field_match == "none" and _technical_degree(
+            requirement.text, resume, settings, vocabulary
+        ):
+            # "a technical or scientific field", "a quantitative, technical, or business
+            # field": a computing, math, science or engineering degree fits.
+            field_match = "related"
         level_ok = bool(resume.education) if needed_level is None else level >= needed_level
         if level_ok:
             # Right level in a field the resume does not show: a specific named field

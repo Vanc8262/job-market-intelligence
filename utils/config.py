@@ -631,6 +631,8 @@ class ComparisonDegreeFieldsConfig(BaseModel):
     unrelated_credit: float = Field(default=0.5, ge=0, le=1)
     broad_fields: list[str] = Field(default_factory=list)
     broad_credit: float = Field(default=0.5, ge=0, le=1)
+    technical_terms: list[str] = Field(default_factory=list)
+    technical_groups: list[str] = Field(default_factory=list)
 
 
 class ComparisonConfig(BaseModel):
