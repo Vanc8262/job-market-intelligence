@@ -437,6 +437,63 @@ def test_multi_level_degree_lines_need_the_lowest_level_named(resume: ResumeView
     assert masters["status"] == "missing"
 
 
+def test_degree_or_equivalent_lines_keep_the_degree_reading(resume: ResumeView) -> None:
+    # "in lieu of a degree" is not a field of study.
+    lieu = _assess(
+        "Bachelor's degree preferred, with relevant experience considered in lieu of a degree.",
+        resume,
+    )
+    assert lieu["kind"] == "degree" and lieu["status"] == "met"
+    assert lieu["needed_fields"] == []
+    # Years offered as the alternative to a degree do not turn it into a years line.
+    alternative = _assess(
+        "A BS/BA degree or equivalent experience (i.e. 5+ years industry experience in lieu "
+        "of degree) is required.",
+        resume,
+    )
+    assert alternative["kind"] == "degree" and alternative["status"] == "met"
+    assert alternative["needed_degree"] == DEGREE_NAMES[3]
+    years = classify("BS degree and 5+ years of experience", True, skills_in_text)
+    assert years.kind == "years"
+
+
+def test_uppercase_degree_abbreviations_name_their_levels(resume: ResumeView) -> None:
+    for line in (
+        "BS in Data Science or a related field",
+        "You have a BS/MS/PhD in Statistics or equivalent experience",
+    ):
+        assessed = _assess(line, resume)
+        assert assessed["needed_degree"] == DEGREE_NAMES[3], line
+        assert assessed["status"] == "met", line
+    # "business" is a broad field, so a data science degree earns broad credit.
+    business = _assess("BA/BS in a quantitative, technical, or business field", resume)
+    assert business["needed_degree"] == DEGREE_NAMES[3] and business["status"] == "partial"
+    assert _assess("MS in Statistics", resume)["needed_degree"] == DEGREE_NAMES[4]
+    # An unknown broad field ("scientific") earns broad credit.
+    assert _assess("BS/MS/PhD in a scientific field", resume)["status"] == "partial"
+    for line in ("Proficiency with MS Excel and MS Office", "Partner with the BA team"):
+        assert classify(line, True, skills_in_text).kind != "degree", line
+
+
+def test_master_as_a_verb_is_not_a_degree(resume: ResumeView) -> None:
+    craft = _assess(
+        "Desire to work in a fast-paced environment, continuously grow, and master your craft",
+        resume,
+    )
+    assert craft["kind"] == "trait"
+    for line in ("Master's degree in Statistics", "Masters in Statistics", "Master of Science"):
+        assert classify(line, True, skills_in_text).degree_level == 4, line
+
+
+def test_field_lists_after_include_are_fields_not_skills(resume: ResumeView) -> None:
+    line = _assess(
+        "Strong engineering background. Preferred fields include but are not limited to "
+        "Computer Science, Mathematics, Data Science, and Machine Learning.",
+        resume,
+    )
+    assert line["kind"] == "degree" and line["status"] == "met"
+
+
 def test_years_lines_naming_a_role_count_only_roles_that_show_it(resume: ResumeView) -> None:
     # About 4 years in total, none of it as a product manager ("3 product teams" alone
     # is one shared term, below min_shared_terms).

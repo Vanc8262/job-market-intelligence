@@ -107,6 +107,13 @@ def test_default_configuration_documents_all_target_shapes() -> None:
         "chime-greenhouse",
         "spotify-lever",
         "owner-ashby",
+        "voloridge-greenhouse",
+        "wurl-greenhouse",
+        "guidepoint-greenhouse",
+        "fti-consulting-workday",
+        "workiva-workday",
+        "chemours-workday",
+        "athena-workday",
     ]
     targets_by_name = {target.name: target.model_dump() for target in targets}
     assert targets_by_name["palantir-lever"]["site"] == "palantir"

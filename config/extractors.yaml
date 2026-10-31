@@ -80,3 +80,60 @@ targets:
     company_name: Owner
     job_board_name: owner
     include_unlisted: false
+
+  # Added 2026-10-31 from employers on the owner's applications worksheet. Each board was
+  # checked first: Greenhouse's public Job Board API, and Workday robots.txt files that
+  # allow the career site (same template as ModMed, only /refreshFacet/ disallowed).
+  - name: voloridge-greenhouse
+    source: greenhouse
+    enabled: true
+    company_name: Voloridge Investment Management
+    board_token: voloridgeinvestmentmanagement
+
+  - name: wurl-greenhouse
+    source: greenhouse
+    enabled: true
+    company_name: Wurl
+    board_token: wurljobs
+
+  - name: guidepoint-greenhouse
+    source: greenhouse
+    enabled: true
+    company_name: GuidePoint Security
+    board_token: guidepointsecurity
+
+  - name: fti-consulting-workday
+    source: workday
+    enabled: true
+    company_name: FTI Consulting
+    host: https://fticonsulting.wd108.myworkdayjobs.com
+    tenant: fticonsulting
+    site: FTIConsultingCareers
+    page_size: 20
+
+  - name: workiva-workday
+    source: workday
+    enabled: true
+    company_name: Workiva
+    host: https://workiva.wd503.myworkdayjobs.com
+    tenant: workiva
+    site: careers
+    page_size: 20
+
+  - name: chemours-workday
+    source: workday
+    enabled: true
+    company_name: Chemours
+    host: https://chemours.wd103.myworkdayjobs.com
+    tenant: chemours
+    site: Chemours
+    page_size: 20
+
+  - name: athena-workday
+    source: workday
+    enabled: true
+    company_name: Athena
+    host: https://athenago.wd108.myworkdayjobs.com
+    tenant: athenago
+    site: athena
+    page_size: 20

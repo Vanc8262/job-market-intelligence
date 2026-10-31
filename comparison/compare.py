@@ -101,7 +101,7 @@ class ResumeView:
         return self.skills.get(skill.casefold())
 
 
-_FIELD_CLAUSE = re.compile(r"\bin\s+(?P<fields>[^.;()]+)", re.IGNORECASE)
+_FIELD_CLAUSE = re.compile(r"\bin\s+(?!lieu\b)(?P<fields>[^.;()]+)", re.IGNORECASE)
 _GENERIC_FIELD_TERMS = frozenset(
     {"related", "field", "fields", "quantitative", "technical", "discipline", "area", "similar"}
 )
