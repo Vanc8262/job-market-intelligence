@@ -62,7 +62,7 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
    `master`. Descriptive subject + body explaining why.
 5. **Dashboard assets:** when `app.js`, `resume-review.js`, `labels.js`, or `styles.css` change, bump
    the `?v=resume-vN` asset version in `dashboard/static/index.html` **and** in
-   `tests/test_dashboard.py` (currently `resume-v19`).
+   `tests/test_dashboard.py` (currently `resume-v20`).
 6. **Config over code:** thresholds, weights, vocabularies, and taxonomies go in
    `config/*.yaml`, each validated by a Pydantic model in `utils/config.py`
    (`extra="forbid"`; add the field there when adding a YAML key). Bump the config's
