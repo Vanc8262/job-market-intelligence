@@ -135,6 +135,13 @@ class RequirementVocabulary:
         }
         # Resume terms are tried in the order listed, so the strongest evidence
         # ("analysis" before "SQL" for data analysis) is quoted first.
+        # A concept that a more specific phrase in the line overrides ("A/B testing" is
+        # experimentation, not software testing).
+        self._not_with = {
+            name: pattern
+            for name, concept in settings.concepts.items()
+            if (pattern := phrase_pattern(concept.not_with)) is not None
+        }
         self._resume = {
             name: [
                 pattern
@@ -204,7 +211,8 @@ class RequirementVocabulary:
         found: list[tuple[int, str]] = []
         for name, pattern in self._posting.items():
             match = pattern.search(text)
-            if match:
+            excluded = self._not_with.get(name)
+            if match and not (excluded and excluded.search(text)):
                 found.append((match.start(), name))
         return [name for _, name in sorted(found)]
 

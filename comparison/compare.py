@@ -128,6 +128,30 @@ def _terms(text: str) -> set[str]:
     return {stem(token) for token in TOKEN.findall(text.casefold()) if token not in STOPWORDS}
 
 
+def _technical_degree(
+    text: str,
+    resume: ResumeView,
+    settings: ComparisonConfig,
+    vocabulary: RequirementVocabulary,
+) -> bool:
+    """Whether a line accepting any technical field is met by the resume's degree field."""
+    rules = settings.degree_fields
+    terms = phrase_pattern(rules.technical_terms)
+    match = _FIELD_CLAUSE.search(text)
+    if terms is None or not match or not terms.search(match["fields"]):
+        return False
+    groups = {
+        group
+        for education in resume.education
+        for group in vocabulary.field_groups(vocabulary.fields_in(_education_label(education)))
+    }
+    return bool(groups & set(rules.technical_groups))
+
+
+def _month_label(index: int) -> str:
+    return f"{index // 12}-{index % 12 + 1:02d}"
+
+
 def _education_label(education: EducationFact) -> str:
     return " ".join(part for part in (education.degree, education.field_of_study) if part)
 
@@ -406,6 +430,42 @@ def assess_requirement(
         else:
             score = 0.0
         result.update(needed_years=needed, resume_years=relevant_years, evidence={"roles": roles})
+    elif requirement.kind == "graduation":
+        expected = [
+            education
+            for education in resume.education
+            if education.expected and education.graduation and education.graduation.month
+        ]
+        if not expected:
+            # Without an expected graduation date the resume cannot answer this.
+            result.update(score=0.0, status="self_assess", weight=0.0)
+            return result
+        inside = [
+            education
+            for education in expected
+            if education.graduation
+            and education.graduation.month
+            and any(
+                first <= education.graduation.year * 12 + education.graduation.month - 1 <= last
+                for first, last in requirement.graduation_windows
+            )
+        ]
+        score = 1.0 if inside else 0.0
+        degree_shown = (inside or expected)[0]
+        result.update(
+            needed_graduation=[
+                f"{_month_label(first)} to {_month_label(last)}"
+                if first != last
+                else _month_label(first)
+                for first, last in requirement.graduation_windows
+            ],
+            evidence={
+                "degree": _education_label(degree_shown),
+                "graduation": (
+                    degree_shown.graduation.label() if degree_shown.graduation else None
+                ),
+            },
+        )
     elif requirement.kind == "degree":
         needed_level = requirement.degree_level
         level = resume.degree_level or 0
@@ -433,6 +493,12 @@ def assess_requirement(
             field_match = (
                 "exact" if not fields or fields & _terms(" ".join(resume_labels)) else "none"
             )
+        if field_match == "none" and _technical_degree(
+            requirement.text, resume, settings, vocabulary
+        ):
+            # "a technical or scientific field", "a quantitative, technical, or business
+            # field": a computing, math, science or engineering degree fits.
+            field_match = "related"
         level_ok = bool(resume.education) if needed_level is None else level >= needed_level
         if level_ok:
             # Right level in a field the resume does not show: a specific named field
