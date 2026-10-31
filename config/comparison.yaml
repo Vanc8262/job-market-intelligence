@@ -6,7 +6,7 @@
 #   domain       - industries the posting works in that the resume also shows
 # The fit score is a transparent weighted average; Phase 8 stage B3 will later turn these
 # signals into a calibrated probability using your application outcomes.
-version: 1.5.4
+version: 1.5.5
 weights:
   requirements: 0.45
   keywords: 0.30
@@ -34,7 +34,7 @@ line_years:
 # title or highlights show leading people (`evidence_patterns`); lines asking to manage
 # managers count only roles with a manager title (`manager_title_patterns`). Those years
 # meet the line, fall within a year of it (partial), or are missing. Leadership lines
-# without years keep the usual matching.
+# without years follow `skill_line_patterns` below.
 leadership:
   enabled: true
   line_patterns:
@@ -48,6 +48,22 @@ leadership:
     - '\bmanagers?\s+of\s+managers\b'
   manager_title_patterns:
     - '\b(manager|director|head|vp|vice president)\b'
+  # Leadership lines that do not ask for years ("Proven leadership skills to guide teams",
+  # "Ability to lead and motivate a team", "technical leadership experience") are met
+  # when any role shows leading people (`evidence_patterns`, quoted as evidence) and
+  # missing otherwise. The owner judges these met on his resume.
+  # Phrased as leading people: a bare "leadership" is not enough, because postings also
+  # use it for the audience ("presenting to senior leadership"), "thought leadership", or
+  # community/open-source leadership, which a resume role cannot meet this way.
+  skill_line_patterns:
+    - '\bleadership\s+(skills?|abilit(y|ies)|qualities|experience|roles?|positions?)\b'
+    - '\b(team|engineering|people|proven|strong)\s+leadership\b(?!\s+(teams?|audience|at|level))'
+    - '\b(lead|leads|leading|led)\s+(and\s+\w+\s+)?(an?\s+|the\s+)?([\w-]+\s+){0,2}(teams?|engineers|people|others|developers)\b'
+    - '\b(technical|team)\s+lead\b'
+    - '\b(team|people|engineering|technical|tech)\s+leader\b'
+    - '\bmanag(e|es|ing)\s+(an?\s+|the\s+)?([\w-]+\s+){0,2}(teams?|engineers|people|developers|interns|reports)\b'
+    - '\b(mentor|mentors|mentoring|coach|coaching)\s+(\w+\s+)?(engineers|teams?|developers|others|junior|interns)\b'
+    - '\b(guid|motivat)(e|es|ing)\s+(\w+\s+)?teams?\b'
 # Years lines that name a job ("4+ years as a Product Manager", "2+ years in a fraud
 # analyst role", matched by `role_patterns`) count only resume roles whose title or
 # highlights share at least `min_shared_terms` of the line's subject terms (all of them

@@ -240,6 +240,28 @@ def leadership_roles(
     return roles
 
 
+def leadership_shown(
+    text: str, resume: ResumeView, settings: ComparisonConfig
+) -> list[ExperienceFact] | None:
+    """Return the roles that show leading people, when a line without years asks for it.
+
+    ``None`` means the line does not ask for leadership (``skill_line_patterns``).
+    """
+    rules = settings.leadership
+    if not rules.enabled or not any(
+        re.search(pattern, text, re.IGNORECASE) for pattern in rules.skill_line_patterns
+    ):
+        return None
+    return [
+        role
+        for role in resume.experience
+        if any(
+            re.search(pattern, " ".join([role.title, *role.highlights]), re.IGNORECASE)
+            for pattern in rules.evidence_patterns
+        )
+    ]
+
+
 def _leadership_score(have: float, needed: float) -> float:
     """Years in leading roles against the years asked: met, within a year, or missing."""
     if have >= needed:
@@ -319,6 +341,20 @@ def assess_requirement(
     weight = 1.0 if requirement.required else settings.preferred_weight
     concepts = [_concept_item(name, resume, vocabulary) for name in requirement.concepts]
     concepts_met = sum(bool(item["met"]) for item in concepts)
+    if not requirement.min_years and requirement.kind != "degree":
+        shown = leadership_shown(requirement.text, resume, settings)
+        if shown is not None:
+            # "Proven leadership skills" or "lead and motivate a team": any role that shows
+            # leading people meets it, quoted as evidence.
+            score = 1.0 if shown else 0.0
+            result.update(
+                leadership=True,
+                evidence={"roles": [_role_label(role) for role in shown]},
+                score=score,
+                status=_status(score),
+                weight=round(weight, 3),
+            )
+            return result
     if requirement.kind == "trait":
         # A resume cannot show curiosity or ownership; the candidate judges these.
         result.update(score=0.0, status="self_assess", weight=0.0)

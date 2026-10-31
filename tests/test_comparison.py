@@ -561,6 +561,41 @@ def test_leadership_years_count_only_roles_that_show_leading_people(
     assert managers["status"] == "missing"
 
 
+def test_leadership_lines_without_years_need_a_role_that_leads(resume: ResumeView) -> None:
+    lines = (
+        "Ability to lead and motivate a team",
+        "Proven leadership skills to guide teams through ambiguity",
+        "Demonstrated technical leadership experience",
+        "Commitment to mentoring engineers and fostering team development",
+    )
+    for line in lines:
+        assessed = _assess(line, resume)
+        assert assessed["leadership"] is True and assessed["status"] == "missing", line
+        assert assessed["evidence"] == {"roles": []}
+    config = Config()
+    parser = ResumeParser(SkillVocabulary(config.skills, config.resume_profile.skills))
+    text = SAMPLE_RESUME.replace(
+        "Maintained REST APIs", "Led a team of 3 engineers maintaining REST APIs"
+    )
+    leader = ResumeView.from_facts(parser.parse(text).facts, text)
+    for line in lines:
+        assessed = _assess(line, leader)
+        assert assessed["status"] == "met", line
+        assert assessed["evidence"]["roles"][0].startswith("Software Developer")  # type: ignore[index]
+    # Other lines are untouched, including "leadership" as an audience or another meaning.
+    for line in (
+        "Experience with Python and SQL",
+        "Experience presenting to senior leadership at the Director+ level",
+        "Collaborate across engineering, product, and leadership teams",
+        "Thought leadership on social selling frameworks",
+        "Leadership in open-source agent frameworks",
+        "Comfortable influencing technical leadership",
+        "A high-growth team member who can be a future leader at the company",
+        "An experienced leader in Product Management",
+    ):
+        assert "leadership" not in _assess(line, leader), line
+
+
 def test_stemming_and_synonyms_match_different_wording() -> None:
     vocabulary = RequirementVocabulary(Config().comparison)
     assert stem("pipelines") == stem("pipeline")
