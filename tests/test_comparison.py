@@ -566,6 +566,7 @@ def test_leadership_lines_without_years_need_a_role_that_leads(resume: ResumeVie
         "Ability to lead and motivate a team",
         "Proven leadership skills to guide teams through ambiguity",
         "Demonstrated technical leadership experience",
+        "Commitment to mentoring engineers and fostering team development",
     )
     for line in lines:
         assessed = _assess(line, resume)
@@ -581,8 +582,16 @@ def test_leadership_lines_without_years_need_a_role_that_leads(resume: ResumeVie
         assessed = _assess(line, leader)
         assert assessed["status"] == "met", line
         assert assessed["evidence"]["roles"][0].startswith("Software Developer")  # type: ignore[index]
-    # Other lines are untouched.
-    assert "leadership" not in _assess("Experience with Python and SQL", leader)
+    # Other lines are untouched, including "leadership" as an audience or another meaning.
+    for line in (
+        "Experience with Python and SQL",
+        "Experience presenting to senior leadership at the Director+ level",
+        "Collaborate across engineering, product, and leadership teams",
+        "Thought leadership on social selling frameworks",
+        "Leadership in open-source agent frameworks",
+        "Comfortable influencing technical leadership",
+    ):
+        assert "leadership" not in _assess(line, leader), line
 
 
 def test_stemming_and_synonyms_match_different_wording() -> None:

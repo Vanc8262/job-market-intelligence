@@ -52,9 +52,18 @@ leadership:
   # "Ability to lead and motivate a team", "technical leadership experience") are met
   # when any role shows leading people (`evidence_patterns`, quoted as evidence) and
   # missing otherwise. The owner judges these met on his resume.
+  # Phrased as leading people: a bare "leadership" is not enough, because postings also
+  # use it for the audience ("presenting to senior leadership"), "thought leadership", or
+  # community/open-source leadership, which a resume role cannot meet this way.
   skill_line_patterns:
-    - '\bleadership\b'
-    - '\b(lead|leading|guide|guiding|motivate|motivating|mentor|mentoring|manage|managing)\b[^.;]{0,40}?\b(teams?|others|people|engineers|developers|staff|reports)\b'
+    - '\bleadership\s+(skills?|abilit(y|ies)|qualities|experience|roles?|positions?)\b'
+    - '\b(team|engineering|people|proven|strong)\s+leadership\b(?!\s+(teams?|audience|at|level))'
+    - '\b(lead|leads|leading|led)\s+(and\s+\w+\s+)?(an?\s+|the\s+)?([\w-]+\s+){0,2}(teams?|engineers|people|others|developers)\b'
+    - '\b(technical|team)\s+lead\b'
+    - '\bleader\b'
+    - '\bmanag(e|es|ing)\s+(an?\s+|the\s+)?([\w-]+\s+){0,2}(teams?|engineers|people|developers|interns|reports)\b'
+    - '\b(mentor|mentors|mentoring|coach|coaching)\s+(\w+\s+)?(engineers|teams?|developers|others|junior|interns)\b'
+    - '\b(guid|motivat)(e|es|ing)\s+(\w+\s+)?teams?\b'
 # Years lines that name a job ("4+ years as a Product Manager", "2+ years in a fraud
 # analyst role", matched by `role_patterns`) count only resume roles whose title or
 # highlights share at least `min_shared_terms` of the line's subject terms (all of them
