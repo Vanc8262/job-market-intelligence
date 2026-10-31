@@ -590,6 +590,8 @@ def test_leadership_lines_without_years_need_a_role_that_leads(resume: ResumeVie
         "Thought leadership on social selling frameworks",
         "Leadership in open-source agent frameworks",
         "Comfortable influencing technical leadership",
+        "A high-growth team member who can be a future leader at the company",
+        "An experienced leader in Product Management",
     ):
         assert "leadership" not in _assess(line, leader), line
 

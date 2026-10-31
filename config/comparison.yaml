@@ -60,7 +60,7 @@ leadership:
     - '\b(team|engineering|people|proven|strong)\s+leadership\b(?!\s+(teams?|audience|at|level))'
     - '\b(lead|leads|leading|led)\s+(and\s+\w+\s+)?(an?\s+|the\s+)?([\w-]+\s+){0,2}(teams?|engineers|people|others|developers)\b'
     - '\b(technical|team)\s+lead\b'
-    - '\bleader\b'
+    - '\b(team|people|engineering|technical|tech)\s+leader\b'
     - '\bmanag(e|es|ing)\s+(an?\s+|the\s+)?([\w-]+\s+){0,2}(teams?|engineers|people|developers|interns|reports)\b'
     - '\b(mentor|mentors|mentoring|coach|coaching)\s+(\w+\s+)?(engineers|teams?|developers|others|junior|interns)\b'
     - '\b(guid|motivat)(e|es|ing)\s+(\w+\s+)?teams?\b'
