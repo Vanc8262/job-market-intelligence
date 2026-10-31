@@ -177,7 +177,7 @@ any working directory.
 | `config/salary.yaml` | Currency, pay-period, and annualization rules |
 | `config/lifecycle.yaml` | Missing-run and removal behavior |
 | `config/data_quality.yaml` | Blocking and advisory quality thresholds |
-| `config/labels.yaml` | Labels tab: orphaned-label alert threshold and review-queue size per group |
+| `config/labels.yaml` | Labels tab: orphaned-label alert, review-queue size per group, Scorecard settings, which tracking statuses are B3 training labels |
 | `config/settings.yaml` | Paths, retries, and processing limits |
 | `config/logging.yaml` | Console and rotating file sinks |
 
@@ -555,9 +555,10 @@ combines group accuracies into one number. Withdrawing a queue label puts its li
 append-only log as a change log: each entry is an event (labeled, changed, confirmed,
 withdrawn, restored), and the first label made under a new comparison model version is
 marked. It shows activity by day, the latest `recent_events` events, and progress of the
-application-tracking decisions that train the weight simulator (10, with at least 3 of
-each kind) and Phase 8 B3 (30 to 50). Which statuses count, and the thresholds, live under
-`tracking` in `config/labels.yaml`.
+logged application-tracking decisions (see [Training data](#training-data-phase-8-b3))
+that train the weight simulator (10, with at least 3 of each kind) and Phase 8 B3 (30 to
+50). Which statuses count, and the thresholds, live under `tracking` in
+`config/labels.yaml`.
 
 A **snapshot** freezes the labeled set so a Phase 7 number can cite it. Because the log only
 grows, a snapshot is its first N complete lines: the manifest in
@@ -596,6 +597,38 @@ and seed) are under `scorecard` in `config/labels.yaml`.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\label_scorecard.py                 # also: --snapshot ID, --no-replay
+```
+
+### Training data (Phase 8 B3)
+
+Tracking state keeps only each posting's current status, and Gold is rebuilt daily, so
+neither can say what a posting looked like when you decided on it. Every status change
+you save in the dashboard is therefore also appended to
+`data/private/labels/tracking_labels.jsonl` (`analytics/tracking_labels.py`) with the
+signals shown at that moment: relevance score and band, the skills/title/experience/
+location signals, cap reason, and the 6.3 fit summary, plus the relevance weights,
+comparison model version, and resume version. Each decision is positive, negative, or
+neither by the `tracking` status lists in `config/labels.yaml`. Saving notes or dates
+without changing the status logs nothing.
+
+**Labels → Training data** (`GET /api/labels/tracking`) lists the newest decision per
+posting with those signals, its history, and whether tracking has changed since. From
+there you can:
+
+- **Withdraw** a decision that says nothing about fit (a duplicate you archived, say). It
+  leaves the tracking status alone and only keeps the row out of training; **Restore**
+  brings it back with the signals it was first recorded with.
+- **Add to the log** decisions saved before the log existed (or while it was unavailable).
+  They are recorded with today's signals and marked "Added later" (`source: sync`), and a
+  posting that has left the mart is logged without signals (`captured: false`).
+- **Save a snapshot**, the same prefix-and-SHA-256 manifest as label snapshots, in
+  `data/private/labels/tracking_snapshots/`.
+
+B3 trains on the newest active positive and negative row per posting:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\tracking_labels.py summary                 # also: sync, snapshot, snapshots
+.\.venv\Scripts\python.exe scripts\tracking_labels.py export --snapshot ID   # training rows as JSON
 ```
 
 ## Engineering Commands

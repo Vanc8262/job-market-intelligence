@@ -18,6 +18,20 @@ from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel, ValidationError
 
+from analytics.tracking_labels import (
+    DecisionContext,
+    TrackingLabelStore,
+    create_tracking_snapshot,
+    decision_context,
+    fit_summary,
+    list_tracking_snapshots,
+    record_change,
+    review_tracking,
+    summarize_tracking,
+    sync,
+    tracking_labels_path,
+    unlogged,
+)
 from comparison.label_changes import build_changes, create_snapshot, current_snapshot
 from comparison.label_review import review_labels, summarize_labels
 from comparison.labels import (
@@ -75,6 +89,8 @@ LABEL_QUEUE_PATH = "/api/labels/queue"
 LABEL_CHANGES_PATH = "/api/labels/changes"
 LABEL_SNAPSHOTS_PATH = "/api/labels/snapshots"
 LABEL_SCORECARD_PATH = "/api/labels/scorecard"
+TRACKING_LABELS_PATH = "/api/labels/tracking"
+TRACKING_SNAPSHOTS_PATH = "/api/labels/tracking/snapshots"
 OPERATIONS_FRESHNESS_HOURS = 36
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
@@ -397,6 +413,9 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         if path == LABEL_SCORECARD_PATH:
             self._send_scorecard()
             return
+        if path == TRACKING_LABELS_PATH:
+            self._send_tracking_labels()
+            return
         if path == "/api/application-tracking":
             try:
                 self._send_json(self.tracking_repository.load().model_dump(mode="json"))
@@ -499,7 +518,11 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
             if not isinstance(payload, dict):
                 raise ValueError("Request body must be a JSON object")
 
+            previous = self.tracking_repository.load().records.get(job_id)
             record = self.tracking_repository.update(job_id, payload)
+            self._log_decision(
+                job_id, previous.status.value if previous else None, record.status.value
+            )
             self._send_json(record.model_dump(mode="json"))
 
         except (json.JSONDecodeError, UnicodeDecodeError, ValidationError, ValueError) as exc:
@@ -595,13 +618,139 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
             }
         )
 
-    def _tracking_statuses(self) -> list[str]:
-        """Return every tracking decision's status, or none when tracking is unreadable."""
+    def _tracking_statuses(self) -> dict[str, str]:
+        """Return each posting's tracking status, or none when tracking is unreadable."""
         try:
             records = self.tracking_repository.load().records
         except (OSError, ValueError, ValidationError):
-            return []
-        return [record.status.value for record in records.values()]
+            return {}
+        return {job_id: record.status.value for job_id, record in records.items()}
+
+    def _tracking_store(self) -> TrackingLabelStore | None:
+        """Return the private training-label log, when the resume workflow is set up."""
+        service = self.resume_service
+        return (
+            _shared_tracking_store(tracking_labels_path(service.private_root)) if service else None
+        )
+
+    def _decision_context(self) -> DecisionContext:
+        """Return what the dashboard shows now: mart rows, 6.3 fit, and versions."""
+        try:
+            mart: dict[str, Any] | None = load_opportunities_mart(self.mart_path)
+        except (FileNotFoundError, ValueError, json.JSONDecodeError):
+            mart = None
+        return decision_context(mart, self._comparisons())
+
+    def _log_decision(self, job_id: str, previous: str | None, status: str) -> None:
+        """Log a saved status change as a training label.
+
+        Tracking is saved first and stays saved if the log cannot be written; the
+        Training data view then lists the change as unlogged until it is synced.
+        """
+        store = self._tracking_store()
+        if store is None or status == previous:
+            return
+        try:
+            record_change(
+                store, job_id, previous, status, self._decision_context(), Config().labels
+            )
+        except (OSError, ValueError, ValidationError):
+            return
+
+    def _send_tracking_labels(self) -> None:
+        """Send every logged tracking decision with its state, counts, and snapshots."""
+        store = self._tracking_store()
+        if store is None:
+            self._send_json(
+                {"error": "Resume workflow is unavailable"}, status=HTTPStatus.SERVICE_UNAVAILABLE
+            )
+            return
+        try:
+            labels = store.all()
+            snapshots = list_tracking_snapshots(store)
+        except (OSError, ValueError) as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        statuses = self._tracking_statuses()
+        postings = self._postings()
+        missing = unlogged(labels, statuses)
+        rows = review_tracking(labels, statuses, postings, Config().labels)
+        self._send_json(
+            {
+                "summary": summarize_tracking(rows, missing, Config().labels),
+                "rows": rows,
+                "unlogged": [
+                    {
+                        "job_id": job_id,
+                        "status": status,
+                        "title": postings.get(job_id, {}).get("title"),
+                        "employer": postings.get(job_id, {}).get("employer"),
+                    }
+                    for job_id, status in sorted(missing.items())
+                ],
+                "snapshots": snapshots,
+            }
+        )
+
+    def _tracking_label_action(self) -> None:
+        """Withdraw or restore one decision, or sync unlogged decisions into the log."""
+        store = self._tracking_store()
+        if store is None:
+            self._send_json(
+                {"error": "Resume workflow is unavailable"}, status=HTTPStatus.SERVICE_UNAVAILABLE
+            )
+            return
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0 or content_length > MAX_REQUEST_BYTES:
+                raise ValueError("Request body must be between 1 byte and 64 KB")
+            payload = json.loads(self.rfile.read(content_length))
+            if not isinstance(payload, dict):
+                raise ValueError("Request body must be a JSON object")
+            action = payload.get("action")
+            note = payload.get("note")
+            if note is not None and not isinstance(note, str):
+                raise ValueError("note must be text")
+            if action == "sync":
+                added = sync(
+                    store, self._tracking_statuses(), self._decision_context(), Config().labels
+                )
+                self._send_json({"added": len(added)})
+                return
+            job_id = payload.get("job_id")
+            if not isinstance(job_id, str) or _path_identifier(job_id) is None:
+                raise ValueError("job_id is required")
+            if action == "withdraw":
+                entry = store.withdraw(job_id, note=note)
+            elif action == "restore":
+                entry = store.restore(job_id, note=note)
+            else:
+                raise ValueError("action must be withdraw, restore, or sync")
+            self._send_json(entry.model_dump(mode="json"))
+        except LookupError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.CONFLICT)
+        except (json.JSONDecodeError, UnicodeDecodeError, ValidationError, ValueError) as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+        except OSError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
+
+    def _save_tracking_snapshot(self) -> None:
+        """Freeze the training-label log (a no-op when nothing changed)."""
+        store = self._tracking_store()
+        if store is None:
+            self._send_json(
+                {"error": "Resume workflow is unavailable"}, status=HTTPStatus.SERVICE_UNAVAILABLE
+            )
+            return
+        try:
+            manifest, created = create_tracking_snapshot(store, Config().labels)
+        except (OSError, ValueError) as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        self._send_json(
+            {"snapshot": manifest, "created": created},
+            status=HTTPStatus.CREATED if created else HTTPStatus.OK,
+        )
 
     def _send_changes(self) -> None:
         """Send the label change log, snapshots, and tracking-label progress."""
@@ -611,11 +760,23 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
                 {"error": "Resume workflow is unavailable"}, status=HTTPStatus.SERVICE_UNAVAILABLE
             )
             return
+        tracking = self._tracking_store()
         try:
-            payload = build_changes(store, Config().labels, self._tracking_statuses())
+            decisions = tracking.all() if tracking else []
+            payload = build_changes(
+                store,
+                Config().labels,
+                [
+                    label.status
+                    for label in {label.job_id: label for label in decisions}.values()
+                    if not label.withdrawn
+                ],
+            )
         except (OSError, ValueError) as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
             return
+        tracking_payload = cast(dict[str, object], payload["tracking"])
+        tracking_payload["unlogged"] = len(unlogged(decisions, self._tracking_statuses()))
         self._send_json(payload)
 
     def _send_scorecard(self) -> None:
@@ -855,6 +1016,12 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         if path == LABEL_SNAPSHOTS_PATH:
             self._save_snapshot()
             return
+        if path == TRACKING_LABELS_PATH:
+            self._tracking_label_action()
+            return
+        if path == TRACKING_SNAPSHOTS_PATH:
+            self._save_tracking_snapshot()
+            return
         self._send_json({"error": "Endpoint not found"}, status=HTTPStatus.NOT_FOUND)
 
     def _resume_action(
@@ -1010,20 +1177,7 @@ def attach_application_fit(
     for row in mart.get("opportunities", []):
         detail = jobs.get(row.get("job_id"))
         if isinstance(detail, dict):
-            dimensions = detail.get("dimensions") or {}
-            requirements = dimensions.get("requirements") or {}
-            keywords = dimensions.get("keywords") or {}
-            row = {
-                **row,
-                "application_fit": {
-                    "fit_score": detail.get("fit_score"),
-                    "band": detail.get("band"),
-                    "requirements_score": requirements.get("score"),
-                    "required_met": requirements.get("required_met"),
-                    "required_total": requirements.get("required_total"),
-                    "keywords_score": keywords.get("score"),
-                },
-            }
+            row = {**row, "application_fit": fit_summary(detail)}
         rows.append(row)
     return {
         **mart,
@@ -1043,6 +1197,18 @@ def _shared_label_store(path: Path) -> RequirementLabelStore:
         store = _LABEL_STORES.get(path)
         if store is None:
             store = _LABEL_STORES[path] = RequirementLabelStore(path)
+        return store
+
+
+_TRACKING_STORES: dict[Path, TrackingLabelStore] = {}
+
+
+def _shared_tracking_store(path: Path) -> TrackingLabelStore:
+    """Return one training-label store per log file, shared by every request thread."""
+    with _LABEL_STORES_LOCK:
+        store = _TRACKING_STORES.get(path)
+        if store is None:
+            store = _TRACKING_STORES[path] = TrackingLabelStore(path)
         return store
 
 

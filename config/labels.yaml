@@ -28,9 +28,10 @@ queue:
   # draws a different sample for lines not yet labeled; labels already made still count.
   seed: 20261028
 
-# Changes view: tracking decisions are the training labels for the weight simulator's
-# calibration and, later, Phase 8 B3 (relevance weights). Rejected applications are an
-# outcome, not a preference, so they count as neither.
+# Training data view: tracking decisions, logged when you change a status, are the
+# training labels for the weight simulator's calibration and Phase 8 B3 (relevance
+# weights). Rejected applications are an outcome, not a preference, so they count as
+# neither. Changing these lists reclassifies logged decisions when they are read.
 tracking:
   positive_statuses: [reviewing, saved, applied, interviewing, offer]
   negative_statuses: [archived]

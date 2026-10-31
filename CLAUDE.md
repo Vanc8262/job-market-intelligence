@@ -62,7 +62,7 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
    `master`. Descriptive subject + body explaining why.
 5. **Dashboard assets:** when `app.js`, `resume-review.js`, `labels.js`, or `styles.css` change, bump
    the `?v=resume-vN` asset version in `dashboard/static/index.html` **and** in
-   `tests/test_dashboard.py` (currently `resume-v18`).
+   `tests/test_dashboard.py` (currently `resume-v19`).
 6. **Config over code:** thresholds, weights, vocabularies, and taxonomies go in
    `config/*.yaml`, each validated by a Pydantic model in `utils/config.py`
    (`extra="forbid"`; add the field there when adding a YAML key). Bump the config's
@@ -83,7 +83,7 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
 | `extractors/` | One adapter per ATS family → canonical `JobPosting` (`models/job_posting.py`). Lever joins `descriptionPlain` + `lists` + `additionalPlain` and fills qualifications. |
 | `processors/normalizer.py` | Silver normalization: skills (`config/skills.yaml`, with `ambiguous` rules for R, C, Go, Excel…), titles and role families (`config/titles.yaml` `family_rules`), locations, salary. `skills_in_text()` is the shared skill matcher. |
 | `pipeline/` | Collection, processing, lifecycle, data-quality gateway. |
-| `analytics/` | Gold summaries, current-opportunities mart, relevance scoring, cadence monitoring. |
+| `analytics/` | Gold summaries, current-opportunities mart, relevance scoring, cadence monitoring, B3 training labels (`tracking_labels.py`). |
 | `bayesian/` | Phase 8 B0–B1: diagnostics (ArviZ-equivalent R-hat/ESS), Beta-Binomial posteriors, quality-gate verdicts, skill-share shrinkage, model cards. |
 | `profiles/` | Phase 6.1–6.2 resume workflow: safe PDF/DOCX reading (clip-aware PDF text), quality scoring, parser, SQLite repository, review/approve/revise/supersede, active version. `profile_source.py` resolves the approved resume for scoring. |
 | `comparison/` | Phase 6.3 application comparison (below). |
@@ -135,6 +135,12 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
 - `label_changes.py`: change log derived from the label log, snapshots (manifest of the
   log's first N lines + SHA-256 in `data/private/labels/snapshots/`, verified on read;
   `scripts/label_snapshots.py`), and tracking-label progress toward simulator/B3 thresholds.
+- `analytics/tracking_labels.py` (Phase 8 B3 training data, Labels → Training data,
+  `GET/POST /api/labels/tracking`, `scripts/tracking_labels.py`): every saved tracking
+  status change is appended to `data/private/labels/tracking_labels.jsonl` with the
+  relevance signals and 6.3 fit at that moment (numbers and posting facts only). Withdraw
+  keeps a decision out of training without touching tracking; `sync` logs decisions the
+  log lacks (`source=sync`, today's signals); snapshots reuse the label-snapshot helpers.
 - When the owner reports a wrong ✓/◐/✗, fix it in the vocabulary/config first, add a
   regression test in `tests/test_comparison.py` with the synthetic resume, and sanity
   check on real postings (counts by kind/status) before committing.

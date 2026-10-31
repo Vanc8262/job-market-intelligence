@@ -6,7 +6,8 @@
 // re-labels or withdraws a line through the same append-only endpoint the drawer uses.
 // Withdrawn lines stay findable under their own filter but are left out of every count.
 // The Review queue view serves lines drawn at random by the server; only labels saved
-// there are marked sampled, which is what Phase 7 accuracy estimates use.
+// there are marked sampled, which is what Phase 7 accuracy estimates use. The Training
+// data view lists application-tracking decisions logged as Phase 8 B3 training labels.
 
 const LABEL_STATE_NAMES = { current: "Current", stale: "Stale", orphaned: "Orphaned", removed: "Removed by parser fix", closed: "Posting closed" };
 const LABEL_STATE_HINTS = {
@@ -23,9 +24,10 @@ state.labels = { data: null, loading: false, error: null, filter: "all", kind: "
 state.queue = { data: null, loading: false, error: null, busy: false, feedback: null };
 state.changes = { data: null, loading: false, error: null, busy: false, feedback: null };
 state.scorecard = { data: null, loading: false, error: null };
+state.training = { data: null, loading: false, error: null, busy: null, feedback: null, filter: "all" };
 
 function bindLabels() {
-  elements.refreshLabels.addEventListener("click", () => { loadLabels(); if (state.labels.view === "queue") loadQueue(); if (state.labels.view === "changes") loadChanges(); if (state.labels.view === "scorecard") loadScorecard(); });
+  elements.refreshLabels.addEventListener("click", () => { loadLabels(); if (state.labels.view === "queue") loadQueue(); if (state.labels.view === "changes") loadChanges(); if (state.labels.view === "scorecard") loadScorecard(); if (state.labels.view === "training") loadTraining(); });
   elements.labelsTabs.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-labels-view]");
     if (!button) return;
@@ -34,6 +36,7 @@ function bindLabels() {
     if (state.labels.view === "queue" && !state.queue.data && !state.queue.loading) loadQueue();
     if (state.labels.view === "changes" && !state.changes.loading) loadChanges();
     if (state.labels.view === "scorecard" && !state.scorecard.loading) loadScorecard();
+    if (state.labels.view === "training" && !state.training.loading) loadTraining();
     renderLabels();
   });
   elements.labelsContent.addEventListener("click", handleLabelsClick);
@@ -78,6 +81,7 @@ function renderLabels() {
   if (state.labels.view === "queue") { renderQueue(); return; }
   if (state.labels.view === "changes") { renderChanges(); return; }
   if (state.labels.view === "scorecard") { renderScorecard(); return; }
+  if (state.labels.view === "training") { renderTraining(); return; }
   const labels = state.labels;
   const summary = labels.data?.summary;
   if (labels.loading && !labels.data) { elements.labelsSummary.textContent = "Loading labels"; elements.labelsContent.innerHTML = `<div class="loading-state"><span>Loading labels</span></div>`; return; }
@@ -182,12 +186,15 @@ function labelRow(row, index) {
 function handleLabelsFilter(event) {
   if (event.target.id === "labelsFilter") { state.labels.filter = event.target.value; renderLabels(); }
   if (event.target.id === "labelsKind") { state.labels.kind = event.target.value; renderLabelRows(); }
+  if (event.target.id === "trainingFilter") { state.training.filter = event.target.value; renderTraining(); }
 }
 
 async function handleLabelsClick(event) {
   const filterButton = event.target.closest("[data-labels-filter]");
   if (filterButton) { state.labels.filter = filterButton.dataset.labelsFilter; renderLabels(); return; }
   if (event.target.closest("button[data-save-snapshot]")) { saveSnapshot(); return; }
+  const trainingButton = event.target.closest("button[data-training-action]");
+  if (trainingButton) { trainingAction(trainingButton.dataset.trainingAction, trainingButton.dataset.trainingIndex); return; }
   const queueButton = event.target.closest("button[data-queue-status]");
   if (queueButton) { saveQueueLabel(queueButton.dataset.queueStatus); return; }
   const openButton = event.target.closest("[data-open-job]");
@@ -359,7 +366,8 @@ function trackingProgressBlock(tracking) {
   const bar = (value, goal) => `<div class="queue-bar"><span style="--progress:${Math.min(100, goal ? (value / goal) * 100 : 0)}%"></span></div>`;
   const simulator = tracking.simulator;
   const b3 = tracking.b3;
-  return `<section class="intel-block wide"><div class="intel-heading"><h2>Training labels from application tracking</h2><span>${number(tracking.positive)} positive · ${number(tracking.negative)} archived</span></div>
+  const unloggedNote = tracking.unlogged ? `<p class="job-meta wrap">${number(tracking.unlogged)} tracking ${tracking.unlogged === 1 ? "decision is" : "decisions are"} not in the training log yet; add ${tracking.unlogged === 1 ? "it" : "them"} under Training data.</p>` : "";
+  return `<section class="intel-block wide"><div class="intel-heading"><h2>Training labels from application tracking</h2><span>${number(tracking.positive)} positive · ${number(tracking.negative)} archived</span></div>${unloggedNote}
     <div class="tracking-progress">
       <div><strong>Weight simulator calibration: ${number(tracking.total)} of ${number(simulator.minimum)}</strong>${bar(tracking.total, simulator.minimum)}<span class="job-meta wrap">${simulator.ready ? "Ready: the simulator can recommend weights." : `Needs ${number(simulator.minimum)} decisions, with at least ${number(simulator.minimum_each)} positive and ${number(simulator.minimum_each)} archived.`}</span></div>
       <div><strong>Phase 8 B3 relevance model: ${number(tracking.total)} of ${number(b3.minimum)}–${number(b3.target)}</strong>${bar(tracking.total, b3.target)}<span class="job-meta wrap">${b3.ready ? "Enough to start B3." : `B3 can start at ${number(b3.minimum)} decisions and is comfortable at ${number(b3.target)}.`}</span></div>
@@ -466,4 +474,113 @@ function replayBlock(replay, version) {
     <div class="replay-changes"><div><h3>Fixed (${number(replay.fixed_count)})</h3>${replay.fixed.length ? `<ul class="change-log">${replay.fixed.map(change).join("")}</ul>` : `<p class="job-meta">None</p>`}</div>
     <div><h3>Regressed (${number(replay.regressed_count)})</h3>${replay.regressed.length ? `<ul class="change-log">${replay.regressed.map(change).join("")}</ul>` : `<p class="job-meta">None</p>`}</div></div>
   </section>`;
+}
+
+// Training data (Phase 8 B3): every application-tracking status change, logged with the
+// relevance signals and 6.3 fit the dashboard showed when you made it. Withdrawing keeps
+// a decision out of training without changing its tracking status.
+const TRAINING_CLASS_NAMES = { positive: "Positive", negative: "Negative", neither: "Neither" };
+const TRAINING_FILTERS = [["all", "All decisions"], ["positive", "Positive"], ["negative", "Negative"], ["neither", "Neither"], ["withdrawn", "Withdrawn"], ["out_of_sync", "Status changed since"], ["closed", "Posting closed"]];
+const TRAINING_SOURCE_NAMES = { tracking: "Saved in tracking", sync: "Added later", labels_tab: "Labels tab" };
+const SIGNAL_NAMES = [["skills_signal", "Skills"], ["title_signal", "Title"], ["experience_signal", "Experience"], ["location_signal", "Location"]];
+
+async function loadTraining() {
+  const training = state.training;
+  training.loading = true;
+  training.error = null;
+  if (state.view === "labels" && state.labels.view === "training") renderTraining();
+  try {
+    const response = await fetch("/api/labels/tracking", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Training data could not be loaded");
+    training.data = payload;
+  } catch (error) {
+    training.error = error.message;
+  }
+  training.loading = false;
+  if (state.view === "labels" && state.labels.view === "training") renderTraining();
+}
+
+function trainingRows() {
+  const { data, filter } = state.training;
+  return (data?.rows || []).map((row, index) => ({ row, index })).filter(({ row }) => {
+    if (filter === "withdrawn") return row.withdrawn;
+    if (filter === "out_of_sync") return !row.in_sync;
+    if (filter === "closed") return row.state === "closed";
+    if (filter !== "all") return !row.withdrawn && row.label_class === filter;
+    return true;
+  });
+}
+
+function renderTraining() {
+  const training = state.training;
+  if (training.loading && !training.data) { elements.labelsContent.innerHTML = `<div class="loading-state"><span>Loading training data</span></div>`; return; }
+  if (training.error) { elements.labelsContent.innerHTML = `<div class="error-state"><strong>Training data could not be loaded</strong><span>${escapeHtml(training.error)}</span></div>`; return; }
+  const data = training.data;
+  if (!data) return;
+  const summary = data.summary;
+  const busy = training.busy !== null ? " disabled" : "";
+  const feedback = training.feedback ? `<p class="save-feedback ${training.feedback.error ? "error" : "success"}">${escapeHtml(training.feedback.text)}</p>` : "";
+  const unlogged = data.unlogged.length ? `<div class="labels-alert" role="status"><strong>${number(data.unlogged.length)} tracking ${data.unlogged.length === 1 ? "decision is" : "decisions are"} not in the training log</strong><span>They were saved before the log existed or while it was unavailable: ${escapeHtml(data.unlogged.slice(0, 5).map((item) => `${item.title || item.job_id} (${formatLabel(item.status)})`).join(", "))}${data.unlogged.length > 5 ? ", …" : ""}. Adding them records today's signals and marks them "Added later".</span><button type="button" class="secondary-button" data-training-action="sync"${busy}>Add to the log</button></div>` : "";
+  const tiles = [["Positive", summary.positive], ["Negative", summary.negative], ["Neither", summary.neither], ["Withdrawn", summary.withdrawn], ["Added later", summary.synced], ["Posting closed", summary.closed]];
+  const rows = trainingRows();
+  elements.labelsContent.innerHTML = `${unlogged}${trackingProgressBlock({ ...summary.progress, unlogged: 0 })}
+    <div class="labels-tracker">${tiles.map(([name, value]) => `<div class="intel-kpi"><span>${escapeHtml(name)}</span><strong>${number(value)}</strong></div>`).join("")}</div>
+    ${feedback}
+    <section class="intel-block wide"><div class="intel-heading"><h2>Decisions</h2><span>${number(summary.postings)} postings</span></div>
+      <div class="labels-toolbar"><label class="tracking-field"><span>Show</span><select id="trainingFilter">${TRAINING_FILTERS.map(([value, name]) => `<option value="${value}"${value === training.filter ? " selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></label></div>
+      <p class="job-meta wrap">Each row is the newest decision on a posting, with the relevance score, signals, and 6.3 fit shown when you made it. B3 trains on positive and negative rows; withdraw a decision that says nothing about fit (a duplicate, a posting you archived for another reason).</p>
+      ${rows.length ? marketTable(["Posting", "Decision", "Score then", "Signals then", "Decided", "State", ""], rows.map(({ row, index }) => trainingRow(row, index)).join("")) : `<p class="job-meta">${data.rows.length ? "No decisions match this filter." : "No decisions logged yet. Change a posting's status in the Opportunities view, or add earlier decisions above."}</p>`}
+    </section>
+    <section class="intel-block wide"><div class="intel-heading"><h2>Snapshots</h2><button type="button" class="secondary-button" data-training-action="snapshot"${busy}>Save snapshot</button></div>
+      <p class="job-meta wrap">A snapshot freezes the decisions as they are now, so a B3 fit can name exactly which set it used (scripts/tracking_labels.py export --snapshot ID).</p>
+      ${data.snapshots.length ? marketTable(["Snapshot", "Saved", "Positive", "Negative", "Withdrawn", "Log lines", "Check"], data.snapshots.map((item) => `<tr><td><code>${escapeHtml(item.snapshot_id)}</code></td><td>${escapeHtml(formatTimestamp(item.created_at))}</td><td class="number-cell">${number(item.positive)}</td><td class="number-cell">${number(item.negative)}</td><td class="number-cell">${number(item.withdrawn)}</td><td class="number-cell">${number(item.log_lines)}</td><td>${item.verified ? `<span class="label-state current">Verified</span>` : `<span class="label-state orphaned" title="The training log was edited after this snapshot">Does not match</span>`}</td></tr>`).join("")) : `<p class="job-meta">No snapshots yet.</p>`}
+    </section>`;
+}
+
+function trainingRow(row, index) {
+  const posting = row.title ? `${row.title}${row.employer ? ` · ${row.employer}` : ""}` : row.job_id;
+  const openable = state.opportunities.some((item) => item.job_id === row.job_id);
+  const features = row.features || {};
+  const score = row.captured ? `${features.resume_relevance_score ?? "n/a"}${features.match_band ? ` · ${escapeHtml(formatLabel(features.match_band))}` : ""}${features.fit_score != null ? `<span class="job-meta">6.3 fit ${escapeHtml(features.fit_score)}</span>` : ""}` : `<span class="job-meta" title="The posting was no longer in the mart when this decision was logged">Not captured</span>`;
+  const signals = row.captured ? `<span class="job-meta wrap">${SIGNAL_NAMES.map(([key, name]) => `${name} ${features[key] == null ? "n/a" : Number(features[key]).toFixed(2)}`).join(" · ")}</span>` : "";
+  const historyEntry = (entry) => `<li>${formatTimestamp(entry.labeled_at)}: ${entry.action === "withdraw" ? "withdrawn" : `${escapeHtml(formatLabel(entry.status))} (${escapeHtml(TRAINING_CLASS_NAMES[entry.label_class] || entry.label_class)})`} · ${escapeHtml(TRAINING_SOURCE_NAMES[entry.source] || formatLabel(entry.source))}${entry.note ? ` · “${escapeHtml(entry.note)}”` : ""}</li>`;
+  const history = row.history.length > 1 ? `<details class="label-history"><summary>${row.history.length - 1} earlier</summary><ul>${row.history.slice(0, -1).reverse().map(historyEntry).join("")}</ul></details>` : "";
+  const busy = state.training.busy !== null ? " disabled" : "";
+  const action = row.withdrawn ? `<button type="button" class="label-button" data-training-action="restore" data-training-index="${index}" title="Count this decision in training again"${busy}>Restore</button>` : `<button type="button" class="label-button withdraw" data-training-action="withdraw" data-training-index="${index}" title="Keep this decision out of training; its tracking status stays as it is"${busy}>Withdraw</button>`;
+  const sync = row.in_sync || !row.tracking_status ? "" : `<span class="label-state stale" title="Tracking now says ${escapeHtml(formatLabel(row.tracking_status))}; add it to the log above">Status changed since</span>`;
+  return `<tr class="label-row ${escapeHtml(row.state)}${row.withdrawn ? " withdrawn-row" : ""}">
+    <td>${openable ? `<button type="button" class="text-button" data-open-job="${escapeHtml(row.job_id)}">${escapeHtml(posting)}</button>` : escapeHtml(posting)}${history}</td>
+    <td>${escapeHtml(formatLabel(row.status))}<span class="job-meta">${escapeHtml(TRAINING_CLASS_NAMES[row.label_class] || row.label_class)}</span></td>
+    <td>${score}</td>
+    <td>${signals}</td>
+    <td>${escapeHtml(formatTimestamp(row.labeled_at))}<span class="job-meta">${escapeHtml(TRAINING_SOURCE_NAMES[row.source] || formatLabel(row.source))}${row.note ? ` · “${escapeHtml(row.note)}”` : ""}</span></td>
+    <td><span class="label-state ${row.state === "closed" ? "closed" : "current"}">${row.state === "closed" ? "Posting closed" : "Current"}</span>${row.withdrawn ? `<span class="label-state withdrawn">Withdrawn</span>` : ""}${sync}</td>
+    <td><div class="req-label">${action}</div><input class="label-note-input" type="text" maxlength="500" data-training-note="${index}" placeholder="Note (optional)" aria-label="Note for withdrawing or restoring this decision"></td>
+  </tr>`;
+}
+
+async function trainingAction(action, rawIndex) {
+  const training = state.training;
+  if (training.busy !== null) return;
+  const index = rawIndex === undefined ? null : Number(rawIndex);
+  const row = index === null ? null : training.data?.rows[index];
+  if (index !== null && !row) return;
+  const note = index === null ? null : elements.labelsContent.querySelector(`input[data-training-note="${index}"]`)?.value.trim() || null;
+  const url = action === "snapshot" ? "/api/labels/tracking/snapshots" : "/api/labels/tracking";
+  const body = action === "snapshot" ? {} : row ? { action, job_id: row.job_id, note } : { action };
+  training.busy = index ?? -1;
+  training.feedback = null;
+  renderTraining();
+  try {
+    const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "The change could not be saved");
+    const name = row ? `"${(row.title || row.job_id).slice(0, 80)}"` : "";
+    training.feedback = { text: action === "sync" ? `Added ${number(result.added)} ${result.added === 1 ? "decision" : "decisions"} to the log.` : action === "snapshot" ? (result.created ? `Saved snapshot ${result.snapshot.snapshot_id}.` : `Nothing changed since snapshot ${result.snapshot.snapshot_id}; no new snapshot saved.`) : action === "withdraw" ? `Withdrew the decision on ${name}. It no longer counts toward training; its tracking status is unchanged.` : `Restored the decision on ${name}.` };
+  } catch (error) {
+    training.feedback = { text: error.message, error: true };
+  }
+  training.busy = null;
+  await loadTraining();
 }
