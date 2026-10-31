@@ -109,7 +109,9 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
   alternative counts fully; "or comparable/similar" → `comparable_credit` (0.6).
   Missing named products go to `named_to_add` ("Keywords to add" in the drawer).
   Years lines that name a job (`years_subject.role_patterns`: "as a …", "… role") count
-  only roles sharing `min_shared_terms` subject terms (minus `generic_terms`). Multi-level degree lines use
+  only roles sharing `min_shared_terms` subject terms (minus `generic_terms`). Skill/concept lines
+  that ask for years get half credit when short, but are missing below
+  `line_years.missing_below_share` of the years (or with none in a job the line names). Multi-level degree lines use
   the lowest level; an unrelated specific field earns `degree_fields.unrelated_credit`
   (0, missing), a broad or unknown one `broad_credit` (0.5).
 - `runner.py`: compares all active Silver postings, writes results privately.

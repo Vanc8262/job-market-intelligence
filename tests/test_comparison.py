@@ -514,6 +514,26 @@ def test_years_lines_naming_a_role_count_only_roles_that_show_it(resume: ResumeV
     assert fraud["status"] == "missing"
 
 
+def test_skill_and_concept_lines_far_short_of_their_years_are_missing(
+    resume: ResumeView,
+) -> None:
+    # About 4 years in total: half of "8+ years of Python" is partial, but less than
+    # `line_years.missing_below_share` of the years asked is no match.
+    near = _assess("8+ years of Python experience", resume)
+    assert near["kind"] == "skill" and near["status"] == "partial"
+    far = _assess("15+ years of Python experience", resume)
+    assert far["kind"] == "skill" and far["status"] == "missing"
+    assert far["needed_years"] == 15
+    concept = _assess("15+ years of experience building data pipelines", resume)
+    assert concept["kind"] == "concept" and concept["status"] == "missing"
+    # A line that names a job counts only roles that show it, as years lines do.
+    role = _assess("3+ years of Python experience as a fraud analyst", resume)
+    assert role["kind"] == "skill" and role["status"] == "missing"
+    assert "subject" in role and role["resume_years"] < 1
+    enough = _assess("3+ years of Python experience", resume)
+    assert enough["status"] == "met" and "needed_years" not in enough
+
+
 def test_stemming_and_synonyms_match_different_wording() -> None:
     vocabulary = RequirementVocabulary(Config().comparison)
     assert stem("pipelines") == stem("pipeline")

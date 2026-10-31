@@ -546,6 +546,14 @@ class ComparisonBoilerplateConfig(BaseModel):
         return self
 
 
+class ComparisonLineYearsConfig(BaseModel):
+    """How far short of a skill or concept line's years the resume may fall."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    missing_below_share: float = Field(default=0.0, ge=0, le=1)
+
+
 class ComparisonYearsSubjectConfig(BaseModel):
     """Years lines that name a job count only the resume roles that show it."""
 
@@ -613,6 +621,7 @@ class ComparisonConfig(BaseModel):
     years_subject: ComparisonYearsSubjectConfig = Field(
         default_factory=ComparisonYearsSubjectConfig
     )
+    line_years: ComparisonLineYearsConfig = Field(default_factory=ComparisonLineYearsConfig)
     degree_fields: ComparisonDegreeFieldsConfig = Field(
         default_factory=ComparisonDegreeFieldsConfig
     )
