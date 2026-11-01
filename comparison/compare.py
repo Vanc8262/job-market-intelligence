@@ -21,7 +21,13 @@ from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
-from comparison.requirements import Requirement, content_text, extract_requirements
+from comparison.requirements import (
+    OPEN_END,
+    OPEN_START,
+    Requirement,
+    content_text,
+    extract_requirements,
+)
 from comparison.vocabulary import STOPWORDS, TOKEN, RequirementVocabulary, phrase_pattern, stem
 from models.candidate import EducationFact, ExperienceFact, ExtractedFacts, SkillFact
 from models.job_posting import JobPosting
@@ -150,6 +156,19 @@ def _technical_degree(
 
 def _month_label(index: int) -> str:
     return f"{index // 12}-{index % 12 + 1:02d}"
+
+
+def _window_label(first: int, last: int) -> str:
+    """Label a graduation window: "2027-12", "2026-06 to 2027-12", "2027-12 or later"."""
+    if first == OPEN_START and last == OPEN_END:
+        return "any time"
+    if first == OPEN_START:
+        return f"by {_month_label(last)}"
+    if last == OPEN_END:
+        return f"{_month_label(first)} or later"
+    return (
+        _month_label(first) if first == last else f"{_month_label(first)} to {_month_label(last)}"
+    )
 
 
 def _education_label(education: EducationFact) -> str:
@@ -454,10 +473,7 @@ def assess_requirement(
         degree_shown = (inside or expected)[0]
         result.update(
             needed_graduation=[
-                f"{_month_label(first)} to {_month_label(last)}"
-                if first != last
-                else _month_label(first)
-                for first, last in requirement.graduation_windows
+                _window_label(first, last) for first, last in requirement.graduation_windows
             ],
             evidence={
                 "degree": _education_label(degree_shown),

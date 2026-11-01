@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 
 from comparison.vocabulary import RequirementVocabulary
 from models.job_posting import JobPosting
+from utils.config import ComparisonGraduationConfig
 
 REQUIRED_HEADINGS = re.compile(
     r"requir|qualif|what you('|’)?ll (need|bring)|what you need|what you bring|you have|"
@@ -379,25 +380,75 @@ def named_items(
     return list(dict.fromkeys(names))
 
 
-def graduation_windows(text: str, seasons: dict[str, tuple[int, int]]) -> list[tuple[int, int]]:
+# Open ends of a graduation window: "by May 2027" has no first month, "December 2027 or
+# later" no last one.
+OPEN_START = 0
+OPEN_END = 10_000 * 12
+# Two dates joined this way are one window: "between June 2026 and December 2027",
+# "May 2026 - December 2027", "from Fall 2026 through Spring 2027".
+_RANGE_JOIN = re.compile(r"^\s*(?:-|–|—|to|through|thru|until|and)\s*$", re.IGNORECASE)
+
+
+def _phrase_before(prefix: str, phrases: list[str]) -> bool:
+    words = prefix.casefold().rstrip(" ,:;(")
+    return any(re.search(rf"\b{re.escape(phrase.casefold())}$", words) for phrase in phrases)
+
+
+def _phrase_after(suffix: str, phrases: list[str]) -> bool:
+    words = suffix.casefold().lstrip(" ,:;)")
+    return any(re.match(rf"{re.escape(phrase.casefold())}\b", words) for phrase in phrases)
+
+
+def graduation_windows(text: str, rules: ComparisonGraduationConfig) -> list[tuple[int, int]]:
     """Return the graduation terms a line names as month-index windows.
 
     "December 2027 or Spring 2028" -> [Dec 2027, Jan-May 2028] with the configured
     season months. A season whose first month is after its last ("winter": 12 to 2)
-    starts in the year before.
+    starts in the year before. "between June 2026 and December 2027" is one window;
+    "December 2027 or later" (``later_phrases``) has no last month. "by May 2027"
+    (``by_phrases``), "May 2027 or earlier" (``earlier_phrases``) and a start date
+    ("can start on September 6, 2027", ``start_phrases``) have no first month, since
+    graduating any time before counts.
     """
-    windows: list[tuple[int, int]] = []
+    seasons = rules.season_windows()
+    dates: list[tuple[int, int, int, int]] = []  # (text start, text end, first, last)
     for match in _TERM_DATE.finditer(text):
         word = match["when"].casefold()
         year = int(match["year"])
         year = year + 2000 if year < 100 else year
         if word in _MONTHS:
-            month = _MONTHS[word]
-            windows.append((year * 12 + month - 1, year * 12 + month - 1))
+            month = year * 12 + _MONTHS[word] - 1
+            dates.append((match.start(), match.end(), month, month))
         elif word in seasons:
             first, last = seasons[word]
             start_year = year - 1 if first > last else year
-            windows.append((start_year * 12 + first - 1, year * 12 + last - 1))
+            dates.append(
+                (match.start(), match.end(), start_year * 12 + first - 1, year * 12 + last - 1)
+            )
+    merged: list[tuple[int, int, int, int]] = []
+    for date in dates:
+        if merged:
+            begin, end, first, _ = merged[-1]
+            joint = text[end : date[0]]
+            between = joint.strip().casefold() != "and" or _phrase_before(text[:begin], ["between"])
+            if _RANGE_JOIN.match(joint) and between:
+                merged[-1] = (begin, date[1], first, date[3])
+                continue
+        merged.append(date)
+    windows: list[tuple[int, int]] = []
+    for index, (begin, end, first, last) in enumerate(merged):
+        prefix = text[merged[index - 1][1] if index else 0 : begin]
+        suffix = text[end : merged[index + 1][0] if index + 1 < len(merged) else len(text)]
+        if _phrase_after(suffix, rules.later_phrases):
+            last = OPEN_END
+        if _phrase_after(suffix, rules.earlier_phrases) or _phrase_before(prefix, rules.by_phrases):
+            first = OPEN_START
+        elif any(
+            re.search(rf"\b{re.escape(phrase.casefold())}", prefix.casefold())
+            for phrase in rules.start_phrases
+        ):
+            first = OPEN_START
+        windows.append((first, last))
     return windows
 
 
@@ -410,7 +461,7 @@ def classify(
     """Decide what a requirement line asks for."""
     if vocabulary is not None and GRADUATION.search(text):
         rules = vocabulary.settings.graduation
-        windows = graduation_windows(text, rules.season_windows()) if rules.enabled else []
+        windows = graduation_windows(text, rules) if rules.enabled else []
         if windows:
             return Requirement(
                 text=text, required=required, kind="graduation", graduation_windows=windows

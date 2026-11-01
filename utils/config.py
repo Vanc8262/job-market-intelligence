@@ -535,6 +535,14 @@ class ComparisonGraduationConfig(BaseModel):
 
     enabled: bool = False
     seasons: dict[str, list[int]] = Field(default_factory=dict)
+    # Words after a date that leave the window open: "December 2027 or later" ...
+    later_phrases: list[str] = Field(default_factory=list)
+    # ... or open before it: "May 2027 or earlier".
+    earlier_phrases: list[str] = Field(default_factory=list)
+    # Words before a date meaning "graduate by then": "no later than May 2027".
+    by_phrases: list[str] = Field(default_factory=list)
+    # A start date ("can start on September 6, 2027") is met by graduating before it.
+    start_phrases: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _seasons_are_month_pairs(self) -> ComparisonGraduationConfig:
