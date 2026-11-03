@@ -490,10 +490,11 @@ async function loadTraining() {
   training.error = null;
   if (state.view === "labels" && state.labels.view === "training") renderTraining();
   try {
-    const response = await fetch("/api/labels/tracking", { cache: "no-store" });
+    const [response, modelResponse] = await Promise.all([fetch("/api/labels/tracking", { cache: "no-store" }), fetch("/api/models/b3", { cache: "no-store" }).catch(() => null)]);
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Training data could not be loaded");
     training.data = payload;
+    state.b3 = modelResponse?.ok ? await modelResponse.json() : state.b3;
   } catch (error) {
     training.error = error.message;
   }
@@ -525,6 +526,7 @@ function renderTraining() {
   const tiles = [["Positive", summary.positive], ["Negative", summary.negative], ["Neither", summary.neither], ["Withdrawn", summary.withdrawn], ["Added later", summary.synced], ["Posting closed", summary.closed]];
   const rows = trainingRows();
   elements.labelsContent.innerHTML = `${unlogged}${trackingProgressBlock({ ...summary.progress, unlogged: 0 })}
+    ${relevanceModelPanel(state.b3)}
     <div class="labels-tracker">${tiles.map(([name, value]) => `<div class="intel-kpi"><span>${escapeHtml(name)}</span><strong>${number(value)}</strong></div>`).join("")}</div>
     ${feedback}
     <section class="intel-block wide"><div class="intel-heading"><h2>Decisions</h2><span>${number(summary.postings)} postings</span></div>
@@ -583,4 +585,40 @@ async function trainingAction(action, rawIndex) {
   }
   training.busy = null;
   await loadTraining();
+}
+
+// Phase 8 B3 model panel: the latest fit's verdict, weights, model comparison (PSIS-LOO),
+// leave-one-out calibration, sensitivity fits, and the model card. Read only.
+const B3_MODEL_NAMES = { baseline: "Base rate", current_score: "Current score", learned_weights: "Learned weights", weights_plus_fit: "Weights + 6.3 fit" };
+
+function relevanceModelPanel(payload) {
+  const report = payload?.report;
+  const heading = `<div class="intel-heading"><h2>Phase 8 B3 relevance model</h2>${report ? b3StatusBadge(report) : `<span>Not fitted</span>`}</div>`;
+  if (!report) return `<section class="intel-block wide">${heading}<p class="job-meta wrap">${escapeHtml(payload?.message || "B3 results are unavailable.")} It needs the optional bayes extra (pip install -e ".[bayes]").</p></section>`;
+  const level = Math.round((report.credible_level || 0.9) * 100);
+  const data = report.data || {};
+  const excluded = Object.entries(data.excluded || {}).map(([key, value]) => `${number(value)} ${formatLabel(key).toLowerCase()}`).join(", ");
+  const facts = `<p class="job-meta wrap">Fitted ${escapeHtml(formatTimestamp(report.model_card?.generated_at))} on snapshot <code>${escapeHtml(report.snapshot?.snapshot_id || "unknown")}</code>: ${number(data.rows)} decisions (${number(data.positive)} positive, ${number(data.negative)} archived${data.sync_rows ? `, ${number(data.sync_rows)} added later` : ""})${excluded ? `; left out: ${escapeHtml(excluded)}` : ""}. Current scores in training span ${data.current_score_range ? `${formatScore(data.current_score_range[0])}–${formatScore(data.current_score_range[1])}` : "n/a"}. Prior: Dirichlet centered on your current weights with strength ${number(report.prior?.strength)}.</p>`;
+  const weights = report.weights ? `${marketTable(["Signal", "Current", "Posterior mean", `${level}% interval`, "P(above current)", "Verdict"], b3WeightRows(report.weights))}<p class="job-meta wrap">${escapeHtml(report.weights.explanation)} Suggested (posterior mean): ${SIGNAL_KEYS.map((key) => `${escapeHtml(formatLabel(key))} ${report.weights.suggested[key]}`).join(" · ")}. Changing weights stays your edit to the resume profile YAML.</p>` : `<p class="job-meta wrap">${escapeHtml(report.message || "No weights reported.")}</p>`;
+  const models = Object.entries(report.models || {}).map(([name, row]) => {
+    const loo = row.loo;
+    const status = row.status === "passed" ? (loo?.reliable === false ? `<span class="label-state stale" title="Some rows have Pareto k above the threshold">LOO unreliable</span>` : `<span class="label-state current">Passed</span>`) : `<span class="label-state orphaned" title="${escapeHtml((row.diagnostics?.failures || []).join("; ") || row.reason || "")}">${escapeHtml(formatLabel(row.status))}</span>`;
+    return `<tr><td><strong>${escapeHtml(B3_MODEL_NAMES[name] || formatLabel(name))}</strong><span class="job-meta wrap">${escapeHtml(row.question || "")}</span></td><td class="number-cell">${number(row.rows)}</td><td>${status}</td><td class="number-cell">${loo ? `${loo.elpd.toFixed(1)} ± ${loo.se.toFixed(1)}` : "—"}</td><td class="number-cell">${row.brier ? `${row.brier.brier.toFixed(3)} ± ${row.brier.se.toFixed(3)}` : "—"}</td><td class="number-cell">${loo ? loo.max_pareto_k.toFixed(2) : "—"}</td><td class="number-cell">${row.diagnostics ? `${row.diagnostics.max_rhat} / ${number(row.diagnostics.min_ess_bulk)}` : "—"}</td></tr>`;
+  }).join("");
+  const comparisons = (report.comparisons || []).map((row) => `<tr><td>${escapeHtml(B3_MODEL_NAMES[row.model] || row.model)} vs ${escapeHtml(B3_MODEL_NAMES[row.against] || row.against)}${row.rows ? ` <span class="job-meta">(${number(row.rows)} rows with fit)</span>` : ""}</td><td class="number-cell">${row.status === "compared" ? `${row.difference >= 0 ? "+" : ""}${row.difference.toFixed(2)} ± ${row.se.toFixed(2)}` : "—"}</td><td>${row.status === "compared" ? escapeHtml(Math.abs(row.difference) > 2 * row.se ? (row.difference > 0 ? "Clearly better" : "Clearly worse") : "Within noise") : escapeHtml(row.reason || "Not compared")}</td></tr>`).join("");
+  const learned = report.models?.learned_weights;
+  const reliability = (learned?.reliability || []).map((row) => `<tr><td class="number-cell">${formatPercent(row.predicted_low)}–${formatPercent(row.predicted_high)}</td><td class="number-cell">${number(row.rows)}</td><td class="number-cell">${formatPercent(row.mean_predicted)}</td><td class="number-cell">${formatPercent(row.observed.mean)} <span class="job-meta">(${formatPercent(row.observed.low)}–${formatPercent(row.observed.high)})</span></td></tr>`).join("");
+  const ppc = learned?.posterior_predictive;
+  const sensitivity = (report.sensitivity || []).map((row) => `<tr><td>${escapeHtml(formatLabel(row.variant))}</td><td class="number-cell">${number(row.rows)}</td>${SIGNAL_KEYS.map((key) => `<td class="number-cell">${row.weights ? `${formatScore(row.weights[key].mean)} <span class="job-meta">(${formatScore(row.weights[key].low)}–${formatScore(row.weights[key].high)})</span>` : escapeHtml(formatLabel(row.status))}</td>`).join("")}</tr>`).join("");
+  const biases = (report.biases || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  return `<section class="intel-block wide">${heading}${facts}${weights}${b3Staleness(payload)}
+    <h3>Model comparison (PSIS-LOO)</h3>${marketTable(["Model", "Rows", "Gate", "ELPD ± SE", "LOO Brier", "Max Pareto k", "R-hat / min ESS"], models)}
+    ${comparisons ? marketTable(["Comparison", "ELPD difference", "Reading"], comparisons) : ""}
+    <p class="job-meta wrap">Higher ELPD predicts held-out decisions better; a difference within about 2 standard errors is noise at this size. Brier scores use leave-one-out probabilities (lower is better).</p>
+    ${reliability ? `<h3>Calibration of learned weights (leave-one-out)</h3>${marketTable(["Predicted range", "Decisions", "Mean predicted", `Observed keep rate (${level}% interval)`], reliability)}` : ""}
+    ${ppc ? `<p class="job-meta wrap">Posterior predictive check: ${number(ppc.observed_positives)} kept observed; the model replicates ${formatScore(ppc.replicated_positives.low)}–${formatScore(ppc.replicated_positives.high)} (p = ${ppc.p_value}).</p>` : ""}
+    ${sensitivity ? `<h3>Sensitivity of learned weights</h3>${marketTable(["Variant", "Rows", ...SIGNAL_KEYS.map(formatLabel)], sensitivity)}` : ""}
+    ${biases ? `<h3>Known biases</h3><ul class="job-meta wrap">${biases}</ul>` : ""}
+    <p class="job-meta wrap">Model card: ${escapeHtml(report.model_card?.name || "")} ${escapeHtml(report.model_card?.version || "")} (stage ${escapeHtml(report.model_card?.stage || "")}, settings ${escapeHtml(report.model_card?.settings_hash || "")}), advisory. Refit with scripts/fit_relevance_weights.py.</p>
+  </section>`;
 }

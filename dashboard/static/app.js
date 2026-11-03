@@ -5,7 +5,7 @@ const ACTIVE_STATUSES = new Set(["applied", "interviewing", "offer"]);
 const STATUS_OPTIONS = ["new", "reviewing", "saved", "applied", "interviewing", "offer", "rejected", "archived"];
 const SIGNAL_KEYS = ["skills", "title", "experience", "location"];
 const POSITIVE_FEEDBACK_STATUSES = new Set(["reviewing", "saved", "applied", "interviewing", "offer"]);
-const state = { mart: null, market: null, operations: null, candidate: null, opportunities: [], tracking: {}, filtered: [], page: 1, band: "all", view: "opportunities", marketView: "overview", operationsView: "overview", selectedJobId: null, simulatorWeights: null, comparison: null };
+const state = { mart: null, market: null, operations: null, candidate: null, opportunities: [], tracking: {}, filtered: [], page: 1, band: "all", view: "opportunities", marketView: "overview", operationsView: "overview", selectedJobId: null, simulatorWeights: null, comparison: null, b3: null };
 const elements = {};
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -88,6 +88,7 @@ async function loadData() {
     state.market = marketResponse.ok ? await marketResponse.json() : null;
     state.operations = operationsResponse.ok ? await operationsResponse.json() : null;
     state.simulatorWeights = currentScoringWeights();
+    loadRelevanceModel();
     populateFilters();
     elements.freshnessLabel.textContent = `Gold refreshed ${formatTimestamp(mart.generated_at)}`;
     elements.intelligenceFreshness.textContent = state.market ? `Snapshot refreshed ${formatTimestamp(state.market.generated_at)}` : "Market summaries unavailable. Run scripts/build_gold.py.";
@@ -456,6 +457,14 @@ function handleSimulatorClick(event) {
     renderWeightSimulator();
     return;
   }
+  const posterior = event.target.closest("button[data-apply-b3]");
+  if (posterior) {
+    const suggested = state.b3?.report?.weights?.suggested;
+    if (suggested) state.simulatorWeights = Object.fromEntries(SIGNAL_KEYS.map((key) => [key, Number(suggested[key] || 0)]));
+    renderMetrics();
+    renderWeightSimulator();
+    return;
+  }
   const recommendation = event.target.closest("button[data-apply-recommendation]");
   if (recommendation) {
     const calibration = calculateCalibration();
@@ -482,10 +491,60 @@ function rankMovement(delta) {
 function renderCalibration(calibration) {
   const evidenceRows = SIGNAL_KEYS.map((key) => `<tr><td><strong>${escapeHtml(formatLabel(key))}</strong></td><td class="number-cell">${formatPercent(calibration.positiveSignals[key])}</td><td class="number-cell">${formatPercent(calibration.negativeSignals[key])}</td><td class="number-cell"><span class="signal-difference ${calibration.differences[key] >= 0 ? "positive" : "negative"}">${calibration.differences[key] >= 0 ? "+" : ""}${(calibration.differences[key] * 100).toFixed(0)} pts</span></td></tr>`).join("");
   if (!calibration.ready) {
-    return `<section class="sim-block calibration-block"><div class="sim-heading"><div><h2>Calibration feedback</h2><span>Preference evidence from tracking decisions</span></div><span class="calibration-badge pending">Collecting evidence</span></div><div class="calibration-progress"><strong>${calibration.labelCount} of ${calibration.minimumLabels} labels</strong><span>${calibration.positive.length} positive / ${calibration.negative.length} archived</span><div><span style="--progress:${Math.min(100, calibration.labelCount / calibration.minimumLabels * 100)}%"></span></div></div><p class="calibration-note">Recommendations unlock after at least 10 labels, including 3 positive and 3 archived decisions. Rejected applications remain outcome evidence and do not count as a preference signal.</p>${calibration.labelCount ? marketTable(["Signal", "Positive", "Archived", "Difference"], evidenceRows) : ""}</section>`;
+    return `<section class="sim-block calibration-block"><div class="sim-heading"><div><h2>Calibration feedback (heuristic)</h2><span>Preference evidence from tracking decisions</span></div><span class="calibration-badge pending">Collecting evidence</span></div><div class="calibration-progress"><strong>${calibration.labelCount} of ${calibration.minimumLabels} labels</strong><span>${calibration.positive.length} positive / ${calibration.negative.length} archived</span><div><span style="--progress:${Math.min(100, calibration.labelCount / calibration.minimumLabels * 100)}%"></span></div></div><p class="calibration-note">Recommendations unlock after at least 10 labels, including 3 positive and 3 archived decisions. Rejected applications remain outcome evidence and do not count as a preference signal.</p>${calibration.labelCount ? marketTable(["Signal", "Positive", "Archived", "Difference"], evidenceRows) : ""}</section>`;
   }
   const recommendation = SIGNAL_KEYS.map((key) => `<div><span>${escapeHtml(formatLabel(key))}</span><strong>${calibration.recommended[key]}</strong><small>${calibration.recommended[key] - state.simulatorWeights[key] >= 0 ? "+" : ""}${calibration.recommended[key] - state.simulatorWeights[key]}</small></div>`).join("");
-  return `<section class="sim-block calibration-block"><div class="sim-heading"><div><h2>Calibration feedback</h2><span>${calibration.labelCount} preference labels analyzed</span></div><span class="calibration-badge">Recommendation ready</span></div><div class="recommendation-grid">${recommendation}</div><button class="secondary-button" type="button" data-apply-recommendation>Apply recommendation</button>${marketTable(["Signal", "Positive", "Archived", "Difference"], evidenceRows)}<p class="calibration-note">The recommendation shifts at most 20 points per unit of observed signal separation, keeps every component between 5 and 50, and always totals 100.</p></section>`;
+  return `<section class="sim-block calibration-block"><div class="sim-heading"><div><h2>Calibration feedback (heuristic)</h2><span>${calibration.labelCount} preference labels analyzed</span></div><span class="calibration-badge">Recommendation ready</span></div><div class="recommendation-grid">${recommendation}</div><button class="secondary-button" type="button" data-apply-recommendation>Apply recommendation</button>${marketTable(["Signal", "Positive", "Archived", "Difference"], evidenceRows)}<p class="calibration-note">The recommendation shifts at most 20 points per unit of observed signal separation, keeps every component between 5 and 50, and always totals 100.</p></section>`;
+}
+
+// Phase 8 B3: the latest fit of relevance weights learned from tracking decisions
+// (GET /api/models/b3, written by scripts/fit_relevance_weights.py). Advisory only: Apply
+// fills the simulator, and saving weights stays an edit to the resume profile YAML.
+const B3_STATUS = {
+  keep_current: ["Keep current weights", "No weight is clearly off yet"],
+  change_suggested: ["Change suggested", "At least one weight is probably off"],
+  not_reported: ["Not reported", "The model failed the diagnostics gate"],
+  insufficient_data: ["Too few labels", "Keep logging tracking decisions"],
+};
+
+async function loadRelevanceModel() {
+  try {
+    const response = await fetch("/api/models/b3", { cache: "no-store" });
+    state.b3 = response.ok ? await response.json() : null;
+  } catch (error) {
+    state.b3 = null;
+  }
+  if (state.view === "simulator") renderWeightSimulator();
+}
+
+function b3StatusBadge(report) {
+  const [name, hint] = B3_STATUS[report?.status] || [formatLabel(report?.status), ""];
+  const pending = report?.status !== "keep_current" && report?.status !== "change_suggested";
+  return `<span class="calibration-badge${pending ? " pending" : ""}" title="${escapeHtml(hint)}">${escapeHtml(name)}</span>`;
+}
+
+function b3Staleness(payload) {
+  const notes = [];
+  if (payload?.new_log_lines > 0) notes.push(`${number(payload.new_log_lines)} training-log ${payload.new_log_lines === 1 ? "entry was" : "entries were"} added since this fit`);
+  if (payload?.weights_changed) notes.push("your configured weights changed since this fit");
+  return notes.length ? `<p class="calibration-note">Out of date: ${escapeHtml(notes.join("; "))}. Run scripts/fit_relevance_weights.py again.</p>` : "";
+}
+
+function b3WeightRows(weights) {
+  return SIGNAL_KEYS.map((key) => {
+    const row = weights.by_signal[key];
+    return `<tr><td><strong>${escapeHtml(formatLabel(key))}</strong></td><td class="number-cell">${formatScore(row.current)}</td><td class="number-cell">${formatScore(row.mean)}</td><td class="number-cell">${formatScore(row.low)}–${formatScore(row.high)}</td><td class="number-cell">${formatPercent(row.probability_above_current)}</td><td><span class="b3-verdict ${escapeHtml(row.verdict)}">${escapeHtml(formatLabel(row.verdict))}</span></td></tr>`;
+  }).join("");
+}
+
+function renderRelevanceModel() {
+  const payload = state.b3;
+  const report = payload?.report;
+  if (!report) return `<section class="sim-block calibration-block"><div class="sim-heading"><div><h2>B3 posterior</h2><span>Bayesian relevance weights from your tracking decisions</span></div><span class="calibration-badge pending">Not fitted</span></div><p class="calibration-note">${escapeHtml(payload?.message || "B3 results are unavailable.")}</p></section>`;
+  const level = Math.round((report.credible_level || 0.9) * 100);
+  const weights = report.weights;
+  const body = weights ? `<div class="recommendation-grid">${SIGNAL_KEYS.map((key) => `<div><span>${escapeHtml(formatLabel(key))}</span><strong>${weights.suggested[key]}</strong><small>${weights.suggested[key] - state.simulatorWeights[key] >= 0 ? "+" : ""}${weights.suggested[key] - state.simulatorWeights[key]}</small></div>`).join("")}</div><button class="secondary-button" type="button" data-apply-b3>Try posterior mean in simulator</button>${marketTable(["Signal", "Current", "Posterior mean", `${level}% interval`, "P(above current)", "Verdict"], b3WeightRows(weights))}<p class="calibration-note">${escapeHtml(weights.explanation)} Narrowing every interval to ±${formatScore(weights.labels_likely_needed.target_interval_points / 2)} points needs roughly ${number(weights.labels_likely_needed.labels)} labels.</p>` : `<p class="calibration-note">${escapeHtml(report.message || "No weights reported.")}</p>`;
+  return `<section class="sim-block calibration-block"><div class="sim-heading"><div><h2>B3 posterior</h2><span>Bayesian logistic regression on ${number(report.data?.rows)} decisions · fitted ${escapeHtml(formatTimestamp(report.model_card?.generated_at))}</span></div>${b3StatusBadge(report)}</div>${body}${b3Staleness(payload)}<p class="calibration-note">Advisory: B3 never changes scores. Details, model checks, and calibration are under Labels → Training data.</p></section>`;
 }
 
 function renderWeightSimulator() {
@@ -507,6 +566,7 @@ function renderWeightSimulator() {
     <section class="sim-block weight-panel"><div class="sim-heading"><div><h2>Signal weights</h2><span>Adjusting one signal redistributes the remaining points</span></div><strong>100 total</strong></div><div class="preset-control" aria-label="Weight presets"><button type="button" data-weight-preset="balanced" class="${!changed ? "active" : ""}">Balanced</button><button type="button" data-weight-preset="geography" class="${weightsMatch(presetWeights.geography) ? "active" : ""}">Geography flexible</button><button type="button" data-weight-preset="location" class="${weightsMatch(presetWeights.location) ? "active" : ""}">Location focus</button></div><div class="weight-controls">${SIGNAL_KEYS.map(weightControl).join("")}</div><div class="threshold-line"><span>Strong ${formatScore(scoring.strong_match_threshold ?? 80)}+</span><span>Moderate ${formatScore(scoring.moderate_match_threshold ?? 60)}+</span><span>Onsite cap ${formatScore(scoring.non_home_onsite_score_cap ?? 79)}</span></div></section>
     <section class="sim-block mover-panel"><div class="sim-heading"><div><h2>Biggest movers</h2><span>Absolute rank change in this scenario</span></div></div>${moverRows}</section>
     <section class="sim-block wide"><div class="sim-heading"><div><h2>Simulated ranking</h2><span>Top 20 current opportunities</span></div><span>${simulation.filter((item) => item.match_band === "strong").length} strong matches</span></div>${marketTable(["Rank", "Move", "Opportunity", "Simulated", "Current", "Contributions"], rows)}</section>
+    ${renderRelevanceModel()}
     ${renderCalibration(calibration)}
   </div>`;
 }

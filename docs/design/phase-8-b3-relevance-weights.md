@@ -1,6 +1,8 @@
 # Phase 8 B3: Bayesian relevance weights (design)
 
-Status: **draft for owner sign-off**. No implementation code until this is approved.
+Status: **approved 2026-11-03** (all recommendations Q1–Q7 accepted); implemented in
+`bayesian/relevance.py`, `bayesian/evaluation.py`, `analytics/relevance_model.py`, and
+`scripts/fit_relevance_weights.py`.
 Date: 2026-11-02. Data as of 2026-10-31: 35 active tracking labels (23 positive, 12 negative);
 B3 minimum 30, target 50 (`config/labels.yaml` → `tracking`).
 
@@ -157,7 +159,7 @@ comparison checks run on. All of these use **leave-one-out** predictions, never 
   Pareto k per row. Rows with k > 0.7 are listed; if any exist for a model, its LOO is
   marked unreliable (with 35 rows, exact refits for those rows are cheap and are done
   instead, up to `max_exact_refits`).
-- **Brier score** from LOO predictive probabilities, with a posterior interval, versus
+- **Brier score** from LOO predictive probabilities, with its standard error, versus
   the M0 base-rate Brier.
 - **Reliability curve**: rows binned by LOO probability (default 4 bins at this size),
   each bin's observed keep-rate as a Beta-Binomial posterior (`bayesian/beta.py`) with a
@@ -179,7 +181,8 @@ preferences), never to Gold or jmip-data:
     otherwise "keep". Thresholds in config.
   - "labels likely needed": a simple projection from the current interval widths
     (width ∝ 1/√n) of when intervals would be narrow enough to separate ±5 points.
-- `posterior.nc`: the ArviZ data, for reproducing plots.
+- `posterior.npz`: posterior draws of every model that passed, for reproducing plots
+  (NumPy archive, so no netCDF library is needed).
 - Per-posting P(positive) with 90% interval for current mart postings, computed by the
   CLI from the stored posterior (the dashboard never samples).
 
@@ -203,16 +206,17 @@ relevance_weights:          # B3
   enabled: true
   version: 1.0.0
   prior_strength: 40        # κ: Dirichlet pseudo-counts around the current weights
-  tau_prior: {log_median: 1.386, sigma: 0.75}   # LogNormal; log(4)
+  tau_prior: {median: 4.0, sigma: 0.75}         # LogNormal
   intercept_sigma: 1.5
   fit_coefficient_sigma: 1.5                    # M3 only
   models: [baseline, current_score, learned_weights, weights_plus_fit]
   include_sync_rows: true
   sensitivity: {without_sync: true, prior_strengths: [20, 80]}
-  sampler: {chains: 4, tune: 1000, draws: 1000, target_accept: 0.95, seed: 20261102}
-  recommend: {direction_probability: 0.9, elpd_se_multiple: 2.0}
+  sampler: {name: nutpie, chains: 4, tune: 1000, draws: 1000, target_accept: 0.95, seed: 20261102}
+  recommend: {direction_probability: 0.9, elpd_se_multiple: 2.0, target_interval_points: 10}
   calibration_bins: 4
   max_exact_refits: 10
+  pareto_k_threshold: 0.7
 ```
 
 The minimum label count stays in `config/labels.yaml` (`b3_minimum: 30`); the CLI refuses to
@@ -225,6 +229,7 @@ so I can see how much the prior drives the answer.
 | --- | --- |
 | `bayesian/relevance.py` | Row preparation (pure NumPy, testable without PyMC), model builders M0–M3 (PyMC imported lazily), summaries, recommendation verdicts. |
 | `bayesian/evaluation.py` | Phase 7 pieces reused by later stages: LOO table, LOO Brier, reliability bins with Beta intervals. |
+| `analytics/relevance_model.py` | Snapshot → training rows → fit → private outputs; reads the latest report for the dashboard. |
 | `scripts/fit_relevance_weights.py` | CLI: `--snapshot ID` (or newest verified), fits, gates, writes `data/private/models/b3/`, JSON summary on stdout, non-zero exit on gate failure. Never prints posting text. |
 | `dashboard/app.py` | `GET /api/models/b3` reads `latest.json`; no sampling in the server. |
 | `dashboard/static/` | Training data panel + simulator row (asset version bump). |

@@ -460,6 +460,8 @@ def training_rows(
                 "captured": label.captured,
                 "labeled_at": label.labeled_at.isoformat(),
                 "relevance_weights": label.relevance_weights,
+                "resume_version_id": label.resume_version_id,
+                "comparison_model_version": label.comparison_model_version,
                 **label.features,
             }
         )

@@ -18,6 +18,7 @@ from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel, ValidationError
 
+from analytics.relevance_model import read_relevance_report
 from analytics.tracking_labels import (
     DecisionContext,
     TrackingLabelStore,
@@ -32,7 +33,12 @@ from analytics.tracking_labels import (
     tracking_labels_path,
     unlogged,
 )
-from comparison.label_changes import build_changes, create_snapshot, current_snapshot
+from comparison.label_changes import (
+    build_changes,
+    complete_lines,
+    create_snapshot,
+    current_snapshot,
+)
 from comparison.label_review import review_labels, summarize_labels
 from comparison.labels import (
     CLIENT_SOURCES,
@@ -91,6 +97,7 @@ LABEL_SNAPSHOTS_PATH = "/api/labels/snapshots"
 LABEL_SCORECARD_PATH = "/api/labels/scorecard"
 TRACKING_LABELS_PATH = "/api/labels/tracking"
 TRACKING_SNAPSHOTS_PATH = "/api/labels/tracking/snapshots"
+RELEVANCE_MODEL_PATH = "/api/models/b3"
 OPERATIONS_FRESHNESS_HOURS = 36
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
@@ -415,6 +422,9 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
             return
         if path == TRACKING_LABELS_PATH:
             self._send_tracking_labels()
+            return
+        if path == RELEVANCE_MODEL_PATH:
+            self._send_relevance_model()
             return
         if path == "/api/application-tracking":
             try:
@@ -778,6 +788,53 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         tracking_payload = cast(dict[str, object], payload["tracking"])
         tracking_payload["unlogged"] = len(unlogged(decisions, self._tracking_statuses()))
         self._send_json(payload)
+
+    def _send_relevance_model(self) -> None:
+        """Send the latest B3 report (advisory), and whether it is out of date."""
+        service = self.resume_service
+        if service is None:
+            self._send_json(
+                {"error": "Resume workflow is unavailable"}, status=HTTPStatus.SERVICE_UNAVAILABLE
+            )
+            return
+        try:
+            report = read_relevance_report(service.private_root)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        if report is None:
+            self._send_json(
+                {
+                    "report": None,
+                    "message": "B3 has not been fitted yet; run scripts/fit_relevance_weights.py",
+                }
+            )
+            return
+        store = self._tracking_store()
+        snapshot = report.get("snapshot")
+        fitted_lines = snapshot.get("log_lines") if isinstance(snapshot, dict) else None
+        try:
+            current_lines = len(complete_lines(store.path)) if store is not None else None
+        except OSError:
+            current_lines = None
+        weights = Config().resume_profile.weights
+        total = weights.skills + weights.title + weights.experience + weights.location
+        current = {
+            name: round(float(getattr(weights, name)) / total * 100, 2)
+            for name in ("skills", "title", "experience", "location")
+        }
+        self._send_json(
+            {
+                "report": report,
+                "new_log_lines": (
+                    current_lines - fitted_lines
+                    if isinstance(current_lines, int) and isinstance(fitted_lines, int)
+                    else None
+                ),
+                "weights_changed": current != report.get("current_weights"),
+                "configured_weights": current,
+            }
+        )
 
     def _send_scorecard(self) -> None:
         """Send agreement estimates, confusion tables, and the replay of the current model."""

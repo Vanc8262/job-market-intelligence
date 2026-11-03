@@ -42,6 +42,7 @@ are deferred to Phase 9.
 .\.venv\Scripts\python.exe -m dashboard.app                # http://127.0.0.1:8765 (run as a module)
 .\.venv\Scripts\python.exe scripts\manage_resumes.py list
 .\.venv\Scripts\python.exe scripts\cadence_report.py
+.\.venv\Scripts\python.exe scripts\fit_relevance_weights.py    # B3 (needs pip install -e ".[bayes]")
 ```
 
 There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
@@ -62,7 +63,7 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
    `master`. Descriptive subject + body explaining why.
 5. **Dashboard assets:** when `app.js`, `resume-review.js`, `labels.js`, or `styles.css` change, bump
    the `?v=resume-vN` asset version in `dashboard/static/index.html` **and** in
-   `tests/test_dashboard.py` (currently `resume-v22`).
+   `tests/test_dashboard.py` (currently `resume-v23`).
 6. **Config over code:** thresholds, weights, vocabularies, and taxonomies go in
    `config/*.yaml`, each validated by a Pydantic model in `utils/config.py`
    (`extra="forbid"`; add the field there when adding a YAML key). Bump the config's
@@ -84,7 +85,7 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
 | `processors/normalizer.py` | Silver normalization: skills (`config/skills.yaml`, with `ambiguous` rules for R, C, Go, Excel…), titles and role families (`config/titles.yaml` `family_rules`), locations, salary. `skills_in_text()` is the shared skill matcher. |
 | `pipeline/` | Collection, processing, lifecycle, data-quality gateway. |
 | `analytics/` | Gold summaries, current-opportunities mart, relevance scoring, cadence monitoring, B3 training labels (`tracking_labels.py`). |
-| `bayesian/` | Phase 8 B0–B1: diagnostics (ArviZ-equivalent R-hat/ESS), Beta-Binomial posteriors, quality-gate verdicts, skill-share shrinkage, model cards. |
+| `bayesian/` | Phase 8: diagnostics (ArviZ-equivalent R-hat/ESS), Beta-Binomial posteriors, quality-gate verdicts, skill-share shrinkage, model cards (B0–B1); B3 relevance weights (`relevance.py`) and Phase 7 LOO checks (`evaluation.py`). |
 | `profiles/` | Phase 6.1–6.2 resume workflow: safe PDF/DOCX reading (clip-aware PDF text), quality scoring, parser, SQLite repository, review/approve/revise/supersede, active version. `profile_source.py` resolves the approved resume for scoring. |
 | `comparison/` | Phase 6.3 application comparison (below). |
 | `dashboard/` | `ThreadingHTTPServer` JSON API + vanilla JS (`static/`). Reads `configured_gold_root()`; comparisons from `data/private/comparisons/latest.json`. |
@@ -150,6 +151,13 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
   relevance signals and 6.3 fit at that moment (numbers and posting facts only). Withdraw
   keeps a decision out of training without touching tracking; `sync` logs decisions the
   log lacks (`source=sync`, today's signals); snapshots reuse the label-snapshot helpers.
+- B3 (`bayesian/relevance.py`, `analytics/relevance_model.py`, `scripts/fit_relevance_weights.py`):
+  Bayesian logistic regression on tracking labels with weights `w ~ Dirichlet(κ·current)`;
+  models baseline / current_score / learned_weights / weights_plus_fit compared by PSIS-LOO;
+  LOO Brier + reliability bins; every fit gated; outputs only in `data/private/models/b3/`
+  (`GET /api/models/b3`, Training data panel, simulator "B3 posterior"). Only `pymc_sampler`
+  needs PyMC; tests inject stand-in samplers and run the real one when the `bayes` extra is
+  installed (CI installs it).
 - When the owner reports a wrong ✓/◐/✗, fix it in the vocabulary/config first, add a
   regression test in `tests/test_comparison.py` with the synthetic resume, and sanity
   check on real postings (counts by kind/status) before committing.
@@ -160,9 +168,10 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
 | --- | --- |
 | 1–5 Foundation → Dashboard | Complete |
 | 6 Candidate workflow (6.1 ingest, 6.2 review/revise, 6.3 comparison) | Complete; 6.3 being tuned from owner feedback |
-| 7 Bayesian evaluation (labeled sets, credible intervals, calibration, PSIS-LOO) | 7.1 Labels tab and 7.2 Scorecard complete; calibration and PSIS-LOO planned |
+| 7 Bayesian evaluation (labeled sets, credible intervals, calibration, PSIS-LOO) | 7.1 Labels tab and 7.2 Scorecard complete; LOO Brier/reliability and PSIS-LOO run for B3 |
 | 8 Bayesian analytics B0–B1 | Complete |
-| 8 B2 salary, B3 relevance/fit probability, B4 survival, B5 trends | When data allows (see README thresholds) |
+| 8 B3 relevance weights | Complete (design `docs/design/phase-8-b3-relevance-weights.md`); refit as tracking labels grow |
+| 8 B2 salary, B4 survival, B5 trends | When data allows (see README thresholds) |
 | 9 Deep learning (JobBERT/ModernBERT embeddings feeding Bayesian models) | Future |
 
 Candidate next work: copy/export ★ keywords across the shortlist; resume-edit
