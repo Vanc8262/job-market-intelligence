@@ -17,11 +17,17 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements-dev.txt
+          cache-dependency-path: |
+            requirements-dev.txt
+            pyproject.toml
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
       - name: Install dependencies
         run: python -m pip install -r requirements-dev.txt
+      # The optional Bayesian stack (PyMC, nutpie, ArviZ), so the B3 sampler tests run here
+      # too instead of being skipped.
+      - name: Install the bayes extra
+        run: python -m pip install -e ".[bayes]"
       - name: Verify project
         run: python scripts/verify_project.py

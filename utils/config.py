@@ -505,6 +505,94 @@ class BayesianSkillSharesConfig(BaseModel):
     max_prior_strength: float = Field(default=1000, gt=0)
 
 
+class RelevanceTauPriorConfig(BaseModel):
+    """LogNormal prior on how sharply the relevance score separates kept from archived."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    median: float = Field(default=4.0, gt=0)
+    sigma: float = Field(default=0.75, gt=0)
+
+
+class RelevanceSensitivityConfig(BaseModel):
+    """Extra fits of the learned-weights model reported beside the main one."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    without_sync: bool = True
+    prior_strengths: list[float] = Field(default_factory=lambda: [20.0, 80.0])
+
+    @model_validator(mode="after")
+    def _positive(self) -> RelevanceSensitivityConfig:
+        if any(value <= 0 for value in self.prior_strengths):
+            raise ValueError("sensitivity prior strengths must be positive")
+        return self
+
+
+class RelevanceSamplerConfig(BaseModel):
+    """NUTS settings for every B3 fit."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: Literal["nutpie", "pymc"] = "nutpie"
+    chains: int = Field(default=4, ge=2, le=16)
+    tune: int = Field(default=1000, ge=100)
+    draws: int = Field(default=1000, ge=100)
+    target_accept: float = Field(default=0.95, gt=0.5, lt=1)
+    seed: int = Field(default=1, ge=0)
+
+
+class RelevanceRecommendConfig(BaseModel):
+    """When B3 says a weight should move rather than stay."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    direction_probability: float = Field(default=0.9, gt=0.5, lt=1)
+    elpd_se_multiple: float = Field(default=2.0, ge=0)
+    # Width (in weight points out of 100) the 90% intervals should shrink to.
+    target_interval_points: float = Field(default=10.0, gt=0, le=100)
+
+
+type RelevanceModelName = Literal[
+    "baseline", "current_score", "learned_weights", "weights_plus_fit"
+]
+RELEVANCE_MODELS: tuple[RelevanceModelName, ...] = (
+    "baseline",
+    "current_score",
+    "learned_weights",
+    "weights_plus_fit",
+)
+
+
+class BayesianRelevanceWeightsConfig(BaseModel):
+    """B3: relevance weights learned from tracking decisions (Bayesian logistic regression)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    version: str = Field(default="1.0.0", min_length=1)
+    prior_strength: float = Field(default=40.0, gt=0)
+    tau_prior: RelevanceTauPriorConfig = Field(default_factory=RelevanceTauPriorConfig)
+    intercept_sigma: float = Field(default=1.5, gt=0)
+    fit_coefficient_sigma: float = Field(default=1.5, gt=0)
+    models: list[RelevanceModelName] = Field(default_factory=lambda: list(RELEVANCE_MODELS))
+    include_sync_rows: bool = True
+    sensitivity: RelevanceSensitivityConfig = Field(default_factory=RelevanceSensitivityConfig)
+    sampler: RelevanceSamplerConfig = Field(default_factory=RelevanceSamplerConfig)
+    recommend: RelevanceRecommendConfig = Field(default_factory=RelevanceRecommendConfig)
+    calibration_bins: int = Field(default=4, ge=2, le=20)
+    max_exact_refits: int = Field(default=10, ge=0, le=100)
+    pareto_k_threshold: float = Field(default=0.7, gt=0, le=1)
+
+    @model_validator(mode="after")
+    def _models(self) -> BayesianRelevanceWeightsConfig:
+        if "learned_weights" not in self.models:
+            raise ValueError("relevance_weights.models must include learned_weights")
+        if len(set(self.models)) != len(self.models):
+            raise ValueError("relevance_weights.models must not repeat a model")
+        return self
+
+
 class ComparisonWeights(BaseModel):
     """Relative weight of each application-comparison dimension."""
 
@@ -781,6 +869,9 @@ class BayesianConfig(BaseModel):
     diagnostics: BayesianDiagnosticsConfig = Field(default_factory=BayesianDiagnosticsConfig)
     quality_gate: BayesianQualityGateConfig = Field(default_factory=BayesianQualityGateConfig)
     skill_shares: BayesianSkillSharesConfig = Field(default_factory=BayesianSkillSharesConfig)
+    relevance_weights: BayesianRelevanceWeightsConfig = Field(
+        default_factory=BayesianRelevanceWeightsConfig
+    )
 
 
 class DataQualityConfig(BaseModel):

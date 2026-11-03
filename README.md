@@ -57,8 +57,8 @@ state and is excluded from version control.
 | 4. Intelligence | Lifecycle, Gold summaries, relevance scoring, and quality gateway | Complete |
 | 5. Reporting | Dashboard: opportunities, shortlist, tracking, market views, pipeline status, weight simulator | Complete |
 | 6. Candidate workflow | Resume ingestion and extraction (6.1), review with revisions and edited versions (6.2), application comparison (6.3) | Complete |
-| 7. Bayesian evaluation | Labeled benchmark sets, accuracy with credible intervals, calibration checks, and model comparison | Planned (redesigned) |
-| 8. Bayesian analytics | Bayesian quality gate, salary, relevance, survival, and trend models (stages B0–B5) | B0–B1 complete; B2–B5 as data accumulates |
+| 7. Bayesian evaluation | Labeled benchmark sets, accuracy with credible intervals, calibration checks, and model comparison | Labels tab, Scorecard, and LOO calibration/PSIS-LOO for B3 complete |
+| 8. Bayesian analytics | Bayesian quality gate, salary, relevance, survival, and trend models (stages B0–B5) | B0–B1 and B3 complete; B2, B4, B5 as data accumulates |
 | 9. Deep learning | Title and skill embeddings (for example JobBERT or ModernBERT) as inputs to the Bayesian models | Future |
 
 Application comparison (6.3) scores each posting against your approved resume on
@@ -114,6 +114,36 @@ extra (`pip install -e ".[bayes]"`). The full research and design notes live in 
   interval, and its share within each role family is shrunk toward the skill's typical
   share across families, so a family with six postings is not reported as "100% ask for
   Python". Shown under *Market intelligence → Skills*.
+
+**B3 relevance weights** (`bayesian/relevance.py`, `bayesian/evaluation.py`,
+`analytics/relevance_model.py`; design in `docs/design/phase-8-b3-relevance-weights.md`).
+A Bayesian logistic regression on your tracking decisions (see
+[Training data](#training-data-phase-8-b3)) that learns the four relevance weights on the
+simplex: `w ~ Dirichlet(prior_strength × current weights)`, so the prior is centered on
+the weights you configured and the posterior is a weight set in the same units, with an
+interval per weight. Four models are compared with PSIS-LOO: the base rate, the current
+score, learned weights, and learned weights plus the 6.3 fit score. Every model must pass
+the diagnostics gate or it is reported without numbers. Leave-one-out probabilities give
+each model's Brier score and a reliability table (Beta-Binomial intervals per bin), the
+first Phase 7 calibration check. A weight is marked "raise" or "lower" only when that
+direction is at least 90% probable **and** learned weights beat the current score by more
+than 2 standard errors of ELPD; otherwise the verdict is "keep current". Sensitivity fits
+(prior strength 20 and 80, and without rows added later by sync) show how much the prior
+drives the answer. Settings are under `relevance_weights` in `config/bayesian.yaml`.
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[bayes]"            # once: PyMC, nutpie, ArviZ
+.\.venv\Scripts\python.exe scripts\fit_relevance_weights.py         # snapshot the log, fit, report
+.\.venv\Scripts\python.exe scripts\fit_relevance_weights.py --snapshot ID   # refit a saved snapshot
+```
+
+Each fit freezes the training log as a snapshot (or reuses the matching one) and writes
+`data/private/models/b3/` (report, posterior draws, and P(keep) with an interval for each
+current posting). It takes about a minute and exits 1 with too few labels or a failed
+gate. Results show under *Labels → Training data* (verdict, weights, model comparison,
+calibration, sensitivity, model card) and as a *B3 posterior* block in the *Weight
+simulator*, whose button only tries the posterior mean in the simulator: B3 never changes
+scores, and saving weights stays your edit to `resume_profile.local.yaml`.
 
 ## Design Principles
 
@@ -629,6 +659,7 @@ B3 trains on the newest active positive and negative row per posting:
 ```powershell
 .\.venv\Scripts\python.exe scripts\tracking_labels.py summary                 # also: sync, snapshot, snapshots
 .\.venv\Scripts\python.exe scripts\tracking_labels.py export --snapshot ID   # training rows as JSON
+.\.venv\Scripts\python.exe scripts\fit_relevance_weights.py                # fit B3 (see Phase 8 above)
 ```
 
 ## Engineering Commands
@@ -660,6 +691,8 @@ in `docs/`; install the optional `docs` extra (`pip install -e ".[docs]"`) first
 | Candidate database and resumes | `data/private/candidates.sqlite3`, `data/private/resumes/` |
 | Application comparison results | `data/private/comparisons/latest.json` |
 | Requirement verdict labels | `data/private/labels/requirement_labels.jsonl` |
+| Tracking (B3 training) labels | `data/private/labels/tracking_labels.jsonl` |
+| B3 relevance-weights fit | `data/private/models/b3/latest.json`, `posterior.npz`, `postings.json` |
 
 CLI commands emit JSON summaries. Exit code `0` means success; pipeline and quality
 commands return nonzero when a required stage fails.
