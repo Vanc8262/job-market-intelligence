@@ -1,12 +1,13 @@
 # Dashboard ranking views. Applied when the dashboard reads the data, never in Gold: the
 # 6.3 fit comes from your private resume, so it must not flow into Gold or jmip-data.
-version: 1.0.0
+version: 1.1.0
 
 # Priority sort: blends the relevance score with the Phase 6.3 application fit,
 #   priority = (1 - fit_weight) * relevance + fit_weight * fit
 # Postings without a comparison use relevance alone. Phase 8 B3 reports the fit weight your
 # tracking decisions support (Labels -> Training data); changing it stays your edit here.
 priority:
-  fit_weight: 0.3
+  # 0.2 since 2026-11-04: B3 estimated ~0.19 (90% interval 0-0.53, P(fit helps) 0.84).
+  fit_weight: 0.2
   # A capped relevance score (avoided title, non-home onsite) stays capped in the blend.
   respect_score_caps: true
