@@ -389,7 +389,7 @@ expired, and duplicate jobs in research summaries with
 - **Application fit:** a Fit column (sortable as "Application fit") and an Application
   comparison section in the detail drawer.
 - **Priority:** a Priority column and sort that blend relevance with application fit,
-  `(1 - fit_weight) × relevance + fit_weight × fit` (`config/ranking.yaml`, default 0.3).
+  `(1 - fit_weight) × relevance + fit_weight × fit` (`config/ranking.yaml`, currently 0.2).
   Phase 8 B3 found that fit predicts which postings you keep beyond relevance, and it
   reports the fit weight your decisions support under *Labels → Training data*. Priority is
   computed when the dashboard reads the data, never written to Gold. Postings without a
