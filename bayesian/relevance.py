@@ -313,6 +313,7 @@ def fit_relevance_weights(
     minimum_each: int = 3,
     sampler: Sampler | None = None,
     postings: Sequence[tuple[str, Sequence[float]]] = (),
+    configured_fit_weight: float | None = None,
 ) -> RelevanceFit:
     """Fit B3 on training rows and return the advisory report (never changes config)."""
     run = sampler or pymc_sampler
@@ -402,6 +403,12 @@ def fit_relevance_weights(
         report["weights"] = None
         report["status"] = "not_reported"
         report["message"] = "The learned-weights model did not pass the diagnostics gate."
+    with_fit = fits.get(WEIGHTS_PLUS_FIT)
+    report["priority_fit_weight"] = (
+        fit_weight_summary(with_fit.sampled.draws, credible_level, configured_fit_weight, settings)
+        if with_fit is not None and with_fit.passed
+        else None
+    )
     report["sensitivity"] = _sensitivity(
         data, center, center_score, settings, thresholds, run, credible_level, minimum_each
     )
@@ -494,6 +501,45 @@ def weight_summary(
             "errors (PSIS-LOO)."
         ),
     }
+
+
+def fit_weight_summary(
+    draws: Mapping[str, FloatArray],
+    level: float,
+    configured: float | None,
+    settings: BayesianRelevanceWeightsConfig,
+) -> dict[str, object]:
+    """Posterior of the Priority blend weight implied by the weights-plus-fit model.
+
+    Both the score and the fit enter on a 0-1 scale, so tau * score + gamma * fit is
+    (tau + gamma) * ((1 - f) * score + f * fit) with f = gamma / (tau + gamma). A negative
+    gamma (fit pointing away from your decisions) counts as weight 0.
+    """
+    tau = np.asarray(draws["tau"], dtype=np.float64).reshape(-1)
+    gamma = np.asarray(draws["gamma"], dtype=np.float64).reshape(-1)
+    helps = np.maximum(gamma, 0.0)
+    weight = helps / (tau + helps)
+    summary: dict[str, object] = {
+        **_interval(weight, level),
+        "probability_fit_helps": round(float((gamma > 0).mean()), 4),
+        "configured": configured,
+        "note": (
+            "Fit weight for the Priority sort (config/ranking.yaml) that your decisions "
+            "support: gamma / (tau + gamma) from the weights-plus-fit model."
+        ),
+    }
+    if configured is not None:
+        share_above = float((weight > configured).mean())
+        probability = settings.recommend.direction_probability
+        summary["probability_above_configured"] = round(share_above, 4)
+        summary["verdict"] = (
+            "raise"
+            if share_above >= probability
+            else "lower"
+            if share_above <= 1 - probability
+            else "keep"
+        )
+    return summary
 
 
 def labels_needed(
@@ -886,6 +932,7 @@ __all__ = [
     "TrainingSet",
     "dirichlet_concentration",
     "fit_relevance_weights",
+    "fit_weight_summary",
     "labels_needed",
     "largest_remainder",
     "linear_predictor",

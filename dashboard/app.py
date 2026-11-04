@@ -18,6 +18,7 @@ from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel, ValidationError
 
+from analytics.priority import priority_score
 from analytics.relevance_model import read_relevance_report
 from analytics.tracking_labels import (
     DecisionContext,
@@ -59,7 +60,7 @@ from profiles import (
     ResumeDocumentError,
     ResumeIngestionService,
 )
-from utils.config import Config
+from utils.config import Config, PriorityConfig
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -383,7 +384,9 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/opportunities":
             try:
                 mart = load_opportunities_mart(self.mart_path)
-                self._send_json(attach_application_fit(mart, self._comparisons()))
+                self._send_json(
+                    attach_application_fit(mart, self._comparisons(), Config().ranking.priority)
+                )
             except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
                 self._send_json({"error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE)
             return
@@ -1224,23 +1227,30 @@ def create_server(
 
 
 def attach_application_fit(
-    mart: dict[str, Any], comparisons: dict[str, object] | None
+    mart: dict[str, Any],
+    comparisons: dict[str, object] | None,
+    priority: PriorityConfig | None = None,
 ) -> dict[str, Any]:
-    """Add each posting's Phase 6.3 fit summary (no resume evidence) to the mart."""
+    """Add each posting's 6.3 fit summary (no resume evidence) and its Priority to the mart."""
+    settings = priority or PriorityConfig()
     jobs = comparisons.get("jobs") if comparisons else None
-    if not isinstance(jobs, dict):
-        return {**mart, "application_fit_available": False}
+    jobs = jobs if isinstance(jobs, dict) else {}
     rows = []
     for row in mart.get("opportunities", []):
         detail = jobs.get(row.get("job_id"))
-        if isinstance(detail, dict):
-            row = {**row, "application_fit": fit_summary(detail)}
-        rows.append(row)
+        fit = fit_summary(detail) if isinstance(detail, dict) else None
+        if fit is not None:
+            row = {**row, "application_fit": fit}
+        rank = priority_score(row, fit, settings)
+        rows.append({**row, "priority": rank} if rank is not None else row)
     return {
         **mart,
         "opportunities": rows,
-        "application_fit_available": True,
+        "application_fit_available": bool(
+            comparisons and isinstance(comparisons.get("jobs"), dict)
+        ),
         "application_fit_generated_at": comparisons.get("generated_at") if comparisons else None,
+        "priority_settings": settings.model_dump(),
     }
 
 

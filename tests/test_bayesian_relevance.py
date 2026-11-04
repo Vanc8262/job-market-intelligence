@@ -312,6 +312,8 @@ def test_full_report_with_a_stand_in_sampler() -> None:
     variants = {row["variant"] for row in report["sensitivity"]}  # type: ignore[union-attr]
     assert variants == {"prior_strength_20", "prior_strength_80", "without_sync"}
     assert report["prior_predictive"]["passed"] is True  # type: ignore[index]
+    blend = report["priority_fit_weight"]
+    assert isinstance(blend, dict) and 0 <= blend["low"] <= blend["high"] < 1
     assert set(result.draws) == set(models)
     by_job = {row["job_id"]: row for row in result.postings}
     assert by_job["high"]["extrapolated"] is True

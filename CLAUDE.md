@@ -63,7 +63,7 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
    `master`. Descriptive subject + body explaining why.
 5. **Dashboard assets:** when `app.js`, `resume-review.js`, `labels.js`, or `styles.css` change, bump
    the `?v=resume-vN` asset version in `dashboard/static/index.html` **and** in
-   `tests/test_dashboard.py` (currently `resume-v23`).
+   `tests/test_dashboard.py` (currently `resume-v24`).
 6. **Config over code:** thresholds, weights, vocabularies, and taxonomies go in
    `config/*.yaml`, each validated by a Pydantic model in `utils/config.py`
    (`extra="forbid"`; add the field there when adding a YAML key). Bump the config's
@@ -84,7 +84,7 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
 | `extractors/` | One adapter per ATS family → canonical `JobPosting` (`models/job_posting.py`). Lever joins `descriptionPlain` + `lists` + `additionalPlain` and fills qualifications. |
 | `processors/normalizer.py` | Silver normalization: skills (`config/skills.yaml`, with `ambiguous` rules for R, C, Go, Excel…), titles and role families (`config/titles.yaml` `family_rules`), locations, salary. `skills_in_text()` is the shared skill matcher. |
 | `pipeline/` | Collection, processing, lifecycle, data-quality gateway. |
-| `analytics/` | Gold summaries, current-opportunities mart, relevance scoring, cadence monitoring, B3 training labels (`tracking_labels.py`). |
+| `analytics/` | Gold summaries, current-opportunities mart, relevance scoring, cadence monitoring, B3 training labels (`tracking_labels.py`), Priority blend of relevance + 6.3 fit (`priority.py`, `config/ranking.yaml`, applied at dashboard read time only because fit is private). |
 | `bayesian/` | Phase 8: diagnostics (ArviZ-equivalent R-hat/ESS), Beta-Binomial posteriors, quality-gate verdicts, skill-share shrinkage, model cards (B0–B1); B3 relevance weights (`relevance.py`) and Phase 7 LOO checks (`evaluation.py`). |
 | `profiles/` | Phase 6.1–6.2 resume workflow: safe PDF/DOCX reading (clip-aware PDF text), quality scoring, parser, SQLite repository, review/approve/revise/supersede, active version. `profile_source.py` resolves the approved resume for scoring. |
 | `comparison/` | Phase 6.3 application comparison (below). |
@@ -155,9 +155,12 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
   Bayesian logistic regression on tracking labels with weights `w ~ Dirichlet(κ·current)`;
   models baseline / current_score / learned_weights / weights_plus_fit compared by PSIS-LOO;
   LOO Brier + reliability bins; every fit gated; outputs only in `data/private/models/b3/`
-  (`GET /api/models/b3`, Training data panel, simulator "B3 posterior"). Only `pymc_sampler`
+  (`GET /api/models/b3`, Training data panel, simulator "B3 posterior"). It also reports the
+  Priority fit weight the data support, gamma / (tau + gamma) from `weights_plus_fit`. Only `pymc_sampler`
   needs PyMC; tests inject stand-in samplers and run the real one when the `bayes` extra is
   installed (CI installs it).
+  It also reports the Priority fit weight your decisions support, gamma / (tau + gamma)
+  from `weights_plus_fit` (compared with `config/ranking.yaml`).
 - When the owner reports a wrong ✓/◐/✗, fix it in the vocabulary/config first, add a
   regression test in `tests/test_comparison.py` with the synthetic resume, and sanity
   check on real postings (counts by kind/status) before committing.

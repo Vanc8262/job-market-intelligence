@@ -165,6 +165,7 @@ function sortRows(rows, sort) {
     salary: (a, b) => (b.salary_midpoint || -1) - (a.salary_midpoint || -1) || a.rank - b.rank,
     employer: (a, b) => a.employer.localeCompare(b.employer) || a.rank - b.rank,
     fit: (a, b) => (b.application_fit?.fit_score ?? -1) - (a.application_fit?.fit_score ?? -1) || a.rank - b.rank,
+    priority: (a, b) => (b.priority?.score ?? -1) - (a.priority?.score ?? -1) || a.rank - b.rank,
   };
   rows.sort(comparators[sort] || comparators.rank);
 }
@@ -248,7 +249,7 @@ function renderTable() {
     const tracking = trackingFor(item.job_id);
     const marker = tracking.shortlisted ? `<span class="shortlist-marker">Shortlisted</span>` : "";
     return `<tr tabindex="0" data-job-id="${escapeHtml(item.job_id)}" aria-label="Open ${escapeHtml(item.title)} at ${escapeHtml(item.employer)}">
-      <td class="rank-cell">${item.rank}</td><td><span class="score-badge score-${escapeHtml(item.match_band)}">${formatScore(item.resume_relevance_score)}</span></td><td>${fitBadge(item.application_fit)}</td>
+      <td class="rank-cell">${item.rank}</td><td><span class="score-badge score-${escapeHtml(item.match_band)}">${formatScore(item.resume_relevance_score)}</span></td><td>${fitBadge(item.application_fit)}</td><td>${priorityBadge(item.priority)}</td>
       <td><span class="job-title">${escapeHtml(item.title)}</span><span class="job-meta">${escapeHtml(formatLabel(item.seniority || "unknown"))} / ${escapeHtml(formatSalary(item))} ${marker}</span></td>
       <td class="cell-truncate">${escapeHtml(item.employer)}</td><td class="cell-truncate" title="${escapeHtml(item.location || "Unknown")}">${escapeHtml(item.location || "Unknown")}</td>
       <td><span class="status-label ${escapeHtml(item.workplace_type)}">${escapeHtml(formatLabel(item.workplace_type))}</span></td><td><span class="status-label application-${escapeHtml(tracking.status)}">${escapeHtml(formatLabel(tracking.status))}</span></td></tr>`;
@@ -699,6 +700,22 @@ function openDrawer(jobId) {
   elements.drawerBackdrop.hidden = false; elements.detailDrawer.classList.add("open"); elements.detailDrawer.setAttribute("aria-hidden", "false"); document.body.style.overflow = "hidden"; elements.closeDrawer.focus();
 }
 // Phase 6.3: application comparison against the approved resume.
+// Priority (config/ranking.yaml): relevance blended with 6.3 fit, computed by the server at
+// read time. The tooltip names both parts and the weight, so the number can be explained.
+function priorityExplanation(priority) {
+  if (!priority) return "No relevance score";
+  const weight = Math.round(priority.fit_weight * 100);
+  const parts = priority.basis === "blend" ? `${100 - weight}% relevance ${formatScore(priority.relevance)} + ${weight}% fit ${formatScore(priority.fit)}` : `Relevance ${formatScore(priority.relevance)} only (no application comparison yet)`;
+  return `${parts}${priority.capped_at != null ? `; capped at ${formatScore(priority.capped_at)} like the relevance score` : ""}`;
+}
+
+function priorityBadge(priority) {
+  if (!priority) return `<span class="score-badge score-limited fit-badge" title="No relevance score">–</span>`;
+  const scoring = currentScoringProfile().scoring || {};
+  const band = priority.score >= (scoring.strong_match_threshold ?? 80) ? "strong" : priority.score >= (scoring.moderate_match_threshold ?? 60) ? "moderate" : "limited";
+  return `<span class="score-badge score-${band} fit-badge${priority.basis === "blend" ? "" : " relevance-only"}" title="Priority: ${escapeHtml(priorityExplanation(priority))}">${formatScore(priority.score)}</span>`;
+}
+
 function fitBadge(fit) {
   if (!fit || fit.fit_score === null || fit.fit_score === undefined) return `<span class="score-badge score-limited fit-badge" title="No comparison yet">–</span>`;
   return `<span class="score-badge score-${escapeHtml(fit.band)} fit-badge" title="Application fit: ${escapeHtml(formatLabel(fit.band))}">${formatScore(fit.fit_score)}</span>`;
@@ -863,7 +880,7 @@ function drawerMarkup(item) {
         <label class="tracking-field"><span>Notes</span><textarea name="notes" id="trackingNotes" maxlength="5000" rows="4" placeholder="Contacts, preparation, next action">${escapeHtml(tracking.notes || "")}</textarea></label>
         <div class="tracking-actions"><button class="save-button" type="submit">Save tracking</button><span class="save-feedback" role="status" aria-live="polite"></span></div></form></section>
     <div class="detail-facts">${fact("Workplace", formatLabel(item.workplace_type))}${fact("Seniority", formatLabel(item.seniority || "unknown"))}${fact("Compensation", formatSalary(item))}${fact("Lifecycle", formatLabel(item.lifecycle_status))}${fact("Last seen", formatDate(item.last_seen_at))}${fact("Source", formatLabel(item.source))}</div>
-    <section class="detail-section"><div class="section-heading"><h3>Resume relevance</h3><span class="match-band">${escapeHtml(item.match_band)} match</span></div><div class="score-overview"><div class="score-number">${formatScore(item.resume_relevance_score)}</div><div class="score-copy"><strong>${item.rank === 1 ? "Highest-ranked opportunity" : `Opportunity rank ${item.rank}`}</strong><span>${item.score_cap_reason ? `Score capped: ${formatLabel(item.score_cap_reason)}` : "No eligibility cap applied"}</span></div></div><div class="component-list">${components}</div></section>
+    <section class="detail-section"><div class="section-heading"><h3>Resume relevance</h3><span class="match-band">${escapeHtml(item.match_band)} match</span></div><div class="score-overview"><div class="score-number">${formatScore(item.resume_relevance_score)}</div><div class="score-copy"><strong>${item.rank === 1 ? "Highest-ranked opportunity" : `Opportunity rank ${item.rank}`}</strong><span>${item.score_cap_reason ? `Score capped: ${formatLabel(item.score_cap_reason)}` : "No eligibility cap applied"}</span>${item.priority ? `<span>Priority ${formatScore(item.priority.score)}: ${escapeHtml(priorityExplanation(item.priority))}</span>` : ""}</div></div><div class="component-list">${components}</div></section>
     <section class="detail-section"><div class="section-heading"><h3>Matched skills</h3><span class="match-band">${(item.matched_skills || []).length} matched</span></div><div class="chip-list">${skillChips}</div></section>
     <section class="detail-section"><div class="section-heading"><h3>Match explanation</h3></div><ul class="explanation-list"><li><strong>Title</strong><span>${escapeHtml(titleExplanation + tierNote + employmentNote)}</span></li><li><strong>Experience</strong><span>${escapeHtml(formatLabel(item.seniority || "unknown"))} seniority / ${formatScore(item.score_components.experience.signal * 100)}% signal</span></li><li><strong>Location</strong><span>${escapeHtml(locationExplanation)}</span></li><li><strong>Freshness</strong><span>${item.days_since_last_seen === 0 ? "Seen in the latest observation" : `Last seen ${item.days_since_last_seen} days ago`}</span></li></ul></section>`;
 }

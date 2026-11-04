@@ -119,6 +119,7 @@ def run_relevance_model(
         minimum_each=config.labels.tracking.simulator_minimum_each,
         sampler=sampler,
         postings=mart_postings(mart),
+        configured_fit_weight=config.ranking.priority.fit_weight,
     )
     created = now or datetime.now(UTC)
     run_id = f"{created:%Y%m%d-%H%M%S}"

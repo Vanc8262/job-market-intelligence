@@ -859,6 +859,26 @@ class LabelsConfig(BaseModel):
     recent_events: int = Field(default=200, ge=10, le=5000)
 
 
+class PriorityConfig(BaseModel):
+    """How the dashboard's Priority sort blends relevance with 6.3 application fit."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Share of the fit score in the blend: priority = (1 - w) * relevance + w * fit.
+    fit_weight: float = Field(default=0.3, ge=0, le=1)
+    # Keep a capped relevance score (avoided title, non-home onsite) capped in the blend.
+    respect_score_caps: bool = True
+
+
+class RankingConfig(BaseModel):
+    """Validated contents of ranking.yaml (dashboard ranking views, read time only)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: str = Field(default="1.0.0", min_length=1)
+    priority: PriorityConfig = Field(default_factory=PriorityConfig)
+
+
 class BayesianConfig(BaseModel):
     """Validated contents of bayesian.yaml (Phase 8)."""
 
@@ -1119,6 +1139,7 @@ class Config:
         self._bayesian: BayesianConfig | None = None
         self._comparison: ComparisonConfig | None = None
         self._labels: LabelsConfig | None = None
+        self._ranking: RankingConfig | None = None
         self._lifecycle: LifecycleConfig | None = None
         self._companies: GenericYamlConfig | None = None
         self._salary: GenericYamlConfig | None = None
@@ -1213,6 +1234,15 @@ class Config:
             data = self._read_yaml("labels.yaml") if path.exists() else {}
             self._labels = self._validate(LabelsConfig, data, "labels.yaml")
         return self._labels
+
+    @property
+    def ranking(self) -> RankingConfig:
+        """Return dashboard ranking settings (defaults when the file is absent)."""
+        if self._ranking is None:
+            path = self._config_dir / "ranking.yaml"
+            data = self._read_yaml("ranking.yaml") if path.exists() else {}
+            self._ranking = self._validate(RankingConfig, data, "ranking.yaml")
+        return self._ranking
 
     @property
     def bayesian(self) -> BayesianConfig:
@@ -1312,6 +1342,7 @@ class Config:
         self._bayesian = None
         self._comparison = None
         self._labels = None
+        self._ranking = None
         self._lifecycle = None
         self._companies = None
         self._salary = None
