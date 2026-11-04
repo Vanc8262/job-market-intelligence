@@ -615,10 +615,17 @@ function relevanceModelPanel(payload) {
     <h3>Model comparison (PSIS-LOO)</h3>${marketTable(["Model", "Rows", "Gate", "ELPD ± SE", "LOO Brier", "Max Pareto k", "R-hat / min ESS"], models)}
     ${comparisons ? marketTable(["Comparison", "ELPD difference", "Reading"], comparisons) : ""}
     <p class="job-meta wrap">Higher ELPD predicts held-out decisions better; a difference within about 2 standard errors is noise at this size. Brier scores use leave-one-out probabilities (lower is better).</p>
+    ${priorityWeightNote(report.priority_fit_weight, level)}
     ${reliability ? `<h3>Calibration of learned weights (leave-one-out)</h3>${marketTable(["Predicted range", "Decisions", "Mean predicted", `Observed keep rate (${level}% interval)`], reliability)}` : ""}
     ${ppc ? `<p class="job-meta wrap">Posterior predictive check: ${number(ppc.observed_positives)} kept observed; the model replicates ${formatScore(ppc.replicated_positives.low)}–${formatScore(ppc.replicated_positives.high)} (p = ${ppc.p_value}).</p>` : ""}
     ${sensitivity ? `<h3>Sensitivity of learned weights</h3>${marketTable(["Variant", "Rows", ...SIGNAL_KEYS.map(formatLabel)], sensitivity)}` : ""}
     ${biases ? `<h3>Known biases</h3><ul class="job-meta wrap">${biases}</ul>` : ""}
     <p class="job-meta wrap">Model card: ${escapeHtml(report.model_card?.name || "")} ${escapeHtml(report.model_card?.version || "")} (stage ${escapeHtml(report.model_card?.stage || "")}, settings ${escapeHtml(report.model_card?.settings_hash || "")}), advisory. Refit with scripts/fit_relevance_weights.py.</p>
   </section>`;
+}
+
+function priorityWeightNote(blend, level) {
+  if (!blend) return "";
+  const verdict = blend.verdict ? ` Verdict for the configured ${formatPercent(blend.configured)}: ${escapeHtml(formatLabel(blend.verdict))}.` : "";
+  return `<h3>Priority sort: fit weight your decisions support</h3><p class="job-meta wrap">${formatPercent(blend.mean)} (${level}% interval ${formatPercent(blend.low)}–${formatPercent(blend.high)}); P(fit helps) ${formatPercent(blend.probability_fit_helps)}.${verdict} It's computed as gamma / (tau + gamma) from the weights + 6.3 fit model. Changing it stays your edit to config/ranking.yaml.</p>`;
 }

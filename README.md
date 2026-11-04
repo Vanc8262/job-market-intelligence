@@ -208,6 +208,7 @@ any working directory.
 | `config/lifecycle.yaml` | Missing-run and removal behavior |
 | `config/data_quality.yaml` | Blocking and advisory quality thresholds |
 | `config/labels.yaml` | Labels tab: orphaned-label alert, review-queue size per group, Scorecard settings, which tracking statuses are B3 training labels |
+| `config/ranking.yaml` | Priority sort: the share of 6.3 application fit blended with relevance (applied in the dashboard, never in Gold) |
 | `config/settings.yaml` | Paths, retries, and processing limits |
 | `config/logging.yaml` | Console and rotating file sinks |
 
@@ -387,6 +388,13 @@ expired, and duplicate jobs in research summaries with
   an orphaned-label alert on the nav button (see [Labels tab](#labels-tab)).
 - **Application fit:** a Fit column (sortable as "Application fit") and an Application
   comparison section in the detail drawer.
+- **Priority:** a Priority column and sort that blend relevance with application fit,
+  `(1 - fit_weight) × relevance + fit_weight × fit` (`config/ranking.yaml`, default 0.3).
+  Phase 8 B3 found that fit predicts which postings you keep beyond relevance, and it
+  reports the fit weight your decisions support under *Labels → Training data*. Priority is
+  computed when the dashboard reads the data, never written to Gold. Postings without a
+  comparison use relevance alone (shown in italics), and a capped relevance score keeps its
+  cap. Hover a Priority badge, or open the drawer, to see both parts.
 
 The server binds to `127.0.0.1` by default. It rejects requests whose `Host` is not a
 local name (preventing DNS-rebinding reads), rejects writes from other origins, and

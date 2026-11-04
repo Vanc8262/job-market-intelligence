@@ -65,6 +65,7 @@ def summary(report: dict[str, object], paths: dict[str, object]) -> dict[str, ob
             if isinstance(weights, dict)
             else None
         ),
+        "priority_fit_weight": report.get("priority_fit_weight"),
         "outputs": paths,
     }
 
