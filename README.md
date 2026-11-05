@@ -14,6 +14,9 @@ Phenom-backed career sites**.
 
 ## System Flow
 
+For the full module and data-flow picture, see the
+[architecture diagram in Lucidchart](https://lucid.app/lucidchart/cbbc8919-a380-4d43-b68f-759b40ae9853/view).
+
 ```text
 Configured targets + candidate queries
                   |
@@ -722,7 +725,9 @@ commands return nonzero when a required stage fails.
 - `tests/`: unit and integration tests.
 - `utils/`: configuration, logging, checkpoints, retries, and hashing.
 
-Architecture diagram: [Lucidchart](https://lucid.app/lucidchart/5f040c79-bd32-4af7-a116-f103ffa52082/edit?viewport_loc=-1029%2C-659%2C1849%2C1092%2CvUCeZlokt0CU)
+Architecture diagram: [JMIP architecture in Lucidchart](https://lucid.app/lucidchart/cbbc8919-a380-4d43-b68f-759b40ae9853/view)
+(modules and data flow from ATS feeds through Bronze/Silver/Gold, the private resume and
+6.3 comparison path, Priority, the dashboard, and the Phase 7–8 label and Bayesian models).
 
 ## Troubleshooting
 
