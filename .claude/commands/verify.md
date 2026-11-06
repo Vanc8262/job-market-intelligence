@@ -6,5 +6,3 @@ description: Format, then run the full JMIP verification gate and fix anything t
 3. If any check fails (ruff, mypy, pytest, node --check), fix the cause (not the test,
    unless the test is wrong), and rerun until it prints `All checks passed.`
 4. Report what failed and what you changed.
-
-<!-- Throwaway trigger test for the SkillSpector workflow. Do not merge. -->
