@@ -1,0 +1,52 @@
+name: skillspector
+
+on:
+  pull_request:
+    paths:
+      - ".claude/commands/**"
+      - ".claude/skills/**"
+      - "skills/**"
+      - "**/SKILL.md"
+      - ".github/workflows/skillspector.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: Install SkillSpector
+        run: uv tool install --python 3.12 "skillspector[mcp] @ git+https://github.com/NVIDIA/SkillSpector.git@v2.13.4"
+      # Keeps going after a failure so every location gets a report, then fails the check.
+      - name: Scan skill locations
+        run: |
+          reports="$RUNNER_TEMP/skillspector"
+          mkdir -p "$reports"
+          status=0
+          while read -r location; do
+            echo "Scanning $location"
+            code=0
+            skillspector scan "$location" --recursive --no-llm --format sarif \
+              --output "$reports/skillspector-${location//\//_}.sarif" || code=$?
+            if [ "$code" -ne 0 ]; then
+              echo "::error::SkillSpector exited with $code for $location"
+              status=1
+            fi
+          done < <(
+            for dir in .claude/commands .claude/skills skills; do
+              if [ -d "$dir" ]; then echo "$dir"; fi
+            done
+            git ls-files ':(glob)**/SKILL.md' ':(exclude,glob).claude/commands/**' \
+              ':(exclude,glob).claude/skills/**' ':(exclude,glob)skills/**' \
+              | xargs -r -d '\n' -n1 dirname | sort -u
+          )
+          exit "$status"
+      - name: Upload SARIF reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: skillspector-sarif
+          path: ${{ runner.temp }}/skillspector/*.sarif
