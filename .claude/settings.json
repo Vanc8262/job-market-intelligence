@@ -16,5 +16,20 @@
       "Bash(git push --force:*)",
       "Bash(git push -f:*)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(Edit|Write|mcp__plugin_desktop-commander_desktop-commander__(write_file|edit_block))$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe",
+            "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-protected.ps1"],
+            "onFailure": "block"
+          }
+        ]
+      }
+    ]
   }
 }
