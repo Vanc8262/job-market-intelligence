@@ -26,6 +26,7 @@ class CandidateQueryOutcome:
     references_found: int
     new_references: int
     error: str | None = None
+    skipped: bool = False
 
     @property
     def succeeded(self) -> bool:
@@ -39,6 +40,7 @@ class CandidateQueryOutcome:
             "query": self.query,
             "location": self.location,
             "succeeded": self.succeeded,
+            "skipped": self.skipped,
             "references_found": self.references_found,
             "new_references": self.new_references,
             "error": self.error,
@@ -120,13 +122,22 @@ class CandidateCollectionResult:
 
     @property
     def search_attempts(self) -> int:
-        """Return query-target searches attempted."""
-        return sum(len(outcome.queries) for outcome in self.outcomes)
+        """Return query-target searches attempted (skipped searches were never sent)."""
+        return sum(not query.skipped for outcome in self.outcomes for query in outcome.queries)
 
     @property
     def search_failures(self) -> int:
-        """Return query-target searches that failed."""
-        return sum(not query.succeeded for outcome in self.outcomes for query in outcome.queries)
+        """Return attempted query-target searches that failed."""
+        return sum(
+            not query.succeeded and not query.skipped
+            for outcome in self.outcomes
+            for query in outcome.queries
+        )
+
+    @property
+    def searches_skipped(self) -> int:
+        """Return searches not sent because their target was still rate limiting (429)."""
+        return sum(query.skipped for outcome in self.outcomes for query in outcome.queries)
 
     @property
     def references_discovered(self) -> int:
@@ -192,6 +203,7 @@ class CandidateCollectionResult:
             "targets_failed": self.targets_failed,
             "search_attempts": self.search_attempts,
             "search_failures": self.search_failures,
+            "searches_skipped": self.searches_skipped,
             "references_discovered": self.references_discovered,
             "references_selected": self.references_selected,
             "postings_extracted": self.postings_extracted,
@@ -303,9 +315,28 @@ class CandidateCollectionRunner:
                 if not query.targets
                 or target_name.casefold() in {name.casefold() for name in query.targets}
             ]
+            rate_limit = self.config.settings.scraping.rate_limited_search_limit
+            rate_limited_streak = 0
+            rate_limited: str | None = None
             for query in applicable:
+                if rate_limited_streak >= rate_limit:
+                    query_reference_sets.append([])
+                    query_outcomes.append(
+                        CandidateQueryOutcome(
+                            query.name,
+                            query.query,
+                            query.location,
+                            0,
+                            0,
+                            f"Skipped: target rate limited {rate_limited_streak} searches in a "
+                            f"row ({rate_limited})",
+                            skipped=True,
+                        )
+                    )
+                    continue
                 try:
                     found = extractor.search_jobs(query.query, query.location)
+                    rate_limited_streak = 0
                     new = [reference for reference in found if reference not in seen]
                     references.extend(new)
                     seen.update(new)
@@ -320,6 +351,14 @@ class CandidateCollectionRunner:
                         )
                     )
                 except Exception as exc:
+                    if _is_rate_limited(exc):
+                        # Each failure already waited out the retry backoff; past the limit,
+                        # more searches only collect 429s and stretch the run toward its
+                        # timeout.
+                        rate_limited_streak += 1
+                        rate_limited = str(exc).splitlines()[0]
+                    else:
+                        rate_limited_streak = 0
                     query_reference_sets.append([])
                     query_outcomes.append(
                         CandidateQueryOutcome(
@@ -429,3 +468,8 @@ __all__ = [
     "CandidateQueryOutcome",
     "CandidateTargetOutcome",
 ]
+
+
+def _is_rate_limited(error: Exception) -> bool:
+    """Return whether a search failed with HTTP 429 after the shared retries."""
+    return isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 429
