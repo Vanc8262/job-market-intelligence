@@ -97,6 +97,9 @@ class ScrapingConfig(BaseModel):
     checkpoint_interval: int = Field(default=100, ge=1)
     request_timeout_seconds: int = Field(default=30, ge=1)
     user_agent: str = "JMIPBot/0.1"
+    # After this many consecutive searches against one target end in HTTP 429 (each after
+    # the full retry backoff), skip that target's remaining searches for the run.
+    rate_limited_search_limit: int = Field(default=4, ge=1)
 
 
 class ProcessingConfig(BaseModel):

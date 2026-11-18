@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+import pytest
 
 from extractors import ExtractorRegistry
 from models.job_posting import (
@@ -276,3 +278,95 @@ def test_bayesian_gate_reports_and_can_decide(tmp_path: Path) -> None:
 
     assert enforced.decision_basis == "bayesian"
     assert enforced.passed is True
+
+
+def rate_limit_runner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    handler: Callable[[httpx.Request], httpx.Response],
+) -> tuple[CandidateCollectionRunner, GoldStorage, httpx.Client]:
+    """Build a one-target runner with no retry sleeps and a two-search 429 limit."""
+    targets = ExtractorTargetsConfig.model_validate(
+        {"targets": [{"name": "acme-lever", "source": "lever", "site": "acme"}]}
+    )
+    registry = ExtractorRegistry(
+        targets=targets,
+        bronze_storage=BronzeStorage(tmp_path / "bronze"),
+        checkpoint_manager=CheckpointManager(tmp_path / "checkpoints"),
+    )
+    # Config is a shared singleton; monkeypatch restores these after the test.
+    scraping = registry.config.settings.scraping
+    monkeypatch.setattr(scraping, "max_retries", 0)
+    monkeypatch.setattr(scraping, "rate_limited_search_limit", 2)
+    gold = GoldStorage(tmp_path / "gold")
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    return CandidateCollectionRunner(registry, gold_storage=gold), gold, client
+
+
+RATE_LIMIT_QUERIES = [
+    "data-science",
+    "machine-learning",
+    "data-engineering",
+    "software-engineering",
+]
+
+
+def test_candidate_collection_skips_a_target_that_keeps_rate_limiting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After the configured run of 429s, a target's remaining searches are not sent."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(429, json={"error": "Too Many Requests"})
+
+    runner, gold, client = rate_limit_runner(tmp_path, monkeypatch, handler)
+    result = runner.run(
+        query_names=RATE_LIMIT_QUERIES,
+        target_names=["acme-lever"],
+        per_target_limit=2,
+        client=client,
+        run_id="rate-limit-test",
+    )
+
+    assert len(calls) == 2
+    assert result.targets_failed == 1
+    assert result.search_attempts == 2
+    assert result.search_failures == 2
+    assert result.searches_skipped == 2
+    assert result.extraction_failure_rate == 1.0
+    latest = gold.load("collection/latest")
+    assert latest["searches_skipped"] == 2
+    queries = latest["targets"][0]["queries"]
+    assert [query["skipped"] for query in queries] == [False, False, True, True]
+    assert "rate limited 2 searches in a row" in queries[2]["error"]
+
+
+def test_candidate_collection_keeps_searching_when_a_target_recovers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A successful search resets the 429 streak, so a recovering target is not skipped."""
+    responses = iter([429, 200, 429, 200])
+    job = lever_job("software-1", "Software Engineer I")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/acme"):
+            status = next(responses)
+            return httpx.Response(status, json=[job] if status == 200 else {"error": "429"})
+        return httpx.Response(200, json=job)
+
+    runner, _, client = rate_limit_runner(tmp_path, monkeypatch, handler)
+    result = runner.run(
+        query_names=RATE_LIMIT_QUERIES,
+        target_names=["acme-lever"],
+        per_target_limit=2,
+        client=client,
+        run_id="rate-limit-recovery-test",
+    )
+
+    assert result.targets_failed == 0
+    assert result.search_attempts == 4
+    assert result.search_failures == 2
+    assert result.searches_skipped == 0
+    assert result.postings_extracted == 1
