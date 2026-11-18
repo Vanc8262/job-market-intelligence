@@ -30,7 +30,8 @@ jobs:
     # Never run in forks; they have neither the data repository nor its key.
     if: github.repository == 'Vanc8262/job-market-intelligence'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Workday 429 backoff has stretched runs to ~80 minutes since Nov 16; leave headroom.
+    timeout-minutes: 120
     env:
       JMIP_PIPELINE_DATA_DIR: ${{ github.workspace }}/jmip-data
     steps:
