@@ -298,6 +298,7 @@ def rate_limit_runner(
     scraping = registry.config.settings.scraping
     monkeypatch.setattr(scraping, "max_retries", 0)
     monkeypatch.setattr(scraping, "rate_limited_search_limit", 2)
+    monkeypatch.setattr(scraping, "rate_limited_fetch_limit", 2)
     gold = GoldStorage(tmp_path / "gold")
     client = httpx.Client(transport=httpx.MockTransport(handler))
     return CandidateCollectionRunner(registry, gold_storage=gold), gold, client
@@ -370,3 +371,104 @@ def test_candidate_collection_keeps_searching_when_a_target_recovers(
     assert result.search_failures == 2
     assert result.searches_skipped == 0
     assert result.postings_extracted == 1
+
+
+def detail_rate_limit_handler(
+    detail_statuses: list[int],
+) -> tuple[Callable[[httpx.Request], httpx.Response], list[str]]:
+    """Answer three searches with two matching jobs each, and detail fetches with given statuses.
+
+    Lever clears its search cache on every search, so jobs from the first two searches are
+    fetched over the network; the last search returns nothing so no job stays cached.
+    """
+    titles = ["Data Scientist", "Machine Learning Engineer", "Data Engineer"]
+    searches = iter(
+        [
+            [lever_job(f"job-{index}", f"{title} {index}") for index in (2 * n + 1, 2 * n + 2)]
+            for n, title in enumerate(titles)
+        ]
+        + [[]]
+    )
+    statuses = iter(detail_statuses)
+    detail_calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/acme"):
+            return httpx.Response(200, json=next(searches))
+        detail_calls.append(request.url.path.rsplit("/", 1)[-1])
+        status = next(statuses)
+        job_id = request.url.path.rsplit("/", 1)[-1]
+        if status != 200:
+            return httpx.Response(status, json={"error": "Too Many Requests"})
+        return httpx.Response(200, json=lever_job(job_id, "Software Engineer"))
+
+    return handler, detail_calls
+
+
+def test_candidate_collection_skips_fetches_from_a_target_that_keeps_rate_limiting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After the configured run of 429 fetches, a target's remaining references are not sent."""
+    handler, detail_calls = detail_rate_limit_handler([200, 429, 429])
+    runner, gold, client = rate_limit_runner(tmp_path, monkeypatch, handler)
+    result = runner.run(
+        query_names=RATE_LIMIT_QUERIES,
+        target_names=["acme-lever"],
+        per_target_limit=6,
+        client=client,
+        run_id="fetch-rate-limit-test",
+    )
+
+    assert len(detail_calls) == 3
+    assert result.references_selected == 6
+    assert result.postings_extracted == 1
+    assert result.posting_failures == 2
+    assert result.postings_skipped == 3
+    assert result.targets_failed == 0
+    # 2 failed of 1 target + 4 searches + 3 fetches sent; skipped fetches were never sent.
+    assert result.extraction_failure_rate == round(2 / 8, 4)
+    latest = gold.load("collection/latest")
+    assert latest["postings_skipped"] == 3
+    assert latest["targets"][0]["postings_skipped"] == 3
+    # Skipped references stay discovered, so the lifecycle does not close their postings.
+    assert len(latest["targets"][0]["discovered_references"]) == 6
+
+
+def test_candidate_collection_keeps_fetching_when_a_target_recovers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A successful fetch or a non-429 failure resets the streak."""
+    handler, detail_calls = detail_rate_limit_handler([429, 200, 429, 500, 429, 200])
+    runner, _, client = rate_limit_runner(tmp_path, monkeypatch, handler)
+    result = runner.run(
+        query_names=RATE_LIMIT_QUERIES,
+        target_names=["acme-lever"],
+        per_target_limit=6,
+        client=client,
+        run_id="fetch-rate-limit-recovery-test",
+    )
+
+    assert len(detail_calls) == 6
+    assert result.postings_extracted == 2
+    assert result.posting_failures == 4
+    assert result.postings_skipped == 0
+
+
+def test_quality_gateway_leaves_skipped_fetches_out_of_the_failure_rate(
+    tmp_path: Path,
+) -> None:
+    gateway, silver, _ = build_quality_gateway(tmp_path)
+    silver.save("fixture/one", quality_posting("one"))
+    silver.save("fixture/two", quality_posting("two"))
+    summary = collection_summary()
+    summary.update(references_selected=6, postings_skipped=4)
+
+    result = gateway.run(
+        collection_summary=summary,
+        run_id="quality-skip-test",
+        generated_at=datetime(2026, 11, 20, tzinfo=UTC),
+    )
+
+    metric = {metric.name: metric for metric in result.metrics}["extraction_failure_rate"]
+    assert metric.numerator == 0
+    assert metric.denominator == 1 + 2 + 6 - 4

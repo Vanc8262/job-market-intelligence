@@ -29,6 +29,9 @@ scraping:
   # Skip a target's remaining searches after this many consecutive HTTP 429 failures.
   # Tenants have recovered after up to 3 throttled searches (Nov 16-17, 2026 runs).
   rate_limited_search_limit: 4
+  # Same for posting fetches. On Nov 20, 2026 Chemours answered 429 to 23 of 24 fetches in a
+  # row and FTI to its last 12; each cost about a minute of retry backoff.
+  rate_limited_fetch_limit: 4
 processing:
   batch_size: 1000
   strict_validation: true

@@ -343,6 +343,7 @@ class DataQualityGateway:
             self._optional_integer(operational.get("targets_attempted"))
             + self._optional_integer(operational.get("search_attempts"))
             + self._optional_integer(operational.get("references_selected"))
+            - self._optional_integer(operational.get("postings_skipped"))
         )
         return self._maximum_metric(
             "extraction_failure_rate",

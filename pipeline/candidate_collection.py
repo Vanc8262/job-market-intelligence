@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import httpx
 
-from extractors.base_extractor import ExtractionResult, SearchRequest
+from extractors.base_extractor import ExtractionResult, SearchRequest, is_rate_limited
 from extractors.registry import ExtractorRegistry
 from storage import GoldStorage
 from utils.config import CandidateQueryConfig, Config
@@ -91,6 +91,7 @@ class CandidateTargetOutcome:
             "observations": observations,
             "postings_extracted": self.result.succeeded if self.result else 0,
             "posting_failures": self.result.failed if self.result else 0,
+            "postings_skipped": self.result.skipped if self.result else 0,
             "raw_records_saved": self.result.raw_records_saved if self.result else 0,
             "queries": [query.summary() for query in self.queries],
             "error": self.error,
@@ -162,6 +163,13 @@ class CandidateCollectionResult:
         return sum(outcome.result.failed for outcome in self.outcomes if outcome.result is not None)
 
     @property
+    def postings_skipped(self) -> int:
+        """Return selected references not fetched because their target kept answering 429."""
+        return sum(
+            outcome.result.skipped for outcome in self.outcomes if outcome.result is not None
+        )
+
+    @property
     def raw_records_saved(self) -> int:
         """Return new immutable Bronze versions written."""
         return sum(
@@ -184,9 +192,18 @@ class CandidateCollectionResult:
 
     @property
     def extraction_failure_rate(self) -> float:
-        """Return failed target, search, and detail operations as a share."""
+        """Return failed target, search, and detail operations as a share.
+
+        Skipped searches and skipped detail fetches were never sent, so they count as neither
+        attempts nor failures.
+        """
         failed = self.targets_failed + self.search_failures + self.posting_failures
-        attempted = self.targets_attempted + self.search_attempts + self.references_selected
+        attempted = (
+            self.targets_attempted
+            + self.search_attempts
+            + self.references_selected
+            - self.postings_skipped
+        )
         return round(failed / attempted, 4) if attempted else 0.0
 
     def summary(self) -> dict[str, object]:
@@ -209,6 +226,7 @@ class CandidateCollectionResult:
             "postings_extracted": self.postings_extracted,
             "unique_postings": self.unique_postings,
             "posting_failures": self.posting_failures,
+            "postings_skipped": self.postings_skipped,
             "raw_records_saved": self.raw_records_saved,
             "extraction_failure_rate": self.extraction_failure_rate,
             "targets": [outcome.summary() for outcome in self.outcomes],
@@ -351,7 +369,7 @@ class CandidateCollectionRunner:
                         )
                     )
                 except Exception as exc:
-                    if _is_rate_limited(exc):
+                    if is_rate_limited(exc):
                         # Each failure already waited out the retry backoff; past the limit,
                         # more searches only collect 429s and stretch the run toward its
                         # timeout.
@@ -468,8 +486,3 @@ __all__ = [
     "CandidateQueryOutcome",
     "CandidateTargetOutcome",
 ]
-
-
-def _is_rate_limited(error: Exception) -> bool:
-    """Return whether a search failed with HTTP 429 after the shared retries."""
-    return isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 429

@@ -100,6 +100,9 @@ class ScrapingConfig(BaseModel):
     # After this many consecutive searches against one target end in HTTP 429 (each after
     # the full retry backoff), skip that target's remaining searches for the run.
     rate_limited_search_limit: int = Field(default=4, ge=1)
+    # After this many consecutive posting fetches from one target end in HTTP 429, skip that
+    # target's remaining fetches for the run.
+    rate_limited_fetch_limit: int = Field(default=4, ge=1)
 
 
 class ProcessingConfig(BaseModel):
