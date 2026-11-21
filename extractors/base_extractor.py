@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from models.job_posting import JobPosting
 from storage.base import BaseStorage
 from utils.checkpoint import Checkpoint, CheckpointManager
@@ -35,6 +37,8 @@ class ExtractionResult:
     raw_records_saved: int = 0
     successful_references: list[str] = field(default_factory=list)
     failed_references: dict[str, str] = field(default_factory=dict)
+    # References not fetched because the source kept answering HTTP 429; reason by reference.
+    skipped_references: dict[str, str] = field(default_factory=dict)
 
     @property
     def succeeded(self) -> int:
@@ -45,6 +49,11 @@ class ExtractionResult:
     def failed(self) -> int:
         """Return the number of references that failed during extraction."""
         return len(self.failed_references)
+
+    @property
+    def skipped(self) -> int:
+        """Return the number of references not fetched because the source kept rate limiting."""
+        return len(self.skipped_references)
 
 
 class BaseExtractor(ABC):
@@ -119,8 +128,12 @@ class BaseExtractor(ABC):
         postings: list[JobPosting] = []
         successful_references: list[str] = []
         failed_references: dict[str, str] = {}
+        skipped_references: dict[str, str] = {}
         raw_records_saved = 0
         checkpoint_interval = self.config.settings.scraping.checkpoint_interval
+        rate_limit = self.config.settings.scraping.rate_limited_fetch_limit
+        rate_limited_streak = 0
+        rate_limited: str | None = None
 
         logger.info(
             "Starting extraction for {source}: {count} references",
@@ -129,8 +142,17 @@ class BaseExtractor(ABC):
         )
 
         for position, reference in enumerate(references, start=1):
+            if rate_limited_streak >= rate_limit:
+                # Each 429 already waited out the retry backoff (about a minute); past the
+                # limit, more fetches only collect 429s and stretch the run toward its timeout.
+                skipped_references[reference] = (
+                    f"Skipped: source rate limited {rate_limited_streak} fetches in a row "
+                    f"({rate_limited})"
+                )
+                continue
             try:
                 raw_job = self.fetch_job(reference)
+                rate_limited_streak = 0
                 if preserve_raw:
                     if self.save_raw(raw_job) is not None:
                         raw_records_saved += 1
@@ -139,6 +161,11 @@ class BaseExtractor(ABC):
                 successful_references.append(reference)
             except Exception as exc:
                 failed_references[reference] = str(exc)
+                if is_rate_limited(exc):
+                    rate_limited_streak += 1
+                    rate_limited = str(exc).splitlines()[0]
+                else:
+                    rate_limited_streak = 0
                 logger.error(
                     "Extractor {source} failed for reference {reference}: {error}",
                     source=self.source_name,
@@ -160,8 +187,17 @@ class BaseExtractor(ABC):
                 "references_found": len(references),
                 "succeeded": len(postings),
                 "failed": len(failed_references),
+                "skipped": len(skipped_references),
             },
         )
+
+        if skipped_references:
+            logger.warning(
+                "Skipped {count} {source} references after {streak} rate-limited fetches in a row",
+                count=len(skipped_references),
+                source=self.source_name,
+                streak=rate_limit,
+            )
 
         return ExtractionResult(
             source_name=self.source_name,
@@ -171,6 +207,7 @@ class BaseExtractor(ABC):
             raw_records_saved=raw_records_saved,
             successful_references=successful_references,
             failed_references=failed_references,
+            skipped_references=skipped_references,
         )
 
     def load_checkpoint(self) -> Checkpoint | None:
@@ -221,3 +258,8 @@ class BaseExtractor(ABC):
             if value:
                 return str(value)
         return None
+
+
+def is_rate_limited(error: Exception) -> bool:
+    """Return whether a request failed with HTTP 429 after the shared retries."""
+    return isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 429

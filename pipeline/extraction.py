@@ -36,6 +36,7 @@ class TargetExtractionOutcome:
             "references_found": self.result.references_found if self.result else 0,
             "postings_extracted": self.result.succeeded if self.result else 0,
             "posting_failures": self.result.failed if self.result else 0,
+            "postings_skipped": self.result.skipped if self.result else 0,
             "raw_records_saved": self.result.raw_records_saved if self.result else 0,
             "error": self.error,
         }
