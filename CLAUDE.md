@@ -159,8 +159,6 @@ There is no `scripts/run_dashboard.py`; the dashboard is `-m dashboard.app`.
   Priority fit weight the data support, gamma / (tau + gamma) from `weights_plus_fit`. Only `pymc_sampler`
   needs PyMC; tests inject stand-in samplers and run the real one when the `bayes` extra is
   installed (CI installs it).
-  It also reports the Priority fit weight your decisions support, gamma / (tau + gamma)
-  from `weights_plus_fit` (compared with `config/ranking.yaml`).
 - When the owner reports a wrong ✓/◐/✗, fix it in the vocabulary/config first, add a
   regression test in `tests/test_comparison.py` with the synthetic resume, and sanity
   check on real postings (counts by kind/status) before committing.
